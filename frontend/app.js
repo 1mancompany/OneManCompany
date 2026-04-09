@@ -105,6 +105,10 @@ class AppController {
       if (version) {
         document.getElementById('app-version').textContent = `v${version}`;
       }
+      // Store onboarding timestamp for announcements filtering
+      if (data.onboarding_timestamp) {
+        localStorage.setItem('onboarding-timestamp', data.onboarding_timestamp);
+      }
       // Update counters
       document.getElementById('employee-count').textContent = `👥 ${employees.length}`;
       document.getElementById('tool-count').textContent = `🔧 ${tools.length}`;
@@ -1113,6 +1117,28 @@ class AppController {
           settingsPanel.classList.add('hidden');
         }
       });
+    }
+
+    // Announcements bell
+    const bellBtn = document.getElementById('announcements-toolbar-btn');
+    const bellPanel = document.getElementById('announcements-panel');
+    if (bellBtn && bellPanel) {
+      bellBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        bellPanel.classList.toggle('hidden');
+        if (!bellPanel.classList.contains('hidden')) {
+          this._loadAnnouncements();
+          // Mark as read
+          document.getElementById('announcements-badge')?.classList.add('hidden');
+        }
+      });
+      document.addEventListener('click', (e) => {
+        if (!bellPanel.contains(e.target) && e.target !== bellBtn) {
+          bellPanel.classList.add('hidden');
+        }
+      });
+      // Auto-check on startup
+      setTimeout(() => this._checkAnnouncementsBadge(), 15000);
     }
 
     // Settings sub-section toggle
@@ -5284,6 +5310,74 @@ class AppController {
   }
 
   // ===== Global API Settings =====
+  // ===== Announcements =====
+
+  async _loadAnnouncements() {
+    const list = document.getElementById('announcements-list');
+    if (!list) return;
+    const since = localStorage.getItem('onboarding-timestamp') || '';
+    const dismissed = JSON.parse(localStorage.getItem('dismissed-announcements') || '[]');
+    try {
+      const resp = await fetch(`/api/announcements?since=${encodeURIComponent(since)}`);
+      const data = await resp.json();
+      const items = (data.announcements || []).filter(a => !dismissed.includes(a.id));
+      if (!items.length) {
+        list.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;padding:20px 0;">No new announcements</div>';
+        return;
+      }
+      list.innerHTML = items.map(a => `
+        <div class="announcement-item" data-id="${a.id}">
+          <button class="announcement-dismiss" title="Dismiss" onclick="window.app._dismissAnnouncement(${a.id})">&times;</button>
+          <div class="announcement-title"><a href="${this._escAttr(a.url)}" target="_blank" rel="noopener">${this._escHtml(a.title)}</a></div>
+          <div class="announcement-body">${this._renderMarkdownBasic(a.body)}</div>
+          <div class="announcement-meta">${new Date(a.created_at).toLocaleDateString()} &middot; ${this._escHtml(a.author)}</div>
+        </div>
+      `).join('');
+    } catch (e) {
+      list.innerHTML = '<div style="color:#666;font-size:10px;text-align:center;padding:20px 0;">Could not load announcements</div>';
+    }
+  }
+
+  _dismissAnnouncement(id) {
+    const dismissed = JSON.parse(localStorage.getItem('dismissed-announcements') || '[]');
+    if (!dismissed.includes(id)) dismissed.push(id);
+    localStorage.setItem('dismissed-announcements', JSON.stringify(dismissed));
+    const el = document.querySelector(`.announcement-item[data-id="${id}"]`);
+    if (el) el.remove();
+    // Update badge
+    const remaining = document.querySelectorAll('.announcement-item').length;
+    if (!remaining) {
+      document.getElementById('announcements-badge')?.classList.add('hidden');
+      document.getElementById('announcements-list').innerHTML = '<div style="color:#666;font-size:10px;text-align:center;padding:20px 0;">No new announcements</div>';
+    }
+  }
+
+  async _checkAnnouncementsBadge() {
+    const since = localStorage.getItem('onboarding-timestamp') || '';
+    const dismissed = JSON.parse(localStorage.getItem('dismissed-announcements') || '[]');
+    try {
+      const resp = await fetch(`/api/announcements?since=${encodeURIComponent(since)}`);
+      const data = await resp.json();
+      const count = (data.announcements || []).filter(a => !dismissed.includes(a.id)).length;
+      const badge = document.getElementById('announcements-badge');
+      if (badge) badge.classList.toggle('hidden', count === 0);
+    } catch (e) { /* silent */ }
+  }
+
+  _renderMarkdownBasic(text) {
+    if (!text) return '';
+    // Basic markdown: links, images, bold, italic, line breaks
+    return text
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/\n/g, '<br>');
+  }
+
+  _escAttr(s) { return (s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
   async _renderApiSettings() {
     const container = document.getElementById('api-settings-content');
     container.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:6px;">Loading...</div>';
