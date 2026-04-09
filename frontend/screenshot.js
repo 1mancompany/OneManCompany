@@ -161,6 +161,54 @@ function _sanitizeClone(clone) {
   return clone;
 }
 
+/** Key visual CSS properties to inline (CSS variables won't resolve in SVG foreignObject). */
+const _INLINE_PROPS = [
+  'background-color', 'background', 'background-image', 'color',
+  'border', 'border-top', 'border-bottom', 'border-left', 'border-right',
+  'border-radius', 'border-color',
+  'font-family', 'font-size', 'font-weight', 'line-height',
+  'text-align', 'text-shadow', 'box-shadow', 'text-decoration',
+  'padding', 'padding-top', 'padding-bottom', 'padding-left', 'padding-right',
+  'margin', 'margin-top', 'margin-bottom', 'margin-left', 'margin-right',
+  'display', 'position', 'top', 'left', 'right', 'bottom',
+  'flex-direction', 'align-items', 'justify-content', 'flex-wrap',
+  'flex-grow', 'flex-shrink', 'flex-basis', 'flex', 'gap', 'order',
+  'overflow', 'overflow-x', 'overflow-y',
+  'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
+  'white-space', 'opacity', 'visibility', 'z-index',
+  'grid-area', 'grid-template', 'grid-template-columns', 'grid-template-rows',
+  'word-break', 'overflow-wrap', 'text-overflow',
+  'cursor', 'user-select', 'pointer-events',
+  'object-fit', 'vertical-align',
+  'box-sizing',
+];
+
+/** Inline computed styles on every element so CSS variables are resolved. */
+function _inlineComputedStyles(original, clone) {
+  const cs = getComputedStyle(original);
+  let style = '';
+  for (const prop of _INLINE_PROPS) {
+    const val = cs.getPropertyValue(prop);
+    if (val) {
+      style += `${prop}:${val};`;
+    }
+  }
+  // Force explicit dimensions for elements with computed size
+  const rect = original.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    style += `width:${rect.width}px;height:${rect.height}px;`;
+  }
+  style += 'box-sizing:border-box;';
+  if (style) clone.setAttribute('style', style);
+
+  // Recurse into children (skip hidden/collapsed elements)
+  const origChildren = original.children;
+  const cloneChildren = clone.children;
+  for (let i = 0; i < origChildren.length && i < cloneChildren.length; i++) {
+    _inlineComputedStyles(origChildren[i], cloneChildren[i]);
+  }
+}
+
 /** Serialize a DOM panel into a <foreignObject> positioned at its layout offset. */
 function _panelToForeignObject(el, appRect) {
   const r = el.getBoundingClientRect();
@@ -170,13 +218,51 @@ function _panelToForeignObject(el, appRect) {
   const h = Math.round(r.height);
 
   const clone = _sanitizeClone(el.cloneNode(true));
+  _inlineComputedStyles(el, clone);
+  _inlineImages(el, clone);
+  // Ensure all transparent backgrounds get the panel dark bg
+  _fillTransparentBg(clone, '#0d0d1a');
   const html = new XMLSerializer().serializeToString(clone);
 
   return `<foreignObject x="${x}" y="${y}" width="${w}" height="${h}">
-    <div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px;overflow:hidden;">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px;overflow:hidden;font-family:'Press Start 2P',monospace;background:#0d0d1a;">
       ${html}
     </div>
   </foreignObject>\n`;
+}
+
+/** Convert <img> src to inline base64 data URIs so they work outside the server. */
+function _inlineImages(original, clone) {
+  const origImgs = original.querySelectorAll('img');
+  const cloneImgs = clone.querySelectorAll('img');
+  for (let i = 0; i < origImgs.length && i < cloneImgs.length; i++) {
+    const img = origImgs[i];
+    if (!img.complete || !img.naturalWidth) continue;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      cloneImgs[i].setAttribute('src', canvas.toDataURL('image/png'));
+    } catch (_) {
+      // CORS-tainted images can't be read — keep original src
+    }
+  }
+}
+
+/** Fill transparent/rgba(0,0,0,0) backgrounds with a fallback color. */
+function _fillTransparentBg(clone, fallback) {
+  const style = clone.getAttribute('style') || '';
+  // Check if background-color is transparent or rgba(0,0,0,0)
+  if (style.includes('background-color:rgba(0, 0, 0, 0)') ||
+      style.includes('background-color:transparent') ||
+      (!style.includes('background-color') && !style.includes('background:'))) {
+    clone.setAttribute('style', style + `background-color:${fallback};`);
+  }
+  for (const child of clone.children) {
+    _fillTransparentBg(child, fallback);
+  }
 }
 
 window.exportSVG = exportSVG;
