@@ -396,7 +396,7 @@ class ProviderConfig(BaseModel):
     chat_class: str = "openai"     # "openai" | "anthropic"
     env_key: str = ""              # Settings field name for company-level API key
     health_url: str = ""           # Zero-token health check endpoint
-    health_auth: str = "bearer"    # "bearer" | "anthropic"
+    health_auth: str = "bearer"    # "bearer" | "anthropic" | "query_param"
 
 
 PROVIDER_REGISTRY: dict[str, ProviderConfig] = {
@@ -451,6 +451,7 @@ PROVIDER_REGISTRY: dict[str, ProviderConfig] = {
         base_url="https://generativelanguage.googleapis.com/v1beta/openai",
         env_key="google_api_key",
         health_url="https://generativelanguage.googleapis.com/v1beta/models",
+        health_auth="query_param",
     ),
     "minimax": ProviderConfig(
         base_url="https://api.minimax.chat/v1",
@@ -575,6 +576,33 @@ def reload_settings() -> None:
     """Re-read .env into the global settings singleton."""
     global settings
     settings = Settings()
+
+
+def sync_founding_defaults(provider: str, model: str) -> int:
+    """Sync founding employees' api_provider and llm_model to company defaults.
+
+    Returns the number of profiles updated.
+    """
+    import yaml
+
+    synced = 0
+    for fid in FOUNDING_IDS:
+        profile_path = EMPLOYEES_DIR / fid / "profile.yaml"
+        if not profile_path.exists():
+            continue
+        data = yaml.safe_load(read_text_utf(profile_path)) or {}
+        changed = False
+        if provider and data.get("api_provider") != provider:
+            data["api_provider"] = provider
+            changed = True
+        if model and data.get("llm_model") != model:
+            data["llm_model"] = model
+            changed = True
+        if changed:
+            write_text_utf(profile_path, yaml.dump(data, default_flow_style=False, allow_unicode=True))
+            synced += 1
+            logger.debug("sync_founding_defaults: updated {} → provider={}, model={}", fid, provider, model)
+    return synced
 
 
 # ---------------------------------------------------------------------------

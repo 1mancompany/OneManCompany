@@ -11,6 +11,8 @@ from langchain_core.language_models import BaseChatModel
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 
+import onemancompany.core.config as _cfg
+
 from onemancompany.core.config import (
     AGENT_DIR_NAME,
     EMPLOYEES_DIR,
@@ -41,7 +43,6 @@ from onemancompany.core.config import (
     employee_configs,
     get_provider,
     load_employee_skills,
-    settings,
     read_text_utf,
 )
 from onemancompany.core.models import AuthMethod
@@ -139,7 +140,7 @@ def _resolve_provider_key(provider_name: str, employee_api_key: str) -> str:
         return employee_api_key
     prov = get_provider(provider_name)
     if prov and prov.env_key:
-        return getattr(settings, prov.env_key, "")
+        return getattr(_cfg.settings, prov.env_key, "")
     return ""
 
 
@@ -153,6 +154,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
         employee_id: Use this employee's LLM config. Empty = company default.
         temperature: Override temperature. None = use employee/default value.
     """
+    settings = _cfg.settings  # always read the latest (may be reloaded at runtime)
     model = settings.default_llm_model
     effective_temp = 0.7
     api_provider = settings.default_api_provider or "openrouter"
@@ -303,7 +305,7 @@ async def tracked_ainvoke(
     if not model_name:
         # Try to get from employee config
         cfg = employee_configs.get(employee_id)
-        model_name = cfg.llm_model if cfg and cfg.llm_model else settings.default_llm_model
+        model_name = cfg.llm_model if cfg and cfg.llm_model else _cfg.settings.default_llm_model
 
     # Compute cost: prefer provider-reported cost, fallback to catalog price
     provider_cost = usage.get("cost") if usage else None
@@ -866,7 +868,7 @@ class BaseAgentRunner:
     def _get_model_name(self) -> str:
         """Return the LLM model name configured for this employee."""
         cfg = employee_configs.get(self.employee_id)
-        return cfg.llm_model if cfg and cfg.llm_model else settings.default_llm_model
+        return cfg.llm_model if cfg and cfg.llm_model else _cfg.settings.default_llm_model
 
     def _build_prompt(self) -> str:
         """Build the full system prompt using PromptBuilder.

@@ -45,7 +45,6 @@ from onemancompany.core.config import (
     TL_FIELD_DETAIL,
     TL_FIELD_EMPLOYEE_ID,
     read_text_utf,
-    settings,
     write_text_utf,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
@@ -271,18 +270,34 @@ async def get_auth_providers() -> list[dict]:
 
 @router.post("/api/auth/verify")
 async def verify_auth(body: dict) -> dict:
-    """Verify provider connectivity with a minimal chat request."""
-    from onemancompany.core.auth_verify import probe_chat
+    """Verify provider connectivity via health endpoint or chat probe.
 
+    Prefers zero-token health check; falls back to chat probe if model given.
+    """
     provider = body.get("provider", "")
     api_key = body.get("api_key", "")
     model = body.get("model", "")
     base_url = body.get("base_url", "")
     chat_class = body.get("chat_class", "")
 
-    if not provider or not api_key or not model:
-        return {"ok": False, "error": "provider, api_key, and model are required"}
+    # If no key provided, use the saved company-level key
+    if not api_key and body.get("use_saved"):
+        from onemancompany.core.config import get_provider, settings
+        prov_cfg = get_provider(provider)
+        if prov_cfg and prov_cfg.env_key:
+            api_key = getattr(settings, prov_cfg.env_key, "")
 
+    if not provider or not api_key:
+        return {"ok": False, "error": "provider and api_key are required"}
+
+    # Prefer zero-token health check (no model needed)
+    if not model or model == "test":
+        from onemancompany.core.auth_verify import probe_health
+        ok, error = await probe_health(provider, api_key)
+        return {"ok": ok, "error": error} if not ok else {"ok": True}
+
+    # Fall back to chat probe if a real model is specified
+    from onemancompany.core.auth_verify import probe_chat
     ok, error = await probe_chat(
         provider, api_key, model,
         base_url=base_url,
@@ -374,6 +389,7 @@ async def get_bootstrap() -> dict:
     Returns employees, task-queue (lightweight), rooms, tools, activity-log,
     and state metadata. Uses async I/O to read from disk in parallel via thread pool.
     """
+    from onemancompany.core.config import settings
     from onemancompany.core.project_archive import list_projects
     from onemancompany.core.store import (
         aload_activity_log,
@@ -2010,39 +2026,43 @@ async def get_talent_pool() -> dict:
 
 @router.get("/api/settings/api")
 async def get_api_settings() -> dict:
-    """Return current global API configuration status."""
-    from onemancompany.core.config import settings
+    """Return current global API configuration status for all providers."""
+    from onemancompany.core.config import PROVIDER_REGISTRY, settings
 
-    or_key = settings.openrouter_api_key
-    ant_key = settings.anthropic_api_key
+    result: dict = {
+        "default_provider": settings.default_api_provider or "openrouter",
+        "default_model": settings.default_llm_model,
+    }
 
-    # Talent market config from config.yaml
+    # Build status for every registered provider
+    for name, prov in PROVIDER_REGISTRY.items():
+        key = getattr(settings, prov.env_key, "") if prov.env_key else ""
+        entry: dict = {
+            "api_key_set": bool(key),
+            "api_key_preview": ("..." + key[-4:]) if len(key) >= 4 else "",
+        }
+        # Provider-specific extras
+        if name == "openrouter":
+            entry["base_url"] = settings.openrouter_base_url
+        elif name == "anthropic":
+            entry["oauth_token_set"] = bool(settings.anthropic_oauth_token)
+            entry["auth_method"] = settings.anthropic_auth_method
+        result[name] = entry
+
+    # Talent market (stored in config.yaml, not .env)
     from onemancompany.core.config import load_app_config
     tm = load_app_config().get("talent_market", {})
     tm_key = tm.get("api_key", "")
-
-    return {
-        "openrouter": {
-            "api_key_set": bool(or_key),
-            "api_key_preview": ("..." + or_key[-4:]) if len(or_key) >= 4 else "",
-            "base_url": settings.openrouter_base_url,
-            "default_model": settings.default_llm_model,
-        },
-        "anthropic": {
-            "api_key_set": bool(ant_key),
-            "api_key_preview": ("..." + ant_key[-4:]) if len(ant_key) >= 4 else "",
-            "oauth_token_set": bool(settings.anthropic_oauth_token),
-            "auth_method": settings.anthropic_auth_method,
-        },
-        "talent_market": {
-            "api_key_set": bool(tm_key),
-            "api_key_preview": ("..." + tm_key[-4:]) if len(tm_key) >= 4 else "",
-            "mode": tm.get("mode", "local"),
-            "connected": _get_talent_market_connected(),
-            "local_talent_count": _get_local_talent_count(),
-            "use_ai_search": tm.get("use_ai_search", False),
-        },
+    result["talent_market"] = {
+        "api_key_set": bool(tm_key),
+        "api_key_preview": ("..." + tm_key[-4:]) if len(tm_key) >= 4 else "",
+        "mode": tm.get("mode", "local"),
+        "connected": _get_talent_market_connected(),
+        "local_talent_count": _get_local_talent_count(),
+        "use_ai_search": tm.get("use_ai_search", False),
     }
+
+    return result
 
 
 @router.put("/api/settings/api")
@@ -2113,8 +2133,14 @@ async def update_api_settings(body: dict) -> dict:
     # Also update DEFAULT_API_PROVIDER so make_llm fallback uses the right provider
     update_env_var("DEFAULT_API_PROVIDER", provider)
 
+    # Sync founding employees to new defaults (same as onboarding does)
+    from onemancompany.core.config import settings as refreshed, sync_founding_defaults
+    sync_founding_defaults(
+        provider=refreshed.default_api_provider,
+        model=refreshed.default_llm_model,
+    )
+
     # Return refreshed status
-    from onemancompany.core.config import settings as refreshed
     or_key = refreshed.openrouter_api_key
     ant_key = refreshed.anthropic_api_key
     return {
@@ -4235,6 +4261,7 @@ async def _do_hire_single(
     from pathlib import Path
     from onemancompany.agents.recruitment import pending_candidates, _persist_candidates
     from onemancompany.agents.onboarding import execute_hire, generate_nickname
+    from onemancompany.core.config import settings
 
     logger.info("[hiring] Starting single hire: batch_id={}, candidate={}", batch_id, candidate.get("name"))
     try:
@@ -4383,6 +4410,7 @@ async def hire_from_cv(body: dict) -> dict:
       temperature, salary_per_1m_tokens, system_prompt_template, talent_id.
     """
     from onemancompany.agents.onboarding import execute_hire, generate_nickname
+    from onemancompany.core.config import settings
 
     cv = body.get("cv")
     if not cv or not isinstance(cv, dict):
@@ -4644,7 +4672,7 @@ async def _do_batch_hire(
     from pathlib import Path
     from onemancompany.agents.recruitment import pending_candidates, _pending_project_ctx, _persist_candidates
     from onemancompany.agents.onboarding import execute_hire, generate_nickname
-    from onemancompany.core.config import load_talent_profile
+    from onemancompany.core.config import load_talent_profile, settings
 
     total = len(selections)
     results = []
