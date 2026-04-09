@@ -73,7 +73,7 @@ class TestMakeLlm:
         mock_settings.default_llm_model = "gpt-4"
         mock_settings.openrouter_api_key = "test-key"
         mock_settings.openrouter_base_url = "https://openrouter.ai/api/v1"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
         monkeypatch.setattr(base_mod, "employee_configs", {})
 
         llm = base_mod.make_llm()
@@ -83,12 +83,13 @@ class TestMakeLlm:
 
     def test_employee_specific_model(self, monkeypatch):
         from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
 
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "gpt-4"
         mock_settings.openrouter_api_key = "test-key"
         mock_settings.openrouter_base_url = "https://openrouter.ai/api/v1"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         cfg = MagicMock()
         cfg.llm_model = "custom-model"
@@ -103,13 +104,14 @@ class TestMakeLlm:
     def test_non_openrouter_without_key_falls_back(self, monkeypatch):
         """Non-openrouter provider without API key falls back to default model."""
         from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
 
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "default-model"
         mock_settings.openrouter_api_key = "test-key"
         mock_settings.openrouter_base_url = "https://openrouter.ai/api/v1"
         mock_settings.anthropic_api_key = ""  # no company-level key either
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         cfg = MagicMock()
         cfg.llm_model = "claude-3"
@@ -125,11 +127,12 @@ class TestMakeLlm:
     def test_deepseek_provider(self, monkeypatch):
         """DeepSeek provider should use ChatOpenAI with DeepSeek base URL."""
         from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
 
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "gpt-4"
         mock_settings.deepseek_api_key = "sk-ds-test"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         cfg = MagicMock()
         cfg.llm_model = "deepseek-chat"
@@ -145,11 +148,12 @@ class TestMakeLlm:
     def test_kimi_provider(self, monkeypatch):
         """Kimi provider should use ChatOpenAI with Moonshot base URL."""
         from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
 
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "gpt-4"
         mock_settings.kimi_api_key = "sk-kimi-test"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         cfg = MagicMock()
         cfg.llm_model = "moonshot-v1-8k"
@@ -165,11 +169,12 @@ class TestMakeLlm:
     def test_openai_direct_provider(self, monkeypatch):
         """OpenAI direct provider (not via OpenRouter)."""
         from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
 
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "gpt-4"
         mock_settings.openai_api_key = "sk-openai-test"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         cfg = MagicMock()
         cfg.llm_model = "gpt-4o"
@@ -185,11 +190,12 @@ class TestMakeLlm:
     def test_employee_specific_key_overrides_company(self, monkeypatch):
         """Employee's own API key takes priority over company-level key."""
         from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
 
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "gpt-4"
         mock_settings.deepseek_api_key = "company-key"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         cfg = MagicMock()
         cfg.llm_model = "deepseek-chat"
@@ -204,12 +210,13 @@ class TestMakeLlm:
     def test_unknown_provider_falls_back_to_openrouter(self, monkeypatch):
         """Unknown provider name falls back to openrouter with default model."""
         from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
 
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "default-model"
         mock_settings.openrouter_api_key = "or-key"
         mock_settings.openrouter_base_url = "https://openrouter.ai/api/v1"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         cfg = MagicMock()
         cfg.llm_model = "some-model"
@@ -252,6 +259,7 @@ class TestTrackedAinvoke:
     async def test_records_token_usage(self, monkeypatch):
         from onemancompany.agents import base as base_mod
         from onemancompany.core import state as state_mod
+        from onemancompany.core import config as config_mod
 
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
@@ -269,7 +277,7 @@ class TestTrackedAinvoke:
         monkeypatch.setattr(base_mod, "employee_configs", {})
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "gpt-4"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         result = await base_mod.tracked_ainvoke(
             mock_llm, "hello", category="test", employee_id="00010",
@@ -283,6 +291,7 @@ class TestTrackedAinvoke:
     async def test_records_project_cost(self, monkeypatch):
         from onemancompany.agents import base as base_mod
         from onemancompany.core import state as state_mod
+        from onemancompany.core import config as config_mod
 
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
@@ -300,7 +309,7 @@ class TestTrackedAinvoke:
         monkeypatch.setattr(base_mod, "employee_configs", {})
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "gpt-4"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         mock_record_project_cost = MagicMock()
         monkeypatch.setattr(
@@ -319,6 +328,7 @@ class TestTrackedAinvoke:
     async def test_handles_no_usage_metadata(self, monkeypatch):
         from onemancompany.agents import base as base_mod
         from onemancompany.core import state as state_mod
+        from onemancompany.core import config as config_mod
 
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
@@ -333,7 +343,7 @@ class TestTrackedAinvoke:
         monkeypatch.setattr(base_mod, "employee_configs", {})
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "gpt-4"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         result = await base_mod.tracked_ainvoke(mock_llm, "hello")
         assert result is mock_result
@@ -701,11 +711,12 @@ class TestBaseAgentRunner:
     def test_get_model_name_fallback(self, monkeypatch):
         from onemancompany.agents.base import BaseAgentRunner
         from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
 
         monkeypatch.setattr(base_mod, "employee_configs", {})
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "default-model"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         runner = BaseAgentRunner()
         runner.employee_id = "nonexistent"
@@ -992,12 +1003,13 @@ class TestGetEmployeeTalentPersona:
 class TestMakeLlmAnthropic:
     def test_anthropic_with_api_key(self, monkeypatch):
         from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
 
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "gpt-4"
         mock_settings.openrouter_api_key = "test-key"
         mock_settings.openrouter_base_url = "https://openrouter.ai/api/v1"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         cfg = MagicMock()
         cfg.llm_model = "claude-sonnet-4-20250514"
@@ -1028,10 +1040,11 @@ class TestMakeLlmAnthropic:
 
     def test_anthropic_oauth_sets_beta_header(self, monkeypatch):
         from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
 
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "gpt-4"
-        monkeypatch.setattr(base_mod, "settings", mock_settings)
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
 
         cfg = MagicMock()
         cfg.llm_model = "claude-sonnet-4-20250514"

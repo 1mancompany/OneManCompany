@@ -271,18 +271,27 @@ async def get_auth_providers() -> list[dict]:
 
 @router.post("/api/auth/verify")
 async def verify_auth(body: dict) -> dict:
-    """Verify provider connectivity with a minimal chat request."""
-    from onemancompany.core.auth_verify import probe_chat
+    """Verify provider connectivity via health endpoint or chat probe.
 
+    Prefers zero-token health check; falls back to chat probe if model given.
+    """
     provider = body.get("provider", "")
     api_key = body.get("api_key", "")
     model = body.get("model", "")
     base_url = body.get("base_url", "")
     chat_class = body.get("chat_class", "")
 
-    if not provider or not api_key or not model:
-        return {"ok": False, "error": "provider, api_key, and model are required"}
+    if not provider or not api_key:
+        return {"ok": False, "error": "provider and api_key are required"}
 
+    # Prefer zero-token health check (no model needed)
+    if not model or model == "test":
+        from onemancompany.core.auth_verify import probe_health
+        ok, error = await probe_health(provider, api_key)
+        return {"ok": ok, "error": error} if not ok else {"ok": True}
+
+    # Fall back to chat probe if a real model is specified
+    from onemancompany.core.auth_verify import probe_chat
     ok, error = await probe_chat(
         provider, api_key, model,
         base_url=base_url,
@@ -2010,39 +2019,41 @@ async def get_talent_pool() -> dict:
 
 @router.get("/api/settings/api")
 async def get_api_settings() -> dict:
-    """Return current global API configuration status."""
-    from onemancompany.core.config import settings
+    """Return current global API configuration status for all providers."""
+    from onemancompany.core.config import PROVIDER_REGISTRY, settings
 
-    or_key = settings.openrouter_api_key
-    ant_key = settings.anthropic_api_key
+    result: dict = {}
 
-    # Talent market config from config.yaml
+    # Build status for every registered provider
+    for name, prov in PROVIDER_REGISTRY.items():
+        key = getattr(settings, prov.env_key, "") if prov.env_key else ""
+        entry: dict = {
+            "api_key_set": bool(key),
+            "api_key_preview": ("..." + key[-4:]) if len(key) >= 4 else "",
+        }
+        # Provider-specific extras
+        if name == "openrouter":
+            entry["base_url"] = settings.openrouter_base_url
+            entry["default_model"] = settings.default_llm_model
+        elif name == "anthropic":
+            entry["oauth_token_set"] = bool(settings.anthropic_oauth_token)
+            entry["auth_method"] = settings.anthropic_auth_method
+        result[name] = entry
+
+    # Talent market (stored in config.yaml, not .env)
     from onemancompany.core.config import load_app_config
     tm = load_app_config().get("talent_market", {})
     tm_key = tm.get("api_key", "")
-
-    return {
-        "openrouter": {
-            "api_key_set": bool(or_key),
-            "api_key_preview": ("..." + or_key[-4:]) if len(or_key) >= 4 else "",
-            "base_url": settings.openrouter_base_url,
-            "default_model": settings.default_llm_model,
-        },
-        "anthropic": {
-            "api_key_set": bool(ant_key),
-            "api_key_preview": ("..." + ant_key[-4:]) if len(ant_key) >= 4 else "",
-            "oauth_token_set": bool(settings.anthropic_oauth_token),
-            "auth_method": settings.anthropic_auth_method,
-        },
-        "talent_market": {
-            "api_key_set": bool(tm_key),
-            "api_key_preview": ("..." + tm_key[-4:]) if len(tm_key) >= 4 else "",
-            "mode": tm.get("mode", "local"),
-            "connected": _get_talent_market_connected(),
-            "local_talent_count": _get_local_talent_count(),
-            "use_ai_search": tm.get("use_ai_search", False),
-        },
+    result["talent_market"] = {
+        "api_key_set": bool(tm_key),
+        "api_key_preview": ("..." + tm_key[-4:]) if len(tm_key) >= 4 else "",
+        "mode": tm.get("mode", "local"),
+        "connected": _get_talent_market_connected(),
+        "local_talent_count": _get_local_talent_count(),
+        "use_ai_search": tm.get("use_ai_search", False),
     }
+
+    return result
 
 
 @router.put("/api/settings/api")
