@@ -45,7 +45,6 @@ from onemancompany.core.config import (
     TL_FIELD_DETAIL,
     TL_FIELD_EMPLOYEE_ID,
     read_text_utf,
-    settings,
     write_text_utf,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
@@ -383,6 +382,7 @@ async def get_bootstrap() -> dict:
     Returns employees, task-queue (lightweight), rooms, tools, activity-log,
     and state metadata. Uses async I/O to read from disk in parallel via thread pool.
     """
+    from onemancompany.core.config import settings
     from onemancompany.core.project_archive import list_projects
     from onemancompany.core.store import (
         aload_activity_log,
@@ -4246,6 +4246,7 @@ async def _do_hire_single(
     from pathlib import Path
     from onemancompany.agents.recruitment import pending_candidates, _persist_candidates
     from onemancompany.agents.onboarding import execute_hire, generate_nickname
+    from onemancompany.core.config import settings
 
     logger.info("[hiring] Starting single hire: batch_id={}, candidate={}", batch_id, candidate.get("name"))
     try:
@@ -4394,6 +4395,7 @@ async def hire_from_cv(body: dict) -> dict:
       temperature, salary_per_1m_tokens, system_prompt_template, talent_id.
     """
     from onemancompany.agents.onboarding import execute_hire, generate_nickname
+    from onemancompany.core.config import settings
 
     cv = body.get("cv")
     if not cv or not isinstance(cv, dict):
@@ -4655,7 +4657,7 @@ async def _do_batch_hire(
     from pathlib import Path
     from onemancompany.agents.recruitment import pending_candidates, _pending_project_ctx, _persist_candidates
     from onemancompany.agents.onboarding import execute_hire, generate_nickname
-    from onemancompany.core.config import load_talent_profile
+    from onemancompany.core.config import load_talent_profile, settings
 
     total = len(selections)
     results = []
