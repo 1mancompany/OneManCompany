@@ -337,6 +337,8 @@
         this.__defs.appendChild(clipPath); group.setAttribute("clip-path",format("url(#{id})",{id:id})); group.appendChild(newGroup); this.__currentElement=newGroup;
     };
 
+    // Patched: use x/y attributes instead of translate() to position images.
+    // Original used this.translate(dx,dy) which polluted the group transform stack.
     ctx.prototype.drawImage = function() {
         var args=Array.prototype.slice.call(arguments),image=args[0],dx,dy,dw,dh,sx=0,sy=0,sw,sh,parent,svg,defs,group,currentElement,svgImage,canvas,context,id;
         if(args.length===3){dx=args[1];dy=args[2];sw=image.width;sh=image.height;dw=sw;dh=sh;}
@@ -352,13 +354,15 @@
         } else if(image.nodeName==="CANVAS"||image.nodeName==="IMG") {
             svgImage = this.__createElement("image");
             svgImage.setAttribute("width", dw); svgImage.setAttribute("height", dh);
+            svgImage.setAttribute("x", dx); svgImage.setAttribute("y", dy);
             svgImage.setAttribute("preserveAspectRatio", "none");
             if(sx||sy||sw!==image.width||sh!==image.height) {
                 canvas=this.__document.createElement("canvas"); canvas.width=dw; canvas.height=dh;
                 context=canvas.getContext("2d"); context.drawImage(image,sx,sy,sw,sh,0,0,dw,dh); image=canvas;
             }
             svgImage.setAttributeNS("http://www.w3.org/1999/xlink","xlink:href",image.nodeName==="CANVAS"?image.toDataURL():image.getAttribute("src"));
-            parent.appendChild(svgImage); this.__currentElement=svgImage; this.translate(dx,dy); this.__currentElement=currentElement;
+            parent.appendChild(svgImage);
+            this.__currentElement = currentElement;
         }
     };
 
