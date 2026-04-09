@@ -183,3 +183,83 @@ def test_sync_founding_defaults_skips_unchanged(tmp_path):
         count = sync_founding_defaults(provider="openrouter", model="gpt-4")
 
     assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# Provider model list endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_provider_models_returns_normalized_list():
+    """GET /api/models/{provider} returns normalized model list for any provider."""
+    from onemancompany.api.routes import list_provider_models
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "data": [
+            {"id": "deepseek-chat", "object": "model"},
+            {"id": "deepseek-coder", "object": "model"},
+        ]
+    }
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.get = AsyncMock(return_value=mock_resp)
+
+    mock_settings = MagicMock()
+    mock_settings.deepseek_api_key = "sk-test"
+
+    mock_httpx = MagicMock()
+    mock_httpx.AsyncClient = MagicMock(return_value=mock_client)
+
+    with patch.dict("sys.modules", {"httpx": mock_httpx}), \
+         patch("onemancompany.core.config.settings", mock_settings):
+        result = await list_provider_models("deepseek")
+
+    assert len(result["models"]) == 2
+    assert result["models"][0]["id"] == "deepseek-chat"
+
+
+@pytest.mark.asyncio
+async def test_list_provider_models_google_format():
+    """Google returns {models: [{name: 'models/gemini-...', displayName: ...}]}."""
+    from onemancompany.api.routes import list_provider_models
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "models": [
+            {"name": "models/gemini-2.0-flash", "displayName": "Gemini 2.0 Flash"},
+        ]
+    }
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.get = AsyncMock(return_value=mock_resp)
+
+    mock_settings = MagicMock()
+    mock_settings.google_api_key = "test-key"
+
+    mock_httpx = MagicMock()
+    mock_httpx.AsyncClient = MagicMock(return_value=mock_client)
+
+    with patch.dict("sys.modules", {"httpx": mock_httpx}), \
+         patch("onemancompany.core.config.settings", mock_settings):
+        result = await list_provider_models("google")
+
+    assert len(result["models"]) == 1
+    assert result["models"][0]["id"] == "gemini-2.0-flash"  # models/ prefix stripped
+    assert result["models"][0]["name"] == "Gemini 2.0 Flash"
+
+
+@pytest.mark.asyncio
+async def test_list_provider_models_unknown_provider():
+    """Unknown provider returns empty list with error."""
+    from onemancompany.api.routes import list_provider_models
+    result = await list_provider_models("nonexistent")
+    assert result["models"] == []
+    assert "error" in result

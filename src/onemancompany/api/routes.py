@@ -1307,32 +1307,78 @@ async def update_workflow(name: str, body: dict):
 
 @router.get("/api/models")
 async def list_available_models() -> dict:
-    """Fetch available models from OpenRouter API."""
+    """Fetch available models from OpenRouter API (legacy endpoint)."""
+    return await list_provider_models("openrouter")
+
+
+@router.get("/api/models/{provider}")
+async def list_provider_models(provider: str) -> dict:
+    """Fetch available models for any registered provider."""
     import httpx
 
-    from onemancompany.core.config import settings
+    from onemancompany.core.config import PROVIDER_REGISTRY, get_provider, settings
+
+    prov_cfg = get_provider(provider)
+    if not prov_cfg:
+        return {"models": [], "error": f"Unknown provider '{provider}'"}
+
+    # Determine models URL: base_url/models for most, health_url for anthropic/google
+    if prov_cfg.base_url:
+        models_url = f"{prov_cfg.base_url.rstrip('/')}/models"
+    elif prov_cfg.health_url and "/models" in prov_cfg.health_url:
+        models_url = prov_cfg.health_url
+    else:
+        return {"models": [], "error": f"No models endpoint for '{provider}'"}
+
+    # Get API key
+    api_key = getattr(settings, prov_cfg.env_key, "") if prov_cfg.env_key else ""
+    if not api_key:
+        return {"models": [], "error": "No API key configured"}
+
+    # Build auth
+    headers: dict[str, str] = {}
+    params: dict[str, str] = {}
+    if prov_cfg.health_auth == "anthropic":
+        headers["x-api-key"] = api_key
+        headers["anthropic-version"] = "2023-06-01"
+    elif prov_cfg.health_auth == "query_param":
+        params["key"] = api_key
+    else:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.get(
-                f"{settings.openrouter_base_url}/models",
-                headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
-                timeout=10.0,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                models = [
-                    {
-                        "id": m["id"],
-                        "name": m.get("name", m["id"]),
-                        "context_length": m.get("context_length", 0),
-                    }
-                    for m in data.get("data", [])
-                ]
-                return {"models": models}
-            return {"models": [], "error": f"OpenRouter returned {resp.status_code}"}
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+            resp = await client.get(models_url, headers=headers, params=params)
+            if resp.status_code != 200:
+                return {"models": [], "error": f"HTTP {resp.status_code}"}
+
+            data = resp.json()
+
+            # Normalize response — handle different API formats
+            raw_models: list[dict] = []
+            if "data" in data:
+                # OpenAI-compatible + Anthropic format
+                raw_models = data["data"]
+            elif "models" in data:
+                # Google format
+                raw_models = data["models"]
+
+            models = []
+            for m in raw_models:
+                # Google uses "name": "models/gemini-..." and "displayName"
+                model_id = m.get("id") or m.get("name", "")
+                if model_id.startswith("models/"):
+                    model_id = model_id[len("models/"):]
+                display_name = m.get("display_name") or m.get("displayName") or m.get("name") or model_id
+                models.append({
+                    "id": model_id,
+                    "name": display_name,
+                })
+
+            models.sort(key=lambda x: x["id"])
+            return {"models": models}
     except Exception as e:
-        return {"models": [], "error": str(e)}
+        return {"models": [], "error": str(e)[:200]}
 
 
 @router.get("/api/employee/{employee_id}")

@@ -172,31 +172,73 @@ def _format_price(price_str: str | None) -> str:
         return PRICE_NA
 
 
-def _fetch_openrouter_models(console: Console) -> list[dict]:
-    """Fetch model list from OpenRouter API. Returns list of model dicts."""
-    with console.status("  Fetching models from OpenRouter..."):
+def _fetch_provider_models(console: Console, provider: str, api_key: str) -> list[dict]:
+    """Fetch model list from any provider's /models endpoint.
+
+    Returns list of dicts with keys: id, name.
+    Falls back to empty list on failure.
+    """
+    from onemancompany.core.config import get_provider
+
+    prov_cfg = get_provider(provider)
+    if not prov_cfg:
+        return []
+
+    # Determine models URL
+    if prov_cfg.base_url:
+        models_url = f"{prov_cfg.base_url.rstrip('/')}/models"
+    elif prov_cfg.health_url and "/models" in prov_cfg.health_url:
+        models_url = prov_cfg.health_url
+    else:
+        return []
+
+    # Build auth
+    headers: dict[str, str] = {}
+    params: dict[str, str] = {}
+    if prov_cfg.health_auth == "anthropic":
+        headers["x-api-key"] = api_key
+        headers["anthropic-version"] = "2023-06-01"
+    elif prov_cfg.health_auth == "query_param":
+        params["key"] = api_key
+    else:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    label = provider.capitalize()
+    with console.status(f"  Fetching models from {label}..."):
         try:
-            resp = httpx.get(OPENROUTER_MODELS_URL, timeout=15)
+            resp = httpx.get(models_url, headers=headers, params=params, timeout=15)
             resp.raise_for_status()
-            data = resp.json().get(OR_FIELD_DATA, [])
+            data = resp.json()
         except Exception as e:
-            console.print(f"  [yellow]⚠[/yellow] Failed to fetch models: {e}")
+            console.print(f"  [yellow]⚠[/yellow] Failed to fetch models from {label}: {e}")
             return []
 
+    # Normalize response formats
+    raw: list[dict] = data.get("data", []) or data.get("models", [])
     models = []
-    for m in data:
-        model_id = m.get(OR_FIELD_ID, "")
+    for m in raw:
+        model_id = m.get("id") or m.get("name", "")
+        if model_id.startswith("models/"):
+            model_id = model_id[len("models/"):]
+        display_name = m.get("display_name") or m.get("displayName") or model_id
+        # For OpenRouter, include pricing
         pricing = m.get(OR_FIELD_PRICING, {}) or {}
         models.append({
             MODEL_KEY_ID: model_id,
-            MODEL_KEY_NAME: m.get(OR_FIELD_NAME, model_id),
-            MODEL_KEY_PROMPT_PRICE: _format_price(pricing.get(OR_FIELD_PROMPT)),
-            MODEL_KEY_COMPLETION_PRICE: _format_price(pricing.get(OR_FIELD_COMPLETION)),
-            MODEL_KEY_CONTEXT: m.get(OR_FIELD_CONTEXT_LENGTH, 0),
+            MODEL_KEY_NAME: display_name,
+            MODEL_KEY_PROMPT_PRICE: _format_price(pricing.get(OR_FIELD_PROMPT)) if pricing else "",
+            MODEL_KEY_COMPLETION_PRICE: _format_price(pricing.get(OR_FIELD_COMPLETION)) if pricing else "",
+            MODEL_KEY_CONTEXT: m.get(OR_FIELD_CONTEXT_LENGTH) or m.get("context_length") or 0,
         })
 
     models.sort(key=lambda m: m[MODEL_KEY_ID])
     return models
+
+
+def _fetch_openrouter_models(console: Console) -> list[dict]:
+    """Fetch model list from OpenRouter API. Returns list of model dicts."""
+    # Delegate to generic fetcher (no API key needed for OpenRouter model list)
+    return _fetch_provider_models(console, "openrouter", "")
 
 
 def _print_model_page(
@@ -356,18 +398,17 @@ def _step_llm(console: Console) -> tuple[str, str, str, str]:
             style=INQ_STYLE,
         ).execute().strip()
 
-    # 4. Select model
+    # 4. Select model — try fetching from provider, fall back to manual input
     console.print()
-    if provider == PROVIDER_OPENROUTER:
-        all_models = _fetch_openrouter_models(console)
-        if all_models:
-            console.print(f"  [green]✔[/green] Found {len(all_models)} models")
+    all_models = _fetch_provider_models(console, provider, api_key)
+    if all_models:
+        console.print(f"  [green]✔[/green] Found {len(all_models)} models")
         model = _select_model_interactive(console, all_models)
     else:
-        # For non-OpenRouter providers, ask for model ID directly
+        # Fetch failed — fall back to manual input with known defaults
         default_model = PROVIDER_DEFAULT_MODELS.get(provider, "")
         model = _inq.text(
-            message=f"Model ID:",
+            message="Model ID:",
             default=default_model,
             style=INQ_STYLE,
         ).execute().strip()
