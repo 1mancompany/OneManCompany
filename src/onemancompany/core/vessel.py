@@ -1632,10 +1632,10 @@ class EmployeeManager:
                 self._append_history_from_node(employee_id, node)
                 summary = node.result or ""
                 _append_progress(employee_id, f"Completed: {node.description_preview} → {summary}")
-                # Push result to CEO session
-                result_first_line = (node.result or "").strip().split("\n")[0]
-                if result_first_line:
-                    self._push_to_ceo_session(node, f"✓ {result_first_line}")
+                # Push full result to CEO session
+                result_text = (node.result or "").strip()
+                if result_text:
+                    self._push_to_ceo_session(node, f"✓ {result_text}")
 
             # Post-task hook
             post_task_hook = self._hooks.get(employee_id, {}).get("post_task")
