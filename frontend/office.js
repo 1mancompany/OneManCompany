@@ -1282,12 +1282,11 @@ class OfficeRenderer {
   render() {
     const dpr  = this.dpr || 1;
     const ctx  = this.ctx;
-    const isSvgExport = (typeof C2S !== 'undefined' && ctx instanceof C2S);
-    const cssW = isSvgExport ? ctx.width : this.canvas.width  / dpr;
-    const cssH = isSvgExport ? ctx.height : this.canvas.height / dpr;
+    const cssW = this.canvas.width  / dpr;
+    const cssH = this.canvas.height / dpr;
 
-    // Clear buffer (skip for SVG — C2S clearRect draws a white rect)
-    if (!isSvgExport) ctx.clearRect(0, 0, cssW, cssH);
+    // Clear buffer
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     // Base DPR scaling (maps CSS pixels → physical pixels)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1312,18 +1311,17 @@ class OfficeRenderer {
 
     this.camera.resetTransform(ctx);
 
-    // === Screen space (skip scanlines/minimap/tooltip for SVG export) ===
-    if (!isSvgExport) {
-      ctx.globalAlpha = 0.02;
-      ctx.fillStyle = '#000';
-      for (let sy = 0; sy < cssH; sy += 2) {
-        ctx.fillRect(0, sy, cssW, 1);
-      }
-      ctx.globalAlpha = 1;
-
-      this.minimap.draw(ctx, cssW, cssH);
-      this._updateTooltip();
+    // === Screen space ===
+    // Subtle scanline (screen space — covers full viewport at any zoom/pan)
+    ctx.globalAlpha = 0.02;
+    ctx.fillStyle = '#000';
+    for (let sy = 0; sy < cssH; sy += 2) {
+      ctx.fillRect(0, sy, cssW, 1);
     }
+    ctx.globalAlpha = 1;
+
+    this.minimap.draw(ctx, cssW, cssH);
+    this._updateTooltip();
   }
 
   loop() {
