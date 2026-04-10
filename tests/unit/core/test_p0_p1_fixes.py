@@ -51,7 +51,8 @@ class TestCloseDrainsPending:
             source_employee="00010", interaction_type="ceo_request",
             message="test", future=future,
         )
-        service._pending[conv.id] = asyncio.queues = __import__("collections").deque([interaction])
+        from collections import deque
+        service._pending[conv.id] = deque([interaction])
 
         # Mock close hook to avoid import issues
         with patch("onemancompany.core.conversation_hooks.run_close_hook", return_value=None):

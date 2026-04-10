@@ -264,8 +264,8 @@ def get_ceo_dnd() -> bool:
             with open_utf(_CEO_DND_PATH) as f:
                 data = yaml.safe_load(f) or {}
             return bool(data.get("enabled", False))
-        except Exception:
-            logger.warning("[config] failed to read CEO DND state, defaulting to False")
+        except Exception as e:
+            logger.warning("[config] failed to read CEO DND state, defaulting to False: {}", e)
     return False
 
 

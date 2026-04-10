@@ -823,7 +823,7 @@ def _load_progress(employee_id: str, max_lines: int = PROGRESS_LOG_MAX_LINES) ->
 # Employee Manager — centralized task coordinator
 # ---------------------------------------------------------------------------
 
-from onemancompany.core.task_lifecycle import SKIP_COMPLETION_TYPES, SYSTEM_NODE_TYPES, NodeType
+from onemancompany.core.task_lifecycle import SKIP_COMPLETION_TYPES, SYSTEM_NODE_TYPES, NodeType, is_system_project_id
 
 
 class EmployeeManager:
@@ -1702,7 +1702,7 @@ class EmployeeManager:
                 if node.input_tokens + node.output_tokens > 0:
                     from onemancompany.core.project_archive import record_project_cost
                     record_project_cost(project_id, employee_id, node.model_used, node.input_tokens, node.output_tokens, node.cost_usd)
-                if not project_id.startswith("_auto_") and node.result:
+                if not is_system_project_id(project_id) and node.result:
                     from onemancompany.core.project_archive import append_action
                     summary = node.result[:MAX_SUMMARY_LEN]
                     append_action(project_id, employee_id, f"{role} task completed", summary)
@@ -3002,7 +3002,7 @@ class EmployeeManager:
                 )
             except Exception as e:
                 logger.exception("Unhandled error")
-                if not project_id.startswith("_auto_"):
+                if not is_system_project_id(project_id):
                     append_action(project_id, "routine", "Routine error", str(e)[:MAX_SUMMARY_LEN])
                 await event_bus.publish(
                     CompanyEvent(
@@ -3022,7 +3022,7 @@ class EmployeeManager:
             if eid not in self._running_tasks:
                 await _store.save_employee_runtime(eid, status=STATUS_IDLE)
 
-        if not project_id.startswith("_auto_"):
+        if not is_system_project_id(project_id):
             label = node.description or "Task completed"
             if agent_error:
                 label = f"{label} (with errors)"
@@ -3342,7 +3342,6 @@ class EmployeeManager:
 
             async def _push():
                 # Real projects get project conversations; system tasks go to 1-on-1
-                from onemancompany.core.task_lifecycle import is_system_project_id
                 if project_id and not is_system_project_id(project_id):
                     conv = await service.get_or_create_project_conversation(
                         project_id, [node.employee_id]
