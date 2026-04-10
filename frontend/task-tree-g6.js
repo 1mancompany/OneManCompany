@@ -338,6 +338,7 @@ class TaskTreeRenderer {
         this.graph.data(this.g6TreeData);
         this.graph.render();
         this._colorEdges();
+        this._renderDependencyEdges();
         this._bindEvents();
     }
 
@@ -432,6 +433,35 @@ class TaskTreeRenderer {
         });
     }
 
+    /* ── Render dependency edges (dashed orange arrows) ─────────── */
+
+    _renderDependencyEdges() {
+        if (!this.treeData || !this.graph) return;
+        this.treeData.nodes.forEach(node => {
+            (node.depends_on || []).forEach(depId => {
+                const sourceNode = this.graph.findById(depId);
+                const targetNode = this.graph.findById(node.id);
+                if (sourceNode && targetNode) {
+                    this.graph.addItem('edge', {
+                        source: depId,
+                        target: node.id,
+                        type: 'line',
+                        style: {
+                            stroke: '#f97316',
+                            lineWidth: 1.5,
+                            lineDash: [6, 4],
+                            opacity: 0.6,
+                            endArrow: {
+                                path: G6.Arrow.triangle(6, 8, 0),
+                                fill: '#f97316',
+                            },
+                        },
+                    });
+                }
+            });
+        });
+    }
+
     /* ── Bind graph events ────────────────────────────────────────── */
 
     _bindEvents() {
@@ -514,38 +544,29 @@ class TaskTreeRenderer {
     updateNode(nodeId, data) {
         if (!this.treeData) return;
         const node = this.treeData.nodes.find(n => n.id === nodeId);
-        if (!node) return;
-        Object.assign(node, data);
-
-        // Try incremental G6 update
-        if (this.graph) {
-            const g6Node = this.graph.findById(nodeId);
-            if (g6Node) {
-                const info = node.employee_info || {};
-                const dept = this._inferDept(info.role, node.node_type);
-                const statusStyle = STATUS_STYLES[node.status] || STATUS_STYLES.pending;
-                this.graph.updateItem(g6Node, {
-                    name: info.nickname || info.name || node.employee_id || node.id,
-                    avatar: this._getAvatar(info, node.node_type),
-                    dept: dept,
-                    role: info.role || '',
-                    desc: node.title || node.description_preview || node.description || '',
-                    status: node.status || 'pending',
-                    _raw: node,
-                });
-                this._colorEdges();
-
-                if (this.selectedNodeId === nodeId) {
-                    this.selectNode(node);
+        if (node) {
+            Object.assign(node, data);
+            if (this.graph && !this.graph.destroyed) {
+                const g6Node = this.graph.findById(nodeId);
+                if (g6Node) {
+                    // Update the model data that the custom node draw() reads
+                    const emp = data.employee_info || node.employee_info || {};
+                    const role = emp.role || node.node_type || 'Task';
+                    this.graph.updateItem(g6Node, {
+                        status: data.status || node.status,
+                        desc: data.title || data.description_preview || node.description_preview || '',
+                        name: emp.name || emp.nickname || '',
+                        role: role,
+                        _raw: node,
+                    });
+                    this._colorEdges();
+                    if (this.selectedNodeId === nodeId) this.selectNode(node);
+                    return;
                 }
-                return;
             }
-        }
-
-        // Fallback: full re-render
-        this.render();
-        if (this.selectedNodeId === nodeId) {
-            this.selectNode(node);
+            // Fallback
+            this.render();
+            if (this.selectedNodeId === nodeId) this.selectNode(node);
         }
     }
 
