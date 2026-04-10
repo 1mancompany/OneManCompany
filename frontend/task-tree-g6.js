@@ -504,7 +504,11 @@ class TaskTreeRenderer {
             this.graph.paint();
         });
 
-        // ResizeObserver for responsive
+        // ResizeObserver for responsive — disconnect old one first to prevent leaks
+        if (this._resizeObserver) {
+            this._resizeObserver.disconnect();
+            this._resizeObserver = null;
+        }
         const container = document.getElementById(this.containerId);
         if (container && typeof ResizeObserver !== 'undefined') {
             this._resizeObserver = new ResizeObserver(() => {
@@ -523,17 +527,9 @@ class TaskTreeRenderer {
 
     _toggleCollapse(item) {
         const model = item.getModel();
-        if (model.children && model.children.length > 0) {
-            // Collapse
-            model.collapsed = true;
-            this.graph.layout();
-            this.graph.setItemState(item, 'collapsed', true);
-        } else if (model._collapsed) {
-            // Expand
-            model.collapsed = false;
-            this.graph.layout();
-            this.graph.setItemState(item, 'collapsed', false);
-        }
+        model.collapsed = !model.collapsed;
+        this.graph.layout();
+        this.graph.fitView();
         // Update collapse icon
         const icon = item.get('group').find(s => s.get('name') === 'collapse-icon');
         if (icon) {
