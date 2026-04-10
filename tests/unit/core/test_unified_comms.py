@@ -461,3 +461,16 @@ class TestGetCurrentProjectId:
             result = _get_current_project_id()
 
         assert result == "proj_xyz"
+
+
+class TestDNDMode:
+    def test_dnd_default_off(self):
+        from onemancompany.core.config import get_ceo_dnd
+        assert get_ceo_dnd() is False
+
+    def test_dnd_toggle(self):
+        from onemancompany.core.config import set_ceo_dnd, get_ceo_dnd
+        set_ceo_dnd(True)
+        assert get_ceo_dnd() is True
+        set_ceo_dnd(False)
+        assert get_ceo_dnd() is False

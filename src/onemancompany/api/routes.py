@@ -6187,6 +6187,22 @@ def _merge_tool_calls_into_history(
     return merged
 
 
+@router.post("/api/ceo/dnd")
+async def toggle_ceo_dnd(body: dict) -> dict:
+    """Toggle CEO Do Not Disturb mode."""
+    from onemancompany.core.config import set_ceo_dnd, get_ceo_dnd
+    enabled = body.get("enabled", not get_ceo_dnd())
+    set_ceo_dnd(enabled)
+    return {"status": "ok", "dnd": enabled}
+
+
+@router.get("/api/ceo/dnd")
+async def get_ceo_dnd_status() -> dict:
+    """Get CEO DND mode status."""
+    from onemancompany.core.config import get_ceo_dnd
+    return {"dnd": get_ceo_dnd()}
+
+
 @router.get("/api/ceo/sessions")
 async def list_ceo_sessions():
     """List all CEO sessions, sorted by pending-first."""
