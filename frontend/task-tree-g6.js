@@ -557,11 +557,181 @@ class TaskTreeRenderer {
         this.render();
     }
 
-    /* ── Public API: selectNode (STUB — detail drawer is Task 4) ──── */
+    /* ── Public API: selectNode ──────────────────────────────────── */
 
     selectNode(nodeData) {
         this.selectedNodeId = nodeData.id;
-        // Detail drawer rendering -- implemented in next task
+        const drawer = document.getElementById(this.detailId);
+        const content = document.getElementById('tree-detail-content');
+        if (!drawer || !content) return;
+        drawer.classList.remove('hidden');
+
+        // Highlight selected node in G6
+        if (this.graph) {
+            this.graph.getNodes().forEach(n => {
+                const model = n.getModel();
+                const body = n.get('group').find(s => s.get('name') === 'card-body');
+                if (body) {
+                    body.attr('lineWidth', model.id === nodeData.id ? 3 : 1.5);
+                }
+            });
+            this.graph.paint();
+        }
+
+        content.innerHTML = this._renderNodeDetail(nodeData);
+
+        const logToggles = content.querySelectorAll('.detail-log-toggle');
+        logToggles.forEach(el => {
+            el.addEventListener('click', async () => {
+                const nodeId = el.dataset.nodeId;
+                const logContent = document.getElementById(`node-log-${nodeId}`);
+                if (!logContent) return;
+                if (logContent.classList.contains('hidden')) {
+                    logContent.classList.remove('hidden');
+                    el.innerHTML = '&#9660; Execution Log';
+                    // Use xterm.js for terminal rendering
+                    if (typeof XTermLog !== 'undefined') {
+                        logContent.innerHTML = '';
+                        const xterm = new XTermLog(logContent, { fontSize: 11 });
+                        const projectDir = nodeData.project_dir || '';
+                        const qs = projectDir ? `?project_dir=${encodeURIComponent(projectDir)}&tail=200` : '?tail=200';
+                        fetch(`/api/node/${nodeId}/logs${qs}`)
+                            .then(r => r.json())
+                            .then(data => { xterm.renderLogs(data.logs || []); })
+                            .catch(() => { xterm.writeln(`${ANSI.red}Failed to load logs${ANSI.reset}`); });
+                        logContent._xterm = xterm;
+                    } else {
+                        logContent.innerHTML = '<div style="color:#666;padding:8px">Terminal not loaded</div>';
+                    }
+                } else {
+                    logContent.classList.add('hidden');
+                    el.innerHTML = '&#9654; Execution Log';
+                    if (logContent._xterm) { logContent._xterm.dispose(); logContent._xterm = null; }
+                }
+            });
+        });
+    }
+
+    /* ── Detail drawer: node detail HTML ─────────────────────────── */
+
+    _renderNodeDetail(node) {
+        const statusColor = (STATUS_STYLES[node.status] || STATUS_STYLES.pending).color;
+
+        const criteria = (node.acceptance_criteria || [])
+            .map(c => `<li>${this._escapeHtml(c)}</li>`).join('');
+        const acceptance = node.acceptance_result
+            ? `<div class="detail-section">
+                 <h4>Acceptance</h4>
+                 <span class="${node.acceptance_result.passed ? 'status-pass' : 'status-fail'}">
+                   ${node.acceptance_result.passed ? 'PASSED' : 'FAILED'}
+                 </span>
+                 <p>${this._escapeHtml(node.acceptance_result.notes || '')}</p>
+               </div>`
+            : '';
+
+        const info = node.employee_info || {};
+        const isCeo = node.node_type === 'ceo_prompt' || node.node_type === 'ceo_followup' || node.node_type === 'ceo_request';
+        const displayName = isCeo ? 'CEO' : (info.nickname || info.name || node.employee_id);
+        const nodeTypeLabel = node.node_type === 'ceo_prompt' ? 'Original Prompt'
+            : node.node_type === 'ceo_followup' ? 'Follow-up'
+            : node.node_type === 'ceo_request' ? 'CEO Request' : '';
+        const avatarHtml = info.avatar_url
+            ? `<img src="${this._escapeHtml(info.avatar_url)}" class="tree-detail-avatar" />`
+            : `<div class="tree-detail-avatar${isCeo ? ' tree-detail-avatar-ceo' : ''}">${isCeo ? 'CEO' : this._escapeHtml((node.employee_id || '').slice(-2))}</div>`;
+
+        return `
+            <div class="tree-detail-header">
+                ${avatarHtml}
+                <div>
+                    <h3>${this._escapeHtml(displayName)}</h3>
+                    <div class="tree-detail-role">${nodeTypeLabel ? this._escapeHtml(nodeTypeLabel) : (this._escapeHtml(info.role || '') + ' \u00b7 ' + this._escapeHtml(node.employee_id))}</div>
+                    <span class="tree-detail-status" style="color:${statusColor}">${this._escapeHtml(node.status)}</span>
+                </div>
+            </div>
+
+            <div class="detail-section">
+                <h4>Prompt</h4>
+                <pre class="detail-prompt">${this._escapeHtml(node.description || '(none)')}</pre>
+            </div>
+
+            ${criteria ? `<div class="detail-section"><h4>Acceptance Criteria</h4><ul>${criteria}</ul></div>` : ''}
+
+            <div class="detail-section">
+                <h4>Result</h4>
+                <pre class="detail-result">${this._escapeHtml(node.result || '(pending)')}</pre>
+            </div>
+
+            ${acceptance}
+
+            ${this._renderDependencies(node)}
+
+            <div class="detail-section detail-meta">
+                <span>Tokens: ${node.input_tokens || 0} in / ${node.output_tokens || 0} out</span>
+                <span>Cost: $${(node.cost_usd || 0).toFixed(4)}</span>
+                <span>Timeout: ${node.timeout_seconds || 3600}s</span>
+            </div>
+
+            <div class="detail-section">
+                <h4 class="detail-log-toggle" data-node-id="${node.id}" style="cursor:pointer;user-select:none">
+                    &#9654; Execution Log
+                </h4>
+                <div class="detail-log-content hidden" id="node-log-${node.id}"></div>
+            </div>
+        `;
+    }
+
+    /* ── Detail drawer: dependencies section ─────────────────────── */
+
+    _renderDependencies(node) {
+        let html = '';
+
+        // Prerequisites
+        html += '<div class="detail-section"><h4>Prerequisites</h4>';
+        if (node.depends_on && node.depends_on.length > 0) {
+            html += '<ul>';
+            node.depends_on.forEach(depId => {
+                const depNode = this.treeData?.nodes?.find(n => n.id === depId);
+                if (depNode) {
+                    const sc = (STATUS_STYLES[depNode.status] || STATUS_STYLES.pending).color;
+                    const desc = depNode.description ? this._escapeHtml(depNode.description.slice(0, 60)) + '...' : '';
+                    html += `<li><span class="node-log-type" style="color:${sc}">\u25cf</span> ${this._escapeHtml(depNode.employee_info?.name || depId)}: ${desc} [${this._escapeHtml(depNode.status)}]</li>`;
+                }
+            });
+            html += '</ul>';
+        } else {
+            html += '<p class="node-log-empty">None</p>';
+        }
+        html += '</div>';
+
+        // Downstream tasks
+        const allNodes = this.treeData?.nodes || [];
+        const dependents = allNodes.filter(n =>
+            (n.depends_on || []).includes(node.id) ||
+            n.parent_id === node.id
+        );
+        html += '<div class="detail-section"><h4>Downstream Tasks</h4>';
+        if (dependents.length > 0) {
+            html += '<ul>';
+            dependents.forEach(dep => {
+                const sc = (STATUS_STYLES[dep.status] || STATUS_STYLES.pending).color;
+                const desc = dep.description ? this._escapeHtml(dep.description.slice(0, 60)) + '...' : '';
+                html += `<li><span class="node-log-type" style="color:${sc}">\u25cf</span> ${this._escapeHtml(dep.employee_info?.name || dep.id)}: ${desc} [${this._escapeHtml(dep.status)}]</li>`;
+            });
+            html += '</ul>';
+        } else {
+            html += '<p class="node-log-empty">None</p>';
+        }
+        html += '</div>';
+
+        return html;
+    }
+
+    /* ── HTML escape helper ──────────────────────────────────────── */
+
+    _escapeHtml(str) {
+        const div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
     }
 
     /* ── Public API: destroy ──────────────────────────────────────── */
