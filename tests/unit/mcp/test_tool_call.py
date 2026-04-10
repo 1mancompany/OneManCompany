@@ -89,7 +89,8 @@ class TestInternalToolCall:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
-        mock_tool.ainvoke.assert_called_once_with({"param1": "value1"})
+        # employee_id auto-filled by execute_tool for MCP path
+        mock_tool.ainvoke.assert_called_once_with({"param1": "value1", "employee_id": "00002"})
 
     @pytest.mark.asyncio
     async def test_tool_error_returns_error_dict(self):

@@ -298,8 +298,10 @@ async def execute_tool(employee_id: str, tool_name: str, args: dict) -> dict:
             # For MCP calls, task_id comes from args or env — handled by caller
             pass
 
-        # Auto-fill employee_id if the tool accepts it and LLM left it empty
-        if employee_id and "employee_id" in args and not args["employee_id"]:
+        # Defense-in-depth: auto-fill employee_id for MCP/CLI callers.
+        # (LangChain proxied tools inject it at the proxy layer and strip it
+        # from the LLM schema, so this only fires for MCP HTTP bridge calls.)
+        if employee_id and not args.get("employee_id"):
             args["employee_id"] = employee_id
 
         # Call the tool

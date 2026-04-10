@@ -507,7 +507,8 @@ class TestExecuteToolEmployeeIdAutoFill:
         assert mock_tool.ainvoke.call_args[0][0]["employee_id"] == "00010"
 
     @pytest.mark.asyncio
-    async def test_no_employee_id_arg_left_alone(self):
+    async def test_injects_when_key_missing_from_args(self):
+        """MCP defense: employee_id injected even when key absent from args."""
         from onemancompany.core.tool_registry import execute_tool, tool_registry
 
         mock_tool = MagicMock()
@@ -518,8 +519,7 @@ class TestExecuteToolEmployeeIdAutoFill:
             with patch("onemancompany.core.vessel._current_vessel"):
                 await execute_tool("00004", "fake_tool", {"name": "x"})
 
-        # Args without employee_id should be untouched
-        assert "employee_id" not in mock_tool.ainvoke.call_args[0][0]
+        assert mock_tool.ainvoke.call_args[0][0]["employee_id"] == "00004"
 
 
 class TestModuleSingleton:
