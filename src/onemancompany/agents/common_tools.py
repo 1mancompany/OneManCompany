@@ -1267,7 +1267,11 @@ async def set_cron(cron_name: str, interval: str, task_description: str, employe
         employee_id: Your employee ID (auto-filled).
     """
     from onemancompany.core.automation import start_cron
-    return start_cron(employee_id, cron_name, interval, task_description)
+    ctx = _get_current_task_context()
+    project_id = ctx[0] if ctx else ""
+    tree_path = ctx[1] if ctx else ""
+    return start_cron(employee_id, cron_name, interval, task_description,
+                      project_id=project_id, tree_path=tree_path)
 
 
 @tool
@@ -1344,10 +1348,15 @@ def list_automations(employee_id: str = "") -> dict:
 
 
 def _get_current_project_id() -> str | None:
-    """Try to get project_id from current task context.
+    """Try to get project_id from current task context."""
+    ctx = _get_current_task_context()
+    return ctx[0] if ctx else None
 
-    Uses the _current_task_id context var to look up the executing TaskNode
-    and return its project_id.  Returns None if not in a task context.
+
+def _get_current_task_context() -> tuple[str, str] | None:
+    """Get (project_id, tree_path) from current task context.
+
+    Returns None if not in a task context.
     """
     try:
         task_id = _current_task_id.get("")
@@ -1356,7 +1365,6 @@ def _get_current_project_id() -> str | None:
         vessel = _current_vessel.get(None)
         if not vessel:
             return None
-        # Walk the employee_manager schedule to find the tree_path for this node
         from onemancompany.core.vessel import employee_manager
         for _emp_id, entries in employee_manager._schedule.items():
             for entry in entries:
@@ -1365,10 +1373,11 @@ def _get_current_project_id() -> str | None:
                     tree = get_tree(entry.tree_path)
                     node = tree.get_node(task_id)
                     if node and node.project_id:
-                        return node.project_id
+                        return (node.project_id, entry.tree_path)
                     return None
         return None
-    except Exception:
+    except Exception as e:
+        logger.debug("_get_current_task_context failed: {}", e)
         return None
 
 
