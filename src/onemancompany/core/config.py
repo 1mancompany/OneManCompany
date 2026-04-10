@@ -543,6 +543,7 @@ class Settings(BaseSettings):
     # Default provider & model
     default_api_provider: str = "openrouter"
     default_api_base_url: str = ""  # Custom base URL override for the default provider
+    custom_chat_class: str = "openai"  # "openai" | "anthropic" — API format for custom provider
     default_llm_model: str = "google/gemini-3.1-flash-lite-preview"
 
     # FastSkills MCP

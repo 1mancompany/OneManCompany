@@ -1321,8 +1321,10 @@ async def _fetch_provider_models(provider: str) -> dict:
     if not prov_cfg:
         return {"models": [], "error": f"Unknown provider '{provider}'"}
 
-    # Determine models URL: base_url/models for most, health_url for anthropic/google
-    if prov_cfg.base_url:
+    # Determine models URL: custom base_url → registry base_url → health_url
+    if provider == "custom" and settings.default_api_base_url:
+        models_url = f"{settings.default_api_base_url.rstrip('/')}/models"
+    elif prov_cfg.base_url:
         models_url = f"{prov_cfg.base_url.rstrip('/')}/models"
     elif prov_cfg.health_url and "/models" in prov_cfg.health_url:
         models_url = prov_cfg.health_url
