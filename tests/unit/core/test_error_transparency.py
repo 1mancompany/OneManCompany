@@ -145,16 +145,16 @@ class TestExecuteTaskErrorCheck:
 
 
 class TestFailedPathCompleteness:
-    """Test that the FAILED path calls _push_to_ceo_session and _append_progress."""
+    """Test that the FAILED path calls _push_to_conversation and _append_progress."""
 
-    def test_except_block_has_ceo_push_and_progress(self):
+    def test_except_block_has_conversation_push_and_progress(self):
         import inspect
         from onemancompany.core.vessel import EmployeeManager
 
         source = inspect.getsource(EmployeeManager._execute_task)
         lines = source.split("\n")
         in_except_block = False
-        found_ceo_push = False
+        found_conv_push = False
         found_progress = False
         for line in lines:
             if "except Exception as e:" in line:
@@ -162,11 +162,11 @@ class TestFailedPathCompleteness:
             elif in_except_block:
                 if line.strip().startswith("except ") or line.strip().startswith("finally:"):
                     break
-                if "_push_to_ceo_session" in line:
-                    found_ceo_push = True
+                if "_push_to_conversation" in line:
+                    found_conv_push = True
                 if "_append_progress" in line:
                     found_progress = True
-        assert found_ceo_push, "except Exception block must call _push_to_ceo_session"
+        assert found_conv_push, "except Exception block must call _push_to_conversation"
         assert found_progress, "except Exception block must call _append_progress"
 
 

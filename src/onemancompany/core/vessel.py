@@ -1351,7 +1351,7 @@ class EmployeeManager:
             clear_watchdog_nudge(node.project_id)
         self._log_node(employee_id, entry.node_id, "start", f"Starting task: {node.description_preview}")
         self._publish_node_update(employee_id, node)
-        self._push_to_ceo_session(node, f"▶ {node.title or node.description_preview}")
+        self._push_to_conversation(node, f"▶ {node.title or node.description_preview}")
 
         await _store.save_employee_runtime(employee_id, current_task_summary=node.description_preview[:100])
 
@@ -1573,7 +1573,7 @@ class EmployeeManager:
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
             self._log_node(employee_id, entry.node_id, "timeout", f"Task timed out after {node.timeout_seconds or 3600}s")
-            self._push_to_ceo_session(node, f"\u2717 Timeout ({node.timeout_seconds or 3600}s)")
+            self._push_to_conversation(node, f"\u2717 Timeout ({node.timeout_seconds or 3600}s)")
             _append_progress(employee_id, f"Failed: {node.description_preview} \u2014 timeout")
         except Exception as e:
             agent_error = True
@@ -1583,7 +1583,7 @@ class EmployeeManager:
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
             self._log_node(employee_id, entry.node_id, "error", f"Task failed: {e!s}")
-            self._push_to_ceo_session(node, f"\u2717 {str(e)[:500]}")
+            self._push_to_conversation(node, f"\u2717 {str(e)[:500]}")
             _append_progress(employee_id, f"Failed: {node.description_preview} \u2014 {e!s}")
             logger.exception("Unhandled error")
             # Task error hooks
@@ -1673,7 +1673,7 @@ class EmployeeManager:
                 # Push full result to CEO session
                 result_text = (node.result or "").strip()
                 if result_text:
-                    self._push_to_ceo_session(node, f"✓ {result_text}")
+                    self._push_to_conversation(node, f"✓ {result_text}")
 
             # Task complete hooks (unified skill_hooks system)
             try:
@@ -3325,45 +3325,36 @@ class EmployeeManager:
         except RuntimeError:
             logger.warning("No event loop for log publish ({})", employee_id)
 
-    def _push_to_ceo_session(self, node, message: str) -> None:
-        """Push a progress message to the CEO session for this project.
+    def _push_to_conversation(self, node, message: str) -> None:
+        """Push a progress message to the appropriate conversation.
 
-        Surfaces task execution progress in the CEO console conversation.
-        Skips CEO's own nodes and nodes without a project_id.
+        Routes to project conversation (if project_id exists) or
+        1-on-1 conversation (for cron/adhoc tasks without project context).
         """
         from onemancompany.core.config import CEO_ID
 
-        project_id = node.project_id
-        if not project_id or node.employee_id == CEO_ID:
-            return
-        if node.is_ceo_node:
+        if node.employee_id == CEO_ID or node.is_ceo_node:
             return
 
         try:
-            from onemancompany.core.ceo_broker import get_ceo_broker
+            from onemancompany.core.conversation import get_conversation_service
+            from onemancompany.core.async_utils import spawn_background
 
-            broker = get_ceo_broker()
-            session = broker.get_session(project_id)
-            if not session:
-                return
-            session.push_system_message(message, source=node.employee_id)
-            # No save_history here — progress messages are ephemeral.
-            # History is saved on significant events (CEO replies, project confirms).
+            service = get_conversation_service()
+            project_id = node.project_id
 
-            # Broadcast to frontend
-            loop = asyncio.get_running_loop()
-            loop.create_task(event_bus.publish(CompanyEvent(
-                type=EventType.CEO_SESSION_MESSAGE,
-                payload={
-                    "project_id": project_id,
-                    "message": message,
-                    "source_employee": node.employee_id,
-                    "interaction_type": "progress",
-                },
-                agent=SYSTEM_AGENT,
-            )))
+            async def _push():
+                if project_id:
+                    conv = await service.get_or_create_project_conversation(
+                        project_id, [node.employee_id]
+                    )
+                else:
+                    conv = await service.get_or_create_oneonone(node.employee_id)
+                await service.push_system_message(conv.id, message, source_employee=node.employee_id)
+
+            spawn_background(_push())
         except Exception as e:
-            logger.warning("[ceo_session_push] Failed to push progress for node {}: {}", node.id, e)
+            logger.warning("[conversation_push] Failed for node {}: {}", node.id, e)
 
     def _publish_node_update(self, employee_id: str, node) -> None:
         """Publish a task update event for a TaskNode (ScheduleEntry path)."""

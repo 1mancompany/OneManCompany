@@ -364,7 +364,7 @@ class ConversationService:
                         try:
                             pending.remove(interaction)
                         except ValueError:
-                            pass
+                            logger.debug("[conversation] interaction already removed from pending queue")
                         logger.info(
                             "[conversation] EA auto-replied conv_id={} node_id={}",
                             conv_id, interaction.node_id,
@@ -567,3 +567,18 @@ class ConversationService:
         if recovered:
             logger.info("[conversation] recovered {} stuck conversation(s)", recovered)
         return recovered
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton
+# ---------------------------------------------------------------------------
+
+_service_instance: ConversationService | None = None
+
+
+def get_conversation_service() -> ConversationService:
+    """Return the module-level ConversationService singleton (lazy-init)."""
+    global _service_instance
+    if _service_instance is None:
+        _service_instance = ConversationService()
+    return _service_instance
