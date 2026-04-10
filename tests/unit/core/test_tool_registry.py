@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 import yaml
 
 
@@ -467,6 +468,59 @@ class TestGetAllToolsExceptRoles:
 # ---------------------------------------------------------------------------
 # Module-level singleton
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# execute_tool — employee_id auto-fill
+# ---------------------------------------------------------------------------
+
+class TestExecuteToolEmployeeIdAutoFill:
+    """execute_tool should inject employee_id when the tool arg is empty."""
+
+    @pytest.mark.asyncio
+    async def test_auto_fills_empty_employee_id(self):
+        from onemancompany.core.tool_registry import execute_tool, tool_registry
+
+        mock_tool = MagicMock()
+        mock_tool.name = "fake_cron"
+        mock_tool.ainvoke = AsyncMock(return_value={"status": "ok"})
+
+        with patch.object(tool_registry, "get_tool", return_value=mock_tool):
+            with patch("onemancompany.core.vessel._current_vessel"):
+                await execute_tool("00004", "fake_cron", {"employee_id": "", "cron_name": "test"})
+
+        # employee_id should have been filled by execute_tool
+        assert mock_tool.ainvoke.call_args[0][0]["employee_id"] == "00004"
+
+    @pytest.mark.asyncio
+    async def test_does_not_overwrite_explicit_employee_id(self):
+        from onemancompany.core.tool_registry import execute_tool, tool_registry
+
+        mock_tool = MagicMock()
+        mock_tool.name = "fake_tool"
+        mock_tool.ainvoke = AsyncMock(return_value={"status": "ok"})
+
+        with patch.object(tool_registry, "get_tool", return_value=mock_tool):
+            with patch("onemancompany.core.vessel._current_vessel"):
+                await execute_tool("00004", "fake_tool", {"employee_id": "00010", "name": "x"})
+
+        # Should NOT overwrite the explicit 00010
+        assert mock_tool.ainvoke.call_args[0][0]["employee_id"] == "00010"
+
+    @pytest.mark.asyncio
+    async def test_no_employee_id_arg_left_alone(self):
+        from onemancompany.core.tool_registry import execute_tool, tool_registry
+
+        mock_tool = MagicMock()
+        mock_tool.name = "fake_tool"
+        mock_tool.ainvoke = AsyncMock(return_value={"status": "ok"})
+
+        with patch.object(tool_registry, "get_tool", return_value=mock_tool):
+            with patch("onemancompany.core.vessel._current_vessel"):
+                await execute_tool("00004", "fake_tool", {"name": "x"})
+
+        # Args without employee_id should be untouched
+        assert "employee_id" not in mock_tool.ainvoke.call_args[0][0]
+
 
 class TestModuleSingleton:
     def test_singleton_exists(self):
