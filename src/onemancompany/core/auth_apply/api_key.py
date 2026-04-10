@@ -26,13 +26,10 @@ async def apply_api_key_company(
     )
 
     provider_cfg = get_provider(provider)
-    if not provider_cfg and provider != "custom":
+    if not provider_cfg:
         return {"error": "Unknown provider", "code": "invalid_provider"}
 
-    if provider == "custom":
-        env_key = "custom_api_key"
-    else:
-        env_key = provider_cfg.env_key
+    env_key = provider_cfg.env_key
 
     if not env_key:
         return {"error": f"No env_key configured for provider {provider}", "code": "config_error"}

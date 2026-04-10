@@ -61,8 +61,10 @@ def test_test_provider_key_uses_valid_model():
     # a) Use the provider's health_url for verification, or
     # b) Use a sensible default model name
 
-    # Verify all providers have health_url configured
+    # Verify all providers have health_url configured (custom excluded — user-provided)
     for name, prov in PROVIDER_REGISTRY.items():
+        if name == "custom":
+            continue
         assert prov.health_url, f"Provider '{name}' missing health_url for key verification"
 
 
