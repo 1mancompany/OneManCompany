@@ -6408,13 +6408,12 @@ from onemancompany.core.conversation import (
     Conversation,
     ConversationService,
     Message,
+    get_conversation_service as _get_conv_svc,
     load_conversation_meta as load_conv_meta,
     load_messages as load_conv_messages,
     save_conversation_meta,
 )
 from onemancompany.core.models import ConversationType, ConversationPhase
-
-_conversation_service = ConversationService()
 _active_adapter_tasks: set[asyncio.Task] = set()
 _active_adapter_by_conv: dict[str, asyncio.Task] = {}  # conv_id → running adapter task
 
@@ -6596,7 +6595,7 @@ async def create_conversation(body: dict) -> dict:
         reusable = _pick_reusable_oneonone_conversation(employee_id)
         if reusable:
             conv, conv_dir = reusable
-            _conversation_service.ensure_indexed(conv.id, conv_dir)
+            _get_conv_svc().ensure_indexed(conv.id, conv_dir)
             if conv.phase != ConversationPhase.ACTIVE.value:
                 conv.phase = ConversationPhase.ACTIVE.value
                 conv.closed_at = None
@@ -6612,7 +6611,7 @@ async def create_conversation(body: dict) -> dict:
                 ))
             return conv.to_dict()
 
-    conv = await _conversation_service.create(
+    conv = await _get_conv_svc().create(
         type=conv_type,
         employee_id=employee_id,
         tools_enabled=body.get("tools_enabled", False),
@@ -6627,7 +6626,7 @@ async def create_conversation(body: dict) -> dict:
 @router.get("/api/conversation/{conv_id}")
 async def get_conversation(conv_id: str) -> dict:
     try:
-        conv = _conversation_service.get(conv_id)
+        conv = _get_conv_svc().get(conv_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conv.to_dict()
@@ -6636,7 +6635,7 @@ async def get_conversation(conv_id: str) -> dict:
 @router.get("/api/conversation/{conv_id}/messages")
 async def get_conversation_messages(conv_id: str) -> dict:
     try:
-        msgs = _conversation_service.get_messages(conv_id)
+        msgs = _get_conv_svc().get_messages(conv_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"messages": [m.to_dict() for m in msgs]}
@@ -6648,7 +6647,7 @@ async def send_conversation_message(conv_id: str, body: dict) -> dict:
     if not text:
         raise HTTPException(status_code=400, detail="text is required and must be non-empty")
     try:
-        msg = await _conversation_service.send_message(
+        msg = await _get_conv_svc().send_message(
             conv_id, sender="ceo", role="CEO", text=text,
             attachments=body.get("attachments"),
         )
@@ -6679,7 +6678,7 @@ async def cancel_conversation_response(conv_id: str) -> dict:
 @router.post("/api/conversation/{conv_id}/upload")
 async def upload_conversation_files(conv_id: str, files: list[UploadFile]) -> dict:
     try:
-        conv = _conversation_service.get(conv_id)
+        conv = _get_conv_svc().get(conv_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
     saved_paths = []
@@ -6705,7 +6704,7 @@ async def upload_conversation_files(conv_id: str, files: list[UploadFile]) -> di
 @router.post("/api/conversation/{conv_id}/close")
 async def close_conversation(conv_id: str, wait_hooks: bool = False) -> dict:
     try:
-        conv, hook_result = await _conversation_service.close(conv_id, wait_hooks=wait_hooks)
+        conv, hook_result = await _get_conv_svc().close(conv_id, wait_hooks=wait_hooks)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
     resp = conv.to_dict()
@@ -6718,7 +6717,7 @@ async def close_conversation(conv_id: str, wait_hooks: bool = False) -> dict:
 async def clear_conversation_history(conv_id: str) -> dict:
     """Clear all 1-on-1 message history for the current conversation's employee."""
     try:
-        conv = _conversation_service.get(conv_id)
+        conv = _get_conv_svc().get(conv_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -6777,9 +6776,9 @@ async def list_conversations(type: str | None = None, phase: str | None = None) 
     if phase and phase not in _VALID_CONV_PHASES:
         raise HTTPException(status_code=400, detail=f"Invalid phase: must be one of {_VALID_CONV_PHASES}")
     if phase and phase != ConversationPhase.ACTIVE.value:
-        convs = _conversation_service.list_by_phase(type=type, phase=phase)
+        convs = _get_conv_svc().list_by_phase(type=type, phase=phase)
     else:
-        convs = _conversation_service.list_active(type=type)
+        convs = _get_conv_svc().list_active(type=type)
     return {"conversations": [c.to_dict() for c in convs]}
 
 
@@ -6802,8 +6801,8 @@ def _format_llm_error(exc: Exception) -> str:
 async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) -> None:
     """Background task: dispatch CEO message to adapter, persist reply."""
     try:
-        conv = _conversation_service.get(conv_id)
-        messages = _conversation_service.get_messages(conv_id)
+        conv = _get_conv_svc().get(conv_id)
+        messages = _get_conv_svc().get_messages(conv_id)
         workspace_before = (
             _snapshot_workspace_images(conv.employee_id)
             if conv.type == "oneonone" else {}
@@ -6833,7 +6832,7 @@ async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) 
         # Persist agent reply — get employee name from disk (SSOT)
         emp_data = _store.load_employee(conv.employee_id)
         emp_name = emp_data.get("name", conv.employee_id) if emp_data else conv.employee_id
-        await _conversation_service.send_message(
+        await _get_conv_svc().send_message(
             conv_id,
             sender=conv.employee_id,
             role=emp_name,
@@ -6845,7 +6844,7 @@ async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) 
         # Surface a friendly error message to the CEO console
         error_text = _format_llm_error(exc)
         try:
-            await _conversation_service.send_message(
+            await _get_conv_svc().send_message(
                 conv_id, sender=SYSTEM_SENDER, role="System",
                 text=error_text,
             )

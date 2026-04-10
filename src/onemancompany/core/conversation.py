@@ -277,8 +277,14 @@ class ConversationService:
     async def send_message(
         self, conv_id: str, sender: str, role: str, text: str,
         attachments: list[str] | None = None, mentions: list[str] | None = None,
+        _broadcast: bool = True,
     ) -> Message:
-        """Persist a message (CEO or agent). Does NOT dispatch to adapter — caller handles that."""
+        """Persist a message (CEO or agent). Does NOT dispatch to adapter — caller handles that.
+
+        Args:
+            _broadcast: If False, skip the CONVERSATION_MESSAGE event. Used by
+                push_system_message() which publishes its own richer event.
+        """
         conv_dir = self._index.get(conv_id)
         if not conv_dir:
             raise ValueError(f"Conversation {conv_id} not found")
@@ -288,18 +294,19 @@ class ConversationService:
             timestamp=now, mentions=mentions or [], attachments=attachments or [],
         )
         await append_message(conv_dir, msg)
-        await event_bus.publish(CompanyEvent(
-            type=EventType.CONVERSATION_MESSAGE,
-            payload={
-                "conv_id": conv_id,
-                "sender": msg.sender,
-                "role": msg.role,
-                "text": msg.text,
-                "timestamp": msg.timestamp,
-                "mentions": msg.mentions,
-                "attachments": msg.attachments,
-            },
-        ))
+        if _broadcast:
+            await event_bus.publish(CompanyEvent(
+                type=EventType.CONVERSATION_MESSAGE,
+                payload={
+                    "conv_id": conv_id,
+                    "sender": msg.sender,
+                    "role": msg.role,
+                    "text": msg.text,
+                    "timestamp": msg.timestamp,
+                    "mentions": msg.mentions,
+                    "attachments": msg.attachments,
+                },
+            ))
         return msg
 
     # ------------------------------------------------------------------
@@ -490,7 +497,7 @@ class ConversationService:
         self, conv_id: str, message: str, source_employee: str = "",
     ) -> Message:
         """Push a system message and broadcast CONVERSATION_MESSAGE event."""
-        msg = await self.send_message(conv_id, "system", source_employee or "system", message)
+        msg = await self.send_message(conv_id, "system", source_employee or "system", message, _broadcast=False)
         conv = self.get(conv_id)
         await event_bus.publish(CompanyEvent(
             type=EventType.CONVERSATION_MESSAGE,

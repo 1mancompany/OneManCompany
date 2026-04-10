@@ -375,8 +375,7 @@ class TestReportToCeoTool:
         conv = await pending_svc.get_or_create_oneonone("00100")
 
         with patch("onemancompany.agents.common_tools._get_current_project_id", return_value=None), \
-             patch("onemancompany.agents.common_tools._conversation_service", pending_svc, create=True), \
-             patch("onemancompany.api.routes._conversation_service", pending_svc):
+             patch("onemancompany.core.conversation.get_conversation_service", return_value=pending_svc):
             result = await report_to_ceo.ainvoke({"message": "Status update: all good", "employee_id": "00100"})
 
         assert result["status"] == "ok"
@@ -393,7 +392,7 @@ class TestReportToCeoTool:
         from onemancompany.agents.common_tools import report_to_ceo
 
         with patch("onemancompany.agents.common_tools._get_current_project_id", return_value="proj_abc"), \
-             patch("onemancompany.api.routes._conversation_service", pending_svc):
+             patch("onemancompany.core.conversation.get_conversation_service", return_value=pending_svc):
             result = await report_to_ceo.ainvoke({"message": "Build complete", "employee_id": "00100"})
 
         assert result["status"] == "ok"

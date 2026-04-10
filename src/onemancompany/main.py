@@ -465,10 +465,11 @@ async def lifespan(app: FastAPI):
     _restore_ephemeral_state()
 
     # Rebuild ConversationService index from disk + recover stuck conversations
-    from onemancompany.api.routes import _conversation_service
-    _conversation_service.rebuild_index()
-    logger.info("[startup] ConversationService index rebuilt: {} conversations", len(_conversation_service._index))
-    _conv_recovered = await _conversation_service.recover()
+    from onemancompany.core.conversation import get_conversation_service as _get_conv_svc
+    _conv_svc = _get_conv_svc()
+    _conv_svc.rebuild_index()
+    logger.info("[startup] ConversationService index rebuilt: {} conversations", len(_conv_svc._index))
+    _conv_recovered = await _conv_svc.recover()
     if _conv_recovered:
         logger.info("[startup] Recovered {} stuck conversation(s)", _conv_recovered)
 

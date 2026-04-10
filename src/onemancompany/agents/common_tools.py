@@ -1387,7 +1387,8 @@ async def report_to_ceo(message: str, employee_id: str = "") -> dict:
     if err := _validate_employee_id(employee_id):
         return err
 
-    from onemancompany.api.routes import _conversation_service as service
+    from onemancompany.core.conversation import get_conversation_service
+    service = get_conversation_service()
 
     # Try to find project context from current task
     project_id = _get_current_project_id()
