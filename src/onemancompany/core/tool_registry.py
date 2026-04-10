@@ -238,21 +238,33 @@ class ToolRegistry:
         for both LangChain agents and Claude CLI agents.
         """
         from langchain_core.tools import StructuredTool
+        from pydantic import create_model
 
         direct_tools = self.get_tools_for(employee_id)
         proxied = []
         for tool in direct_tools:
             tool_name = tool.name
 
-            # Build async wrapper that calls execute_tool
+            # Inject employee_id at system level — LLM should never fill this
             async def _proxy(emp_id=employee_id, tname=tool_name, **kwargs):
+                kwargs["employee_id"] = emp_id
                 return await execute_tool(emp_id, tname, kwargs)
+
+            # Strip employee_id from schema so LLM never sees it
+            schema = getattr(tool, "args_schema", None)
+            if schema and "employee_id" in schema.model_fields:
+                fields = {
+                    k: (v.annotation, v)
+                    for k, v in schema.model_fields.items()
+                    if k != "employee_id"
+                }
+                schema = create_model(schema.__name__, **fields)
 
             wrapper = StructuredTool.from_function(
                 coroutine=_proxy,
                 name=tool.name,
                 description=tool.description,
-                args_schema=tool.args_schema if hasattr(tool, "args_schema") else None,
+                args_schema=schema,
             )
             proxied.append(wrapper)
         return proxied
