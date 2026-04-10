@@ -298,6 +298,10 @@ async def execute_tool(employee_id: str, tool_name: str, args: dict) -> dict:
             # For MCP calls, task_id comes from args or env — handled by caller
             pass
 
+        # Auto-fill employee_id if the tool accepts it and LLM left it empty
+        if employee_id and "employee_id" in args and not args["employee_id"]:
+            args["employee_id"] = employee_id
+
         # Call the tool
         if hasattr(fn, "ainvoke"):
             result = await fn.ainvoke(args)
