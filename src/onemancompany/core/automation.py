@@ -91,20 +91,17 @@ def _broadcast_cron_status(employee_id: str, cron_name: str, running: bool) -> N
 
 async def _cron_loop(employee_id: str, cron_name: str, interval_seconds: int, task_description: str) -> None:
     """Background loop that dispatches a task at regular intervals."""
-    from onemancompany.core.agent_loop import get_agent_loop
-
-    logger.info(f"[cron] Started '{cron_name}' for {employee_id} every {interval_seconds}s")
+    logger.info("[cron] Started '{}' for {} every {}s", cron_name, employee_id, interval_seconds)
     try:
         while True:
             await asyncio.sleep(interval_seconds)
-            loop = get_agent_loop(employee_id)
-            if loop:
-                task_id = loop.push_task(f"[cron:{cron_name}] {task_description}")
-                # Record dispatched task ID
-                _record_dispatched_task(employee_id, cron_name, task_id)
-                logger.debug(f"[cron] Dispatched '{cron_name}' to {employee_id}, task_id={task_id}")
-            else:
-                logger.warning(f"[cron] Employee {employee_id} not found, skipping '{cron_name}'")
+            try:
+                from onemancompany.api.routes import _push_adhoc_task
+                node_id, _tree_path = _push_adhoc_task(employee_id, f"[cron:{cron_name}] {task_description}")
+                _record_dispatched_task(employee_id, cron_name, node_id)
+                logger.debug("[cron] Dispatched '{}' to {}, node_id={}", cron_name, employee_id, node_id)
+            except Exception as e:
+                logger.error("[cron] Failed to dispatch '{}' to {}: {}", cron_name, employee_id, e)
     except asyncio.CancelledError:
         logger.info(f"[cron] Stopped '{cron_name}' for {employee_id}")
         raise
@@ -398,11 +395,11 @@ async def handle_webhook(employee_id: str, hook_name: str, payload: dict) -> dic
     payload_str = json.dumps(payload, ensure_ascii=False)[:2000]
     task_desc = template.format(hook_name=hook_name, payload=payload_str)
 
-    loop = get_agent_loop(employee_id)
-    if not loop:
-        return {"status": "error", "message": f"Employee {employee_id} not found"}
-
-    loop.push_task(f"[webhook:{hook_name}] {task_desc}")
+    try:
+        from onemancompany.api.routes import _push_adhoc_task
+        _push_adhoc_task(employee_id, f"[webhook:{hook_name}] {task_desc}")
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to dispatch: {e}"}
     return {"status": "ok", "message": f"Task dispatched to {employee_id}"}
 
 
