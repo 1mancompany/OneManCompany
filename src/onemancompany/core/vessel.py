@@ -1013,20 +1013,27 @@ class EmployeeManager:
         """Register lifecycle hooks (pre_task, post_task) for an employee.
 
         Bridges legacy vessel.yaml hooks into the unified skill_hooks system.
+        Wraps sync callables as async callbacks with compatible signatures.
         """
         self._hooks[employee_id] = hooks
-        # Bridge into unified hook system
         from onemancompany.core.skill_hooks import register_callback_hook, HookEvent
         if hooks.get("pre_task"):
             _pre = hooks["pre_task"]
             async def _pre_wrap(hook_input, _fn=_pre):
-                result = _fn(hook_input.get("task_description", ""), hook_input)
-                return {"additionalContext": result if isinstance(result, str) else ""}
+                try:
+                    result = _fn(hook_input.get("task_description", ""), None)
+                    return {"additionalContext": result if isinstance(result, str) else ""}
+                except Exception as e:
+                    logger.warning("Legacy pre_task hook failed: {}", e)
+                    return {}
             register_callback_hook(employee_id, HookEvent.TASK_START, _pre_wrap, skill_name="_vessel")
         if hooks.get("post_task"):
             _post = hooks["post_task"]
             async def _post_wrap(hook_input, _fn=_post):
-                _fn(hook_input, hook_input.get("task_description", ""))
+                try:
+                    _fn(None, hook_input.get("task_description", ""))
+                except Exception as e:
+                    logger.warning("Legacy post_task hook failed: {}", e)
                 return {}
             register_callback_hook(employee_id, HookEvent.TASK_COMPLETE, _post_wrap, skill_name="_vessel")
 
@@ -1035,6 +1042,8 @@ class EmployeeManager:
         self.vessels.pop(employee_id, None)
         self.configs.pop(employee_id, None)
         self._hooks.pop(employee_id, None)
+        from onemancompany.core.skill_hooks import clear_hooks
+        clear_hooks(employee_id)
 
     def get_handle(self, employee_id: str) -> Vessel | None:
         return self.vessels.get(employee_id)

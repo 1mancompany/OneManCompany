@@ -346,7 +346,7 @@ async def execute_tool(employee_id: str, tool_name: str, args: dict) -> dict:
         else:
             norm = {"result": str(result)}
 
-        # Post-tool hooks (fire-and-forget, don't block return)
+        # Post-tool hooks (awaited for observability, results don't affect return)
         await run_hooks(
             employee_id, HookEvent.POST_TOOL,
             tool_name=tool_name, tool_input=args, tool_output=norm, task_id=task_id,
