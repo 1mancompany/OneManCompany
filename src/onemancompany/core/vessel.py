@@ -2623,14 +2623,19 @@ class EmployeeManager:
                     ea_parent.set_status(TaskPhase.COMPLETED)
                     logger.debug("[TASK LIFECYCLE] CEO parent={} → COMPLETED", ea_parent.id)
 
-            # Guard: don't create duplicate confirm nodes for THIS specific EA
+            # Guard: don't create duplicate confirm nodes for THIS specific EA.
+            # Only block if there's an UNRESOLVED confirm node (pending/processing).
+            # Resolved ones (finished/cancelled) should not block re-completion
+            # after CEO gives new instructions.
+            _terminal = {TaskPhase.FINISHED.value, TaskPhase.CANCELLED.value, TaskPhase.ACCEPTED.value}
             existing_confirm = any(
                 c for c in tree.get_children(ea_node.id)
                 if (c.node_type == NodeType.CEO_REQUEST.value or c.node_type == NodeType.CEO_REQUEST)
                 and c.employee_id == _CEO_ID
+                and c.status not in _terminal
             )
             if existing_confirm:
-                logger.debug("[PROJECT COMPLETE] Confirm node already exists for EA {} — skipping", ea_node.id)
+                logger.debug("[PROJECT COMPLETE] Unresolved confirm node already exists for EA {} — skipping", ea_node.id)
             else:
                 # Build completion summary for CEO
                 _pdir = ea_node.project_dir or str(Path(entry.tree_path).parent)
