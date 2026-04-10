@@ -545,6 +545,15 @@ async def lifespan(app: FastAPI):
         register_agent(emp_id, _runner, config=_vessel_cfg)
         print(f"[startup] Registered {emp_data.get('name', emp_id)} ({emp_id}) — LangChain agent")
 
+    # Load skill hooks for all registered employees
+    from onemancompany.core.skill_hooks import load_hooks_from_skills
+    _total_hooks = 0
+    for _emp_dir in sorted(_EMPLOYEES_DIR.iterdir()):
+        if _emp_dir.is_dir() and (_emp_dir / "profile.yaml").exists():
+            _total_hooks += load_hooks_from_skills(_emp_dir.name)
+    if _total_hooks:
+        logger.info("[startup] Loaded {} skill hook(s) across all employees", _total_hooks)
+
     await start_all_loops()
 
     # Restore persisted tasks from per-employee task files

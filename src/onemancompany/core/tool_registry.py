@@ -316,6 +316,18 @@ async def execute_tool(employee_id: str, tool_name: str, args: dict) -> dict:
         if employee_id and not args.get("employee_id"):
             args["employee_id"] = employee_id
 
+        # Pre-tool hooks
+        from onemancompany.core.skill_hooks import run_hooks, should_block, get_updated_input, HookEvent
+        task_id = existing_task or ""
+        pre_results = await run_hooks(
+            employee_id, HookEvent.PRE_TOOL,
+            tool_name=tool_name, tool_input=args, task_id=task_id,
+        )
+        blocked, block_reason = should_block(pre_results)
+        if blocked:
+            return {"status": "blocked", "message": f"Blocked by hook: {block_reason}"}
+        args = get_updated_input(pre_results, args)
+
         # Call the tool
         if hasattr(fn, "ainvoke"):
             result = await fn.ainvoke(args)
@@ -328,12 +340,31 @@ async def execute_tool(employee_id: str, tool_name: str, args: dict) -> dict:
 
         # Normalize result
         if isinstance(result, dict):
-            return result
-        if isinstance(result, list):
-            return {"result": result}
-        return {"result": str(result)}
+            norm = result
+        elif isinstance(result, list):
+            norm = {"result": result}
+        else:
+            norm = {"result": str(result)}
+
+        # Post-tool hooks (fire-and-forget, don't block return)
+        await run_hooks(
+            employee_id, HookEvent.POST_TOOL,
+            tool_name=tool_name, tool_input=args, tool_output=norm, task_id=task_id,
+        )
+
+        return norm
     except Exception as e:
         logger.error("Tool '{}' failed: {}", tool_name, e)
+        # Post-tool-failure hooks
+        try:
+            from onemancompany.core.skill_hooks import run_hooks, HookEvent
+            await run_hooks(
+                employee_id, HookEvent.POST_TOOL_FAILURE,
+                tool_name=tool_name, tool_input=args, error_message=str(e),
+                task_id=existing_task or "",
+            )
+        except Exception as hook_err:
+            logger.debug("Post-tool-failure hook error (suppressed): {}", hook_err)
         return {"status": "error", "message": str(e)}
     finally:
         if vessel_token is not None:
