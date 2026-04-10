@@ -3351,7 +3351,8 @@ class EmployeeManager:
             project_id = node.project_id
 
             async def _push():
-                if project_id:
+                # Real projects get project conversations; system tasks (_sys_*) go to 1-on-1
+                if project_id and not project_id.startswith("_sys_"):
                     conv = await service.get_or_create_project_conversation(
                         project_id, [node.employee_id]
                     )
