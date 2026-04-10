@@ -458,6 +458,10 @@ PROVIDER_REGISTRY: dict[str, ProviderConfig] = {
         env_key="minimax_api_key",
         health_url="https://api.minimax.chat/v1/models",
     ),
+    "custom": ProviderConfig(
+        base_url="",  # user-provided via DEFAULT_API_BASE_URL
+        env_key="custom_api_key",
+    ),
 }
 
 
@@ -534,6 +538,7 @@ class Settings(BaseSettings):
     together_api_key: str = ""
     google_api_key: str = ""
     minimax_api_key: str = ""
+    custom_api_key: str = ""
 
     # Default provider & model
     default_api_provider: str = "openrouter"

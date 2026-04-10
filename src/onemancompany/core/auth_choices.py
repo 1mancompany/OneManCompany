@@ -87,8 +87,6 @@ def validate_registry_consistency() -> list[str]:
     from onemancompany.core.config import PROVIDER_REGISTRY
     warnings = []
     for group in AUTH_CHOICE_GROUPS:
-        if group.group_id == "custom":
-            continue
         if group.group_id not in PROVIDER_REGISTRY:
             warnings.append(
                 f"AUTH_CHOICE_GROUPS group_id '{group.group_id}' "
