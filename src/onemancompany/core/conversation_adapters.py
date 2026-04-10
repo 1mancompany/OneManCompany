@@ -244,8 +244,8 @@ class _BaseConversationAdapter:
         prompt = _build_conversation_prompt(conversation, messages, new_message)
         work_dir = _resolve_conversation_work_dir(conversation)
 
-        # Get all tools except HR role tools
-        tools = tool_registry.get_all_tools_except_roles(exclude_roles=_EA_EXCLUDED_ROLES)
+        # Get proxied tools with employee_id injection (strips employee_id from LLM schema)
+        tools = tool_registry.get_proxied_tools_for(conversation.employee_id)
 
         # Build a LangGraph react agent with full tools
         from langgraph.prebuilt import create_react_agent
