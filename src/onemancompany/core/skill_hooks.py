@@ -168,10 +168,14 @@ def register_skill_hooks(employee_id: str, skill_name: str, hooks_meta: dict) ->
                         timeout=inner.get("timeout", DEFAULT_TIMEOUT),
                     )
             else:
-                # Flat format or frontmatter trigger format
+                # Flat format (command) or frontmatter trigger format
+                command = h.get("command", "")
+                if not command and h.get("trigger"):
+                    # Resolve trigger name to script in skill's hooks/ dir
+                    command = _resolve_trigger(employee_id, skill_name, h["trigger"])
                 count += _register_single_hook(
                     employee_id, event, skill_name,
-                    command=h.get("command", h.get("trigger", "")),
+                    command=command,
                     matcher=h.get("matcher", ""),
                     mode=h.get("mode", "auto"),
                     timeout=h.get("timeout", DEFAULT_TIMEOUT),
@@ -180,6 +184,26 @@ def register_skill_hooks(employee_id: str, skill_name: str, hooks_meta: dict) ->
     if count:
         logger.debug("[hooks] Registered {} hooks from skill '{}' for {}", count, skill_name, employee_id)
     return count
+
+
+def _resolve_trigger(employee_id: str, skill_name: str, trigger_name: str) -> str:
+    """Resolve a trigger name to a hook script path.
+
+    Convention: trigger 'session-logger' → hooks/session-logger.sh
+    in the skill's directory. Tries .sh, then bare name.
+    """
+    skills_dir = EMPLOYEES_DIR / employee_id / "skills" / skill_name / "hooks"
+    for suffix in (".sh", ""):
+        script = skills_dir / f"{trigger_name}{suffix}"
+        if script.exists():
+            logger.debug("[hooks] Resolved trigger '{}' → {}", trigger_name, script)
+            return f"bash {script}"
+
+    logger.warning(
+        "[hooks] Trigger '{}' in skill '{}' for {} has no script at {}/",
+        trigger_name, skill_name, employee_id, skills_dir,
+    )
+    return ""
 
 
 def _register_single_hook(

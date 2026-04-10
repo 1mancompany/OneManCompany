@@ -99,8 +99,13 @@ class TestRegistration:
         # Stop → TASK_COMPLETE
         assert len(get_hooks("00004", HookEvent.TASK_COMPLETE)) == 1
 
-    def test_register_cc_frontmatter_format(self):
+    def test_register_cc_frontmatter_format(self, tmp_path):
         """CC frontmatter format: before_start/after_complete/on_error with trigger."""
+        # Create hook script files so trigger resolution works
+        hooks_dir = tmp_path / "00004" / "skills" / "sia" / "hooks"
+        hooks_dir.mkdir(parents=True)
+        (hooks_dir / "session-logger.sh").write_text("#!/bin/bash\necho ok")
+
         hooks_meta = {
             "before_start": [
                 {"trigger": "session-logger", "mode": "auto"},
@@ -113,12 +118,16 @@ class TestRegistration:
                 {"trigger": "session-logger", "mode": "auto"},
             ],
         }
-        count = register_skill_hooks("00004", "sia", hooks_meta)
-        # ask_first skipped, 3 registered (before_start + after_complete + on_error)
+        with patch("onemancompany.core.skill_hooks.EMPLOYEES_DIR", tmp_path):
+            count = register_skill_hooks("00004", "sia", hooks_meta)
+        # ask_first skipped, 3 triggers resolved to session-logger.sh
         assert count == 3
         assert len(get_hooks("00004", HookEvent.TASK_START)) == 1
         assert len(get_hooks("00004", HookEvent.TASK_COMPLETE)) == 1
         assert len(get_hooks("00004", HookEvent.TASK_ERROR)) == 1
+        # Verify the command points to the script
+        hook = get_hooks("00004", HookEvent.TASK_START)[0]
+        assert "session-logger.sh" in hook.command
 
     def test_skip_ask_first_mode(self):
         hooks_meta = {
