@@ -181,7 +181,8 @@ def recover_schedule_from_trees(
                     logger.info("[RECOVER] Restored adhoc task {} for employee {}",
                                 node.id, node.employee_id)
 
-    # 4. Recover CeoBroker sessions (conversation history)
-    from onemancompany.core.ceo_broker import get_ceo_broker
-    broker = get_ceo_broker()
-    broker.recover(projects_dir)
+    # 4. Rebuild ConversationService index from disk
+    # (async recovery of stuck conversations is handled at server startup)
+    from onemancompany.core.conversation import get_conversation_service
+    conv_svc = get_conversation_service()
+    conv_svc.rebuild_index()

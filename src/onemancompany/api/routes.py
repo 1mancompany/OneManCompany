@@ -626,13 +626,11 @@ async def ceo_submit_task(
                 acceptance_criteria=[],
             )
             _save_project_tree(pdir, tree)
-            # Create CEO session for the new project
-            from onemancompany.core.ceo_broker import get_ceo_broker
-            broker = get_ceo_broker()
-            session = broker.get_or_create_session(ctx_id)
-            session.project_dir = Path(pdir)
-            session.push_system_message(f"Project created: {task[:100]}", source="system")
-            session.save_history(Path(pdir))
+            # Create project conversation
+            from onemancompany.core.conversation import get_conversation_service
+            _conv_svc = get_conversation_service()
+            _conv = await _conv_svc.get_or_create_project_conversation(ctx_id, [CEO_ID, EA_ID])
+            await _conv_svc.push_system_message(_conv.id, f"Project created: {task[:100]}", source_employee="system")
             # Register CEO and EA in project team for project history
             from onemancompany.agents.tree_tools import _add_to_project_team
             _add_to_project_team(pdir, CEO_ID)
@@ -2910,9 +2908,9 @@ async def archive_project_endpoint(project_id: str) -> dict:
 
     archive_project(project_id)
 
-    # Remove CEO session so it disappears from the project list
-    from onemancompany.core.ceo_broker import get_ceo_broker
-    get_ceo_broker().remove_session(project_id)
+    # Remove project conversations from in-memory index
+    from onemancompany.core.conversation import get_conversation_service
+    get_conversation_service().remove_by_project(project_id)
 
     logger.info("[archive] Archived project {} — cancelled {} task(s)", project_id, total_cancelled)
     await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT))
@@ -2946,9 +2944,9 @@ async def delete_project_endpoint(project_id: str) -> dict:
     if project_dir.exists():
         shutil.rmtree(project_dir)
 
-    # Remove CEO session so it disappears from the project list
-    from onemancompany.core.ceo_broker import get_ceo_broker
-    get_ceo_broker().remove_session(project_id)
+    # Remove project conversations from in-memory index
+    from onemancompany.core.conversation import get_conversation_service
+    get_conversation_service().remove_by_project(project_id)
 
     logger.info("[delete] Deleted project {} — cancelled {} task(s)", project_id, total_cancelled)
     await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT))

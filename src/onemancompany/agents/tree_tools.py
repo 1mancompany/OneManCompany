@@ -112,22 +112,19 @@ def _create_standalone_ceo_request(
     requester_task_id: str,
     vessel,
 ) -> dict:
-    """Create a CEO request via CeoBroker without requiring a task tree context.
+    """Create a CEO request without requiring a task tree context.
 
     Used when agents running system/adhoc tasks (no tree) need to escalate to CEO.
-    Enqueues a CeoInteraction on the 'default' session so CEO sees it in the
-    unified session UI.
+    Creates a CEO_REQUEST node and schedules it via CeoExecutor so CEO sees it
+    in the conversation UI.
     """
     import asyncio
-    from onemancompany.core.ceo_broker import get_ceo_broker
     from onemancompany.core.events import CompanyEvent, event_bus
     from onemancompany.core.models import EventType
     from onemancompany.core.config import SYSTEM_AGENT
     from onemancompany.core.vessel import employee_manager
 
-    broker = get_ceo_broker()
     project_id = "default"
-    session = broker.get_or_create_session(project_id)
     source = vessel.employee_id if vessel else "unknown"
 
     # Create a temporary tree so the node has a tree_path and can be scheduled.
@@ -167,10 +164,8 @@ def _create_standalone_ceo_request(
     employee_manager.schedule_node(CEO_ID, ceo_node.id, tree_path_str)
     employee_manager._schedule_next(CEO_ID)
 
-    # Also push system message for session visibility
-    session.push_system_message(description, source=source)
-
-    # Broadcast to frontend
+    # CeoExecutor will create the project conversation and push the message
+    # when it executes this node. Broadcast a hint to frontend now.
     main_loop = getattr(employee_manager, "_event_loop", None)
     if main_loop and main_loop.is_running():
         coro = event_bus.publish(CompanyEvent(
@@ -193,7 +188,7 @@ def _create_standalone_ceo_request(
         "description": description,
         "node_type": NodeType.CEO_REQUEST,
         "ceo_request": True,
-        "message": "Task dispatched to CEO via CeoBroker. CEO will respond when available.",
+        "message": "Task dispatched to CEO. CEO will respond when available.",
     }
 
 
@@ -783,13 +778,20 @@ def create_project(task: str, mode: str = "standard") -> dict:
         _add_to_project_team(pdir, CEO_ID)
         _add_to_project_team(pdir, EA_ID)
 
-        # Create CEO session for the project
-        from onemancompany.core.ceo_broker import get_ceo_broker
-        broker = get_ceo_broker()
-        session = broker.get_or_create_session(ctx_id)
-        session.project_dir = Path(pdir)
-        session.push_system_message(f"Project created: {task[:100]}", source="system")
-        session.save_history(Path(pdir))
+        # Create project conversation via ConversationService
+        from onemancompany.core.conversation import get_conversation_service
+        _conv_svc = get_conversation_service()
+        _create_conv = _conv_svc.get_or_create_project_conversation(ctx_id, [CEO_ID, EA_ID])
+        try:
+            _running = asyncio.get_running_loop()
+        except RuntimeError:
+            _running = None
+        if _running and _running.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as _pool:
+                _pool.submit(lambda: asyncio.run(_create_conv)).result(timeout=10)
+        else:
+            asyncio.run(_create_conv)
 
         # Schedule EA
         employee_manager.schedule_node(EA_ID, ea_node.id, str(tree_path))

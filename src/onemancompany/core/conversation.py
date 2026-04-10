@@ -303,7 +303,7 @@ class ConversationService:
         return msg
 
     # ------------------------------------------------------------------
-    # Pending interaction queue (in-memory, replaces CeoBroker mechanism)
+    # Pending interaction queue (in-memory)
     # ------------------------------------------------------------------
 
     async def enqueue_interaction(self, conv_id: str, interaction: Interaction) -> None:
@@ -397,7 +397,7 @@ class ConversationService:
     async def _ea_auto_reply(conv_id: str, interaction: Interaction) -> str:
         """EA reads the request and decides accept/reject on behalf of CEO.
 
-        Replicates the logic from CeoBroker._ea_auto_reply.
+        EA reads the request and auto-replies on behalf of CEO.
         """
         import json
         import re
@@ -569,6 +569,36 @@ class ConversationService:
         if recovered:
             logger.info("[conversation] recovered {} stuck conversation(s)", recovered)
         return recovered
+
+    def cancel_all_timers(self) -> None:
+        """Cancel all auto-reply timer tasks. Called during server shutdown."""
+        for key, task in list(self._auto_reply_tasks.items()):
+            if not task.done():
+                task.cancel()
+        self._auto_reply_tasks.clear()
+        logger.debug("[conversation] cancelled all auto-reply timers")
+
+    def remove_by_project(self, project_id: str) -> int:
+        """Remove all conversations for a project from the in-memory index.
+
+        Returns the count of removed conversations.  Disk files are cleaned up
+        by the caller (e.g. ``shutil.rmtree`` on the project directory).
+        """
+        base_pid = project_id.split("/")[0]
+        to_remove = []
+        for conv_id, conv_dir in self._index.items():
+            try:
+                conv = load_conversation_meta(conv_id, conv_dir)
+            except Exception as exc:
+                logger.debug("[conversation] failed to load meta for {} during remove_by_project: {}", conv_id, exc)
+                continue
+            if conv.project_id and conv.project_id.split("/")[0] == base_pid:
+                to_remove.append(conv_id)
+        for conv_id in to_remove:
+            self._index.pop(conv_id, None)
+        if to_remove:
+            logger.debug("[conversation] removed {} conversations for project {}", len(to_remove), project_id)
+        return len(to_remove)
 
 
 # ---------------------------------------------------------------------------

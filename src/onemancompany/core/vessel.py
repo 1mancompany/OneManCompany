@@ -2698,16 +2698,18 @@ class EmployeeManager:
                 lines.append("\n👉 Reply to confirm completion, or describe changes for a new iteration.")
                 confirm_desc = "\n".join(lines)
 
-                # Push structured completion card to CEO session for rich frontend rendering
-                _base_pid = project_id.split("/")[0] if project_id else ""
-                from onemancompany.core.ceo_broker import get_ceo_broker as _get_broker
-                _broker = _get_broker()
-                _session = _broker.get_session(project_id) or _broker.get_session(_base_pid)
-                if _session:
-                    _session.push_system_message(
-                        text=confirm_desc,
-                        source="project_complete",
+                # Push structured completion card to project conversation
+                from onemancompany.core.conversation import get_conversation_service as _get_conv_svc
+                _conv_svc = _get_conv_svc()
+                try:
+                    _proj_conv = await _conv_svc.get_or_create_project_conversation(
+                        project_id, []
                     )
+                    await _conv_svc.push_system_message(
+                        _proj_conv.id, confirm_desc, source_employee="project_complete",
+                    )
+                except Exception as _e:
+                    logger.warning("[vessel] failed to push completion card to conversation: {}", _e)
 
                 # Create confirm node — short prompt only (full details already in the completion card above)
                 _confirm_prompt = f"✅ {project_name} is complete. Reply to confirm, or describe changes for a new iteration."
@@ -2848,7 +2850,7 @@ class EmployeeManager:
             ceo_node.project_dir = project_dir
             save_tree_async(entry.tree_path)
 
-            # Schedule via CeoExecutor (creates pending interaction in CeoBroker)
+            # Schedule via CeoExecutor (creates pending interaction in ConversationService)
             self.schedule_node(CEO_ID, ceo_node.id, entry.tree_path)
             self._schedule_next(CEO_ID)
             return
@@ -3561,11 +3563,9 @@ async def stop_all_loops() -> None:
         employee_manager._completion_consumer = None
         employee_manager._completion_queue = None
 
-    # Cancel CEO session auto-reply timers
-    from onemancompany.core.ceo_broker import get_ceo_broker
-    broker = get_ceo_broker()
-    for session in broker._sessions.values():
-        session.cancel_all_timers()
+    # Cancel ConversationService auto-reply timers
+    from onemancompany.core.conversation import get_conversation_service
+    get_conversation_service().cancel_all_timers()
 
     # _task_logs removed — logs are on disk (nodes/{node_id}/execution.log)
 
