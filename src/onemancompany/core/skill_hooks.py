@@ -46,6 +46,38 @@ class HookEvent(str, Enum):
 TOOL_EVENTS = frozenset({HookEvent.PRE_TOOL, HookEvent.POST_TOOL, HookEvent.POST_TOOL_FAILURE})
 TASK_EVENTS = frozenset({HookEvent.TASK_START, HookEvent.TASK_COMPLETE, HookEvent.TASK_ERROR})
 
+# CC event names → our event names (CC compat layer)
+_CC_EVENT_MAP: dict[str, HookEvent] = {
+    # CC names
+    "PreToolUse": HookEvent.PRE_TOOL,
+    "PostToolUse": HookEvent.POST_TOOL,
+    "PostToolUseFailure": HookEvent.POST_TOOL_FAILURE,
+    "SessionStart": HookEvent.TASK_START,
+    "Stop": HookEvent.TASK_COMPLETE,
+    "StopFailure": HookEvent.TASK_ERROR,
+    # frontmatter names
+    "before_start": HookEvent.TASK_START,
+    "after_complete": HookEvent.TASK_COMPLETE,
+    "on_error": HookEvent.TASK_ERROR,
+    # our names (passthrough)
+    "pre_tool": HookEvent.PRE_TOOL,
+    "post_tool": HookEvent.POST_TOOL,
+    "post_tool_failure": HookEvent.POST_TOOL_FAILURE,
+    "task_start": HookEvent.TASK_START,
+    "task_complete": HookEvent.TASK_COMPLETE,
+    "task_error": HookEvent.TASK_ERROR,
+}
+
+
+def _resolve_event(name: str) -> HookEvent | None:
+    """Resolve any event name format (CC, frontmatter, or ours) to HookEvent."""
+    if name in _CC_EVENT_MAP:
+        return _CC_EVENT_MAP[name]
+    try:
+        return HookEvent(name)
+    except ValueError:
+        return None
+
 EXIT_BLOCK = 2
 DEFAULT_TIMEOUT = 30
 
@@ -82,21 +114,36 @@ _registry: dict[tuple[str, HookEvent], list[HookConfig]] = {}
 
 
 def register_skill_hooks(employee_id: str, skill_name: str, hooks_meta: dict) -> int:
-    """Parse hooks from SKILL.md metadata and register them.
+    """Parse hooks from SKILL.md and register them.
 
-    Args:
-        employee_id: Employee ID.
-        skill_name: Name of the skill defining these hooks.
-        hooks_meta: The metadata.hooks dict from SKILL.md frontmatter.
+    Supports three configuration formats:
 
-    Returns:
-        Number of hooks registered.
+    1. Our format (flat):
+       hooks:
+         pre_tool:
+           - command: "bash script.sh"
+             matcher: "bash"
+
+    2. CC settings.json format (nested):
+       hooks:
+         PreToolUse:
+           - matcher: "Bash|Write"
+             hooks:
+               - type: command
+                 command: "bash script.sh"
+
+    3. CC frontmatter format (trigger-based):
+       hooks:
+         before_start:
+           - trigger: session-logger
+             mode: auto
+
+    Returns number of hooks registered.
     """
     count = 0
     for event_name, hook_list in hooks_meta.items():
-        try:
-            event = HookEvent(event_name)
-        except ValueError:
+        event = _resolve_event(event_name)
+        if event is None:
             logger.warning("[hooks] Unknown event '{}' in skill {} for {}", event_name, skill_name, employee_id)
             continue
 
@@ -106,28 +153,61 @@ def register_skill_hooks(employee_id: str, skill_name: str, hooks_meta: dict) ->
         for h in hook_list:
             if not isinstance(h, dict):
                 continue
-            mode = h.get("mode", "auto")
-            if mode == "ask_first":
-                continue  # company-hosted agents can't ask for confirmation
 
-            config = HookConfig(
-                event=event,
-                command=h.get("command", h.get("trigger", "")),
-                matcher=h.get("matcher", ""),
-                mode=mode,
-                timeout=h.get("timeout", DEFAULT_TIMEOUT),
-                skill_name=skill_name,
-            )
-            if not config.command:
-                continue
-
-            key = (employee_id, event)
-            _registry.setdefault(key, []).append(config)
-            count += 1
+            # CC nested format: {matcher: "...", hooks: [{type: command, command: "..."}]}
+            if "hooks" in h:
+                outer_matcher = h.get("matcher", "")
+                for inner in h["hooks"]:
+                    if not isinstance(inner, dict):
+                        continue
+                    count += _register_single_hook(
+                        employee_id, event, skill_name,
+                        command=inner.get("command", ""),
+                        matcher=outer_matcher,
+                        mode=inner.get("mode", "auto"),
+                        timeout=inner.get("timeout", DEFAULT_TIMEOUT),
+                    )
+            else:
+                # Flat format or frontmatter trigger format
+                count += _register_single_hook(
+                    employee_id, event, skill_name,
+                    command=h.get("command", h.get("trigger", "")),
+                    matcher=h.get("matcher", ""),
+                    mode=h.get("mode", "auto"),
+                    timeout=h.get("timeout", DEFAULT_TIMEOUT),
+                )
 
     if count:
         logger.debug("[hooks] Registered {} hooks from skill '{}' for {}", count, skill_name, employee_id)
     return count
+
+
+def _register_single_hook(
+    employee_id: str,
+    event: HookEvent,
+    skill_name: str,
+    command: str,
+    matcher: str = "",
+    mode: str = "auto",
+    timeout: int = DEFAULT_TIMEOUT,
+) -> int:
+    """Register one hook. Returns 1 if registered, 0 if skipped."""
+    if mode == "ask_first":
+        return 0  # company-hosted agents can't ask for confirmation
+    if not command:
+        return 0
+
+    config = HookConfig(
+        event=event,
+        command=command,
+        matcher=matcher,
+        mode=mode,
+        timeout=timeout,
+        skill_name=skill_name,
+    )
+    key = (employee_id, event)
+    _registry.setdefault(key, []).append(config)
+    return 1
 
 
 def register_callback_hook(
@@ -193,26 +273,42 @@ def _build_env(
     tool_input: dict | None = None,
     task_id: str = "",
 ) -> dict[str, str]:
-    """Build environment variables for hook subprocess."""
+    """Build environment variables for hook subprocess.
+
+    Sets both OMC_* vars (our convention) and CC-compatible vars
+    ($TOOL_NAME, $TOOL_INPUT, $SKILLS_DIR, etc.) so hook scripts
+    from either ecosystem work without modification.
+    """
     skills_dir = str(EMPLOYEES_DIR / employee_id / "skills")
+    tool_input_json = json.dumps(tool_input, ensure_ascii=False, default=str)[:10000] if tool_input else ""
     env = {
         **os.environ,
+        # Our vars
         "OMC_EMPLOYEE_ID": employee_id,
         "OMC_TASK_ID": task_id,
         "OMC_HOOK_EVENT": event.value,
         "OMC_SKILLS_DIR": skills_dir,
+        "OMC_TOOL_NAME": tool_name or "",
+        "OMC_TOOL_INPUT": tool_input_json,
+        # CC-compatible vars
+        "SKILLS_DIR": skills_dir,
+        "TOOL_NAME": tool_name or "",
+        "TOOL_INPUT": tool_input_json,
     }
-    if tool_name:
-        env["OMC_TOOL_NAME"] = tool_name
-    if tool_input is not None:
-        env["OMC_TOOL_INPUT"] = json.dumps(tool_input, ensure_ascii=False, default=str)[:10000]
     return env
 
 
-def _expand_command(command: str, employee_id: str) -> str:
-    """Expand ${SKILLS_DIR} and similar variables in command string."""
-    skills_dir = str(EMPLOYEES_DIR / employee_id / "skills")
-    return command.replace("${SKILLS_DIR}", skills_dir).replace("$SKILLS_DIR", skills_dir)
+def _expand_command(command: str, env: dict[str, str]) -> str:
+    """Expand ${VAR} and $VAR references in command string using env dict."""
+    result = command
+    # Expand ${VAR} first, then $VAR (longer match first to avoid partial replace)
+    for key, val in env.items():
+        result = result.replace(f"${{{key}}}", val)
+    for key, val in env.items():
+        # Only replace $VAR if not already expanded as ${VAR}
+        # and followed by word boundary (space, quote, end)
+        result = result.replace(f"${key}", val)
+    return result
 
 
 async def _exec_command_hook(
@@ -222,7 +318,7 @@ async def _exec_command_hook(
     employee_id: str,
 ) -> HookResult:
     """Execute a single command hook."""
-    command = _expand_command(config.command, employee_id)
+    command = _expand_command(config.command, env)
     input_json = json.dumps(hook_input, ensure_ascii=False, default=str)
 
     try:
@@ -332,6 +428,15 @@ async def run_hooks(
         hook_input["error_message"] = error_message
 
     env = _build_env(employee_id, event, tool_name, tool_input, task_id)
+    # CC-compat: add TOOL_OUTPUT and EXIT_CODE for post-tool hooks
+    if tool_output is not None:
+        env["TOOL_OUTPUT"] = json.dumps(tool_output, ensure_ascii=False, default=str)[:10000]
+        env["OMC_TOOL_OUTPUT"] = env["TOOL_OUTPUT"]
+    if error_message:
+        env["EXIT_CODE"] = "1"
+        env["OMC_ERROR_MESSAGE"] = error_message
+    else:
+        env["EXIT_CODE"] = "0"
 
     # Execute all hooks in parallel
     tasks = []
