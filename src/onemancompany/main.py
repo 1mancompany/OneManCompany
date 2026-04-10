@@ -510,7 +510,7 @@ async def lifespan(app: FastAPI):
             _inject_default_skills(_skills_dir)
 
     # Register CeoExecutor for CEO (virtual employee — routes to TUI, no LLM)
-    from onemancompany.core.ceo_broker import CeoExecutor
+    from onemancompany.core.ceo_executor import CeoExecutor
     from onemancompany.core.config import CEO_ID
     from onemancompany.core.vessel import employee_manager as _ceo_em
     _ceo_em.executors[CEO_ID] = CeoExecutor()
