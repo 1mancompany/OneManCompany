@@ -356,3 +356,108 @@ class TestReactivation:
         )
         reactivated = await pending_svc.reactivate(conv.id)
         assert reactivated.phase == ConversationPhase.ACTIVE.value
+
+
+# ---------------------------------------------------------------------------
+# report_to_ceo tool
+# ---------------------------------------------------------------------------
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+class TestReportToCeoTool:
+    @pytest.mark.asyncio
+    async def test_report_routes_to_oneonone_without_project(self, pending_svc):
+        """When no project context, report_to_ceo routes to 1-on-1 channel."""
+        from onemancompany.agents.common_tools import report_to_ceo
+
+        # Pre-create a 1-on-1 conversation
+        conv = await pending_svc.get_or_create_oneonone("00100")
+
+        with patch("onemancompany.agents.common_tools._get_current_project_id", return_value=None), \
+             patch("onemancompany.agents.common_tools._conversation_service", pending_svc, create=True), \
+             patch("onemancompany.api.routes._conversation_service", pending_svc):
+            result = await report_to_ceo.ainvoke({"message": "Status update: all good", "employee_id": "00100"})
+
+        assert result["status"] == "ok"
+        assert result["channel"] == ConversationType.ONE_ON_ONE.value
+        assert result["conv_id"] == conv.id
+
+        # Verify message was persisted
+        messages = pending_svc.get_messages(conv.id)
+        assert any("Status update: all good" in m.text for m in messages)
+
+    @pytest.mark.asyncio
+    async def test_report_routes_to_project_with_context(self, pending_svc):
+        """When project context exists, report_to_ceo routes to project channel."""
+        from onemancompany.agents.common_tools import report_to_ceo
+
+        with patch("onemancompany.agents.common_tools._get_current_project_id", return_value="proj_abc"), \
+             patch("onemancompany.api.routes._conversation_service", pending_svc):
+            result = await report_to_ceo.ainvoke({"message": "Build complete", "employee_id": "00100"})
+
+        assert result["status"] == "ok"
+        assert result["channel"] == ConversationType.PROJECT.value
+
+        # Verify conversation was created with correct project_id
+        conv = pending_svc.get(result["conv_id"])
+        assert conv.project_id == "proj_abc"
+        assert "00100" in conv.participants
+
+    @pytest.mark.asyncio
+    async def test_report_missing_employee_id_returns_error(self):
+        """report_to_ceo returns error when employee_id is empty."""
+        from onemancompany.agents.common_tools import report_to_ceo
+
+        result = await report_to_ceo.ainvoke({"message": "hello", "employee_id": ""})
+        assert result["status"] == "error"
+        assert result["is_error"] is True
+
+
+class TestGetCurrentProjectId:
+    def test_returns_none_without_context(self):
+        """Returns None when no task context is set."""
+        from onemancompany.agents.common_tools import _get_current_project_id
+
+        with patch("onemancompany.agents.common_tools._current_task_id") as mock_tid:
+            mock_tid.get.return_value = ""
+            assert _get_current_project_id() is None
+
+    def test_returns_none_without_vessel(self):
+        """Returns None when task_id is set but no vessel."""
+        from onemancompany.agents.common_tools import _get_current_project_id
+
+        with patch("onemancompany.agents.common_tools._current_task_id") as mock_tid, \
+             patch("onemancompany.agents.common_tools._current_vessel") as mock_vessel:
+            mock_tid.get.return_value = "node_123"
+            mock_vessel.get.return_value = None
+            assert _get_current_project_id() is None
+
+    def test_returns_project_id_from_schedule(self):
+        """Returns project_id when task is found in schedule."""
+        from onemancompany.agents.common_tools import _get_current_project_id
+
+        # Create mock schedule entry and tree
+        mock_entry = MagicMock()
+        mock_entry.node_id = "node_123"
+        mock_entry.tree_path = "/fake/tree.yaml"
+
+        mock_node = MagicMock()
+        mock_node.project_id = "proj_xyz"
+
+        mock_tree = MagicMock()
+        mock_tree.get_node.return_value = mock_node
+
+        mock_em = MagicMock()
+        mock_em._schedule = {"00100": [mock_entry]}
+
+        with patch("onemancompany.agents.common_tools._current_task_id") as mock_tid, \
+             patch("onemancompany.agents.common_tools._current_vessel") as mock_vessel, \
+             patch("onemancompany.core.vessel.employee_manager", mock_em), \
+             patch("onemancompany.agents.common_tools.employee_manager", mock_em, create=True), \
+             patch("onemancompany.core.task_tree.get_tree", return_value=mock_tree):
+            mock_tid.get.return_value = "node_123"
+            mock_vessel.get.return_value = MagicMock()
+            result = _get_current_project_id()
+
+        assert result == "proj_xyz"

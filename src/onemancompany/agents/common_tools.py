@@ -1339,6 +1339,69 @@ def list_automations(employee_id: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
+# CEO communication — report_to_ceo
+# ---------------------------------------------------------------------------
+
+
+def _get_current_project_id() -> str | None:
+    """Try to get project_id from current task context.
+
+    Uses the _current_task_id context var to look up the executing TaskNode
+    and return its project_id.  Returns None if not in a task context.
+    """
+    try:
+        task_id = _current_task_id.get("")
+        if not task_id:
+            return None
+        vessel = _current_vessel.get(None)
+        if not vessel:
+            return None
+        # Walk the employee_manager schedule to find the tree_path for this node
+        from onemancompany.core.vessel import employee_manager
+        for _emp_id, entries in employee_manager._schedule.items():
+            for entry in entries:
+                if entry.node_id == task_id:
+                    from onemancompany.core.task_tree import get_tree
+                    tree = get_tree(entry.tree_path)
+                    node = tree.get_node(task_id)
+                    if node and node.project_id:
+                        return node.project_id
+                    return None
+        return None
+    except Exception:
+        return None
+
+
+@tool
+async def report_to_ceo(message: str, employee_id: str = "") -> dict:
+    """Send a message directly to the CEO.
+
+    The message appears in your 1-on-1 channel with the CEO, or in
+    the current project channel if you're working on a project.
+    Use this for status updates, alerts, questions, or proactive reports.
+
+    Args:
+        message: The message to send to the CEO.
+        employee_id: Your employee ID (auto-filled).
+    """
+    if err := _validate_employee_id(employee_id):
+        return err
+
+    from onemancompany.api.routes import _conversation_service as service
+
+    # Try to find project context from current task
+    project_id = _get_current_project_id()
+    if project_id:
+        conv = await service.get_or_create_project_conversation(project_id, [employee_id])
+    else:
+        conv = await service.get_or_create_oneonone(employee_id)
+
+    await service.push_system_message(conv.id, message, source_employee=employee_id)
+    logger.debug("[report_to_ceo] employee={} conv={} project={}", employee_id, conv.id, project_id or "none")
+    return {"status": "ok", "channel": conv.type, "conv_id": conv.id}
+
+
+# ---------------------------------------------------------------------------
 # Skill loading — on-demand skill content retrieval (Claude-style)
 # ---------------------------------------------------------------------------
 
@@ -1709,7 +1772,7 @@ def _register_all_internal_tools() -> None:
         # Formerly gated — now available to all employees
         bash, use_tool, set_project_budget,
         set_cron, stop_cron_job, setup_webhook, remove_webhook,
-        list_automations,
+        list_automations, report_to_ceo,
         start_background_task, check_background_task, stop_background_task,
         list_background_tasks,
     ]
