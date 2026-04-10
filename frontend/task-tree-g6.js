@@ -16,12 +16,12 @@ const DEPT_COLORS = {
 
 const STATUS_STYLES = {
     pending:    { color: '#f59e0b', label: '\u25cc Pending' },
-    processing: { color: '#3b82f6', label: '\u27f3 Running' },
-    completed:  { color: '#22c55e', label: '\u2713 Done' },
-    accepted:   { color: '#06b6d4', label: '\u2713 Accepted' },
+    processing: { color: '#5e6ad2', label: '\u27f3 Running' },
+    completed:  { color: '#10b981', label: '\u2713 Done' },
+    accepted:   { color: '#10b981', label: '\u2713 Accepted' },
     finished:   { color: '#10b981', label: '\u2713 Finished' },
     failed:     { color: '#ef4444', label: '\u2717 Failed' },
-    cancelled:  { color: '#6b7280', label: '\u2014 Cancelled' },
+    cancelled:  { color: '#62666d', label: '\u2014 Cancelled' },
     holding:    { color: '#8b5cf6', label: '\u23f8 Holding' },
     blocked:    { color: '#f97316', label: '\u2298 Blocked' },
 };
@@ -70,6 +70,8 @@ G6.registerNode('org-card', {
             attrs: {
                 x: 2, y: 2, width: w, height: h,
                 radius: 8, fill: 'rgba(0,0,0,0.3)',
+                shadowColor: 'rgba(0,0,0,0.3)',
+                shadowBlur: 6,
             },
             name: 'shadow',
         });
@@ -78,8 +80,8 @@ G6.registerNode('org-card', {
         const cardBody = group.addShape('rect', {
             attrs: {
                 x: 0, y: 0, width: w, height: h,
-                radius: 8, fill: '#252a3a',
-                stroke: statusStyle.color, lineWidth: 1.5,
+                radius: 8, fill: '#191a1b',
+                stroke: 'rgba(255,255,255,0.08)', lineWidth: 1,
                 cursor: 'pointer',
             },
             name: 'card-body',
@@ -123,22 +125,22 @@ G6.registerNode('org-card', {
                 x: 14, y: 18,
                 text: _truncate(cfg.name || '', 16),
                 fontSize: 13, fontWeight: 'bold',
-                fill: '#e2e8f0',
+                fill: '#f7f8f8',
                 textAlign: 'left', textBaseline: 'middle',
                 cursor: 'pointer',
             },
             name: 'name-text',
         });
 
-        // --- Department badge (colored pill) ---
+        // --- Department badge (subtle pill: dept color at 20% opacity bg, full color text) ---
         const badgeText = dept;
         const badgeW = badgeText.length * 7 + 12;
         group.addShape('rect', {
             attrs: {
                 x: 14, y: 25,
                 width: badgeW, height: 16,
-                radius: 8,
-                fill: deptColor.badge, opacity: 0.85,
+                radius: 6,
+                fill: deptColor.badge, opacity: 0.2,
             },
             name: 'dept-badge-bg',
         });
@@ -147,7 +149,7 @@ G6.registerNode('org-card', {
                 x: 14 + badgeW / 2, y: 33,
                 text: badgeText,
                 fontSize: 9, fontWeight: 'bold',
-                fill: deptColor.text,
+                fill: deptColor.badge,
                 textAlign: 'center', textBaseline: 'middle',
             },
             name: 'dept-badge-text',
@@ -158,7 +160,7 @@ G6.registerNode('org-card', {
             attrs: {
                 x: 14 + badgeW + 6, y: 33,
                 text: _truncate(cfg.role || '', 14),
-                fontSize: 9, fill: '#94a3b8',
+                fontSize: 9, fill: '#8a8f98',
                 textAlign: 'left', textBaseline: 'middle',
             },
             name: 'role-text',
@@ -168,7 +170,7 @@ G6.registerNode('org-card', {
         group.addShape('line', {
             attrs: {
                 x1: 10, y1: 46, x2: w - 10, y2: 46,
-                stroke: '#374151', lineWidth: 1,
+                stroke: 'rgba(255,255,255,0.05)', lineWidth: 1,
             },
             name: 'divider',
         });
@@ -198,7 +200,7 @@ G6.registerNode('org-card', {
                 attrs: {
                     x: 14, y: 72 + i * 12,
                     text: line,
-                    fontSize: 9, fill: '#64748b',
+                    fontSize: 9, fill: '#62666d',
                     textAlign: 'left', textBaseline: 'middle',
                 },
                 name: `desc-line-${i}`,
@@ -211,7 +213,7 @@ G6.registerNode('org-card', {
             group.addShape('circle', {
                 attrs: {
                     x: w / 2, y: btnY, r: 8,
-                    fill: '#1e293b', stroke: '#475569', lineWidth: 1,
+                    fill: 'rgba(255,255,255,0.03)', stroke: 'rgba(255,255,255,0.08)', lineWidth: 1,
                     cursor: 'pointer',
                 },
                 name: 'collapse-btn',
@@ -221,7 +223,7 @@ G6.registerNode('org-card', {
                     x: w / 2, y: btnY,
                     text: collapsed ? '+' : '\u2212',
                     fontSize: 12, fontWeight: 'bold',
-                    fill: '#94a3b8',
+                    fill: '#8a8f98',
                     textAlign: 'center', textBaseline: 'middle',
                     cursor: 'pointer',
                 },
@@ -317,8 +319,8 @@ class TaskTreeRenderer {
             defaultEdge: {
                 type: 'polyline',
                 style: {
-                    stroke: '#475569',
-                    lineWidth: 2,
+                    stroke: 'rgba(255,255,255,0.05)',
+                    lineWidth: 1.5,
                     radius: 10,
                     endArrow: false,
                     offset: 30,
@@ -424,10 +426,10 @@ class TaskTreeRenderer {
 
             this.graph.updateItem(edge, {
                 style: {
-                    stroke: deptColor.bar,
-                    lineWidth: isProcessing ? 2.5 : 2,
+                    stroke: isProcessing ? '#5e6ad2' : 'rgba(255,255,255,0.05)',
+                    lineWidth: isProcessing ? 2 : 1.5,
                     lineDash: isProcessing ? [6, 3] : null,
-                    opacity: targetModel.status === 'cancelled' ? 0.3 : 0.7,
+                    opacity: targetModel.status === 'cancelled' ? 0.2 : 1,
                 },
             });
         });
@@ -481,12 +483,13 @@ class TaskTreeRenderer {
             }
         });
 
-        // Hover glow
+        // Hover glow (subtle Linear-style)
         this.graph.on('node:mouseenter', (evt) => {
             const body = evt.item.get('group').find(s => s.get('name') === 'card-body');
             if (body) {
-                body.attr('shadowColor', 'rgba(59,130,246,0.5)');
-                body.attr('shadowBlur', 12);
+                body.attr('stroke', 'rgba(255,255,255,0.15)');
+                body.attr('shadowColor', 'rgba(255,255,255,0.06)');
+                body.attr('shadowBlur', 8);
             }
             this.graph.paint();
         });
@@ -494,6 +497,7 @@ class TaskTreeRenderer {
         this.graph.on('node:mouseleave', (evt) => {
             const body = evt.item.get('group').find(s => s.get('name') === 'card-body');
             if (body) {
+                body.attr('stroke', 'rgba(255,255,255,0.08)');
                 body.attr('shadowColor', null);
                 body.attr('shadowBlur', 0);
             }
