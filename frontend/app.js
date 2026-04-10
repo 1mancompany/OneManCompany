@@ -30,6 +30,8 @@ class AppController {
     this._actionCooldowns = {};
     // Board view: track which project's plugin tab is being viewed
     this._viewingBoardProjectId = null;
+    // Unread message counts per channel (channelId → count)
+    this._unreadCounts = {};
     // Initialize plugin system before connecting
     window.pluginLoader.init().then(() => {
       this.connect();
@@ -253,27 +255,28 @@ class AppController {
       return;
     }
 
-    // CEO session real-time updates (project-level conversations)
-    if (msg.type === 'ceo_session_message') {
-      const p = msg.payload || {};
+    // Unified message handler — handles both legacy ceo_session_message and new conversation_message
+    if (msg.type === 'ceo_session_message' || msg.type === 'conversation_message') {
+      const p = msg.payload || msg;
+      const channelId = p.conv_id || p.project_id;
+
+      // Update unread count if not currently viewing this channel
+      if (channelId && channelId !== this._currentConvId && channelId !== this._currentCeoProject) {
+        this._unreadCounts[channelId] = (this._unreadCounts[channelId] || 0) + 1;
+        this._renderUnreadBadges();
+      }
+
       this._refreshCeoProjectList();
-      // If viewing this project in terminal, append message
-      if (this._currentCeoProject === p.project_id && this._ceoTerm) {
+
+      // Route to terminal if viewing this channel — project path
+      if (this._currentCeoProject && this._currentCeoProject === p.project_id && this._ceoTerm) {
         this._ceoTerm.appendMessage({
-          role: 'system',
-          text: p.message,
+          role: p.sender || 'system',
+          text: p.text || p.message,
           source: p.source_employee || 'system',
         });
-      }
-      // Also refresh project list panel
-      this.updateProjectsPanel();
-      return;
-    }
-    // Unified conversation events
-    if (msg.type === 'conversation_message') {
-      const p = msg.payload || msg;
-      // xterm terminal path: 1-on-1 or EA chat
-      if (this._currentConvId === p.conv_id && this._ceoTerm && (this._currentConvType === 'oneonone' || this._currentConvType === 'ea_chat')) {
+      // Route to terminal — 1-on-1 or EA chat path
+      } else if (this._currentConvId === p.conv_id && this._ceoTerm && (this._currentConvType === 'oneonone' || this._currentConvType === 'ea_chat')) {
         if (p.sender !== 'ceo' && p.text != null) {
           const source = this._currentConvType === 'ea_chat'
             ? '玲珑阁 (EA)'
@@ -288,6 +291,8 @@ class AppController {
         // ChatPanel path (only for non-terminal conversations)
         this._chatPanel.appendMessage(p);
       }
+
+      this.updateProjectsPanel();
       return;
     }
     if (msg.type === 'conversation_phase') {
@@ -773,6 +778,9 @@ class AppController {
 
     // Initialize CEO Terminal (xterm.js-based)
     this._initCeoTerminal();
+
+    // DND toggle button
+    this._initDndToggle();
 
     hrBtn?.addEventListener('click', () => {
       hrBtn.disabled = true;
@@ -2421,7 +2429,10 @@ class AppController {
         }
       }
     });
-    input?.addEventListener('input', () => this._handleSlashInput(input));
+    input?.addEventListener('input', () => {
+      this._handleSlashInput(input);
+      this._handleMentionInput(input);
+    });
 
     // File upload
     const fileInput = document.getElementById('ceo-file-input');
@@ -2453,6 +2464,7 @@ class AppController {
     this._currentConvType = 'ea_chat';
     this._currentConvId = this._eaChatConvId;
     this._currentConvEmployeeId = '00004';  // EA
+    if (this._eaChatConvId) this._clearUnread(this._eaChatConvId);
 
     // Update active states in sidebar
     document.querySelectorAll('.ceo-proj-item').forEach(el => el.classList.remove('active'));
@@ -2672,6 +2684,86 @@ class AppController {
     items[idx]?.classList.add('active');
   }
 
+  // ===== DND Toggle ===== //
+  _initDndToggle() {
+    const dndBtn = document.getElementById('dnd-toggle-btn');
+    if (!dndBtn) return;
+    dndBtn.addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/api/ceo/dnd', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({}),
+        });
+        const data = await resp.json();
+        dndBtn.classList.toggle('active', data.dnd);
+        dndBtn.title = data.dnd ? 'Do Not Disturb (ON)' : 'Do Not Disturb';
+      } catch (e) { console.error('DND toggle failed:', e); }
+    });
+    // Load initial state
+    fetch('/api/ceo/dnd').then(r => r.json()).then(data => {
+      dndBtn.classList.toggle('active', data.dnd);
+      if (data.dnd) dndBtn.title = 'Do Not Disturb (ON)';
+    }).catch(() => {});
+  }
+
+  // ===== @Mention Autocomplete ===== //
+  _handleMentionInput(inputEl) {
+    const text = inputEl.value;
+    const cursorPos = inputEl.selectionStart;
+    const beforeCursor = text.substring(0, cursorPos);
+    const atMatch = beforeCursor.match(/@(\S*)$/);
+    if (atMatch) {
+      const query = atMatch[1].toLowerCase();
+      const employees = window.officeRenderer?.state?.employees || window.app?._lastSnapshot?.employees || [];
+      const list = Array.isArray(employees) ? employees : Object.values(employees);
+      const matches = list.filter(e =>
+        (e.name || '').toLowerCase().includes(query) ||
+        (e.nickname || '').toLowerCase().includes(query)
+      ).slice(0, 6);
+      if (matches.length) {
+        this._showMentionDropdown(inputEl, matches, atMatch.index);
+      } else {
+        this._hideMentionDropdown();
+      }
+    } else {
+      this._hideMentionDropdown();
+    }
+  }
+
+  _showMentionDropdown(inputEl, matches, atIndex) {
+    let menu = document.getElementById('ceo-mention-menu');
+    if (!menu) {
+      menu = document.createElement('div');
+      menu.id = 'ceo-mention-menu';
+      menu.className = 'mention-dropdown';
+      inputEl.parentElement.appendChild(menu);
+    }
+    menu.innerHTML = matches.map((m, i) =>
+      `<div class="mention-item${i === 0 ? ' active' : ''}" data-name="${this._escHtml(m.nickname || m.name)}">` +
+      `<span class="mention-name">${this._escHtml(m.nickname || m.name)}</span>` +
+      `<span class="mention-role">${this._escHtml(m.role || '')}</span></div>`
+    ).join('');
+    menu.classList.remove('hidden');
+
+    menu.querySelectorAll('.mention-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const name = el.dataset.name;
+        const before = inputEl.value.substring(0, atIndex);
+        const after = inputEl.value.substring(inputEl.selectionStart);
+        inputEl.value = before + '@' + name + ' ' + after;
+        inputEl.selectionStart = inputEl.selectionEnd = atIndex + name.length + 2;
+        this._hideMentionDropdown();
+        inputEl.focus();
+      });
+    });
+  }
+
+  _hideMentionDropdown() {
+    const menu = document.getElementById('ceo-mention-menu');
+    if (menu) menu.classList.add('hidden');
+  }
+
   async _refreshCeoProjectList() {
     const listEl = document.getElementById('ceo-projects-section');
     if (!listEl) return;
@@ -2705,6 +2797,7 @@ class AppController {
       const hasPending = s.has_pending;
       const isComplete = s.is_complete;
       item.className = 'ceo-proj-item' + (this._currentCeoProject === s.project_id ? ' active' : '') + (hasPending ? ' has-pending' : '');
+      item.dataset.projectId = s.project_id;
       const basePid = (s.project_id || '').split('/')[0];
       const name = projectNames[basePid] || basePid;
       const display = name.length > 14 ? name.substring(0, 14) + '\u2026' : name;
@@ -2716,6 +2809,8 @@ class AppController {
       });
       listEl.appendChild(item);
     }
+    // Re-render badges after rebuilding the project list
+    this._renderUnreadBadges();
 
     // Render actions pinned at bottom
     // Also refresh 1-on-1 list
@@ -2749,11 +2844,54 @@ class AppController {
       const item = document.createElement('div');
       const empName = this._resolveEmployeeNickname(conv.employee_id);
       item.className = 'ceo-oneonone-item' + (this._currentConvId === conv.id ? ' active' : '');
+      item.dataset.convId = conv.id;
       item.textContent = empName;
       item.title = `1-on-1 with ${empName}`;
       item.addEventListener('click', () => this._openOneononeInTerminal(conv));
       container.appendChild(item);
     }
+    // Re-render badges after rebuilding the list
+    this._renderUnreadBadges();
+  }
+
+  _renderUnreadBadges() {
+    // Update 1-on-1 list badges (by conv_id)
+    document.querySelectorAll('[data-conv-id]').forEach(el => {
+      const id = el.dataset.convId;
+      const count = this._unreadCounts[id] || 0;
+      let badge = el.querySelector('.unread-badge');
+      if (count > 0) {
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'unread-badge';
+          el.appendChild(badge);
+        }
+        badge.textContent = count;
+      } else if (badge) {
+        badge.remove();
+      }
+    });
+    // Update project list badges (by project_id)
+    document.querySelectorAll('[data-project-id]').forEach(el => {
+      const pid = el.dataset.projectId;
+      const count = this._unreadCounts[pid] || 0;
+      let badge = el.querySelector('.unread-badge');
+      if (count > 0) {
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'unread-badge';
+          el.appendChild(badge);
+        }
+        badge.textContent = count;
+      } else if (badge) {
+        badge.remove();
+      }
+    });
+  }
+
+  _clearUnread(channelId) {
+    delete this._unreadCounts[channelId];
+    this._renderUnreadBadges();
   }
 
   async _openOneononeInTerminal(conv) {
@@ -2762,6 +2900,7 @@ class AppController {
     this._currentConvId = conv.id;
     this._currentConvType = 'oneonone';
     this._currentConvEmployeeId = conv.employee_id;
+    this._clearUnread(conv.id);
 
     // Update active states in lists
     document.querySelectorAll('.ceo-proj-item').forEach(el => el.classList.remove('active'));
@@ -2958,6 +3097,7 @@ class AppController {
     this._currentConvId = null;
     this._currentConvType = null;
     this._currentConvEmployeeId = null;
+    if (projectId) this._clearUnread(projectId);
     this._refreshCeoProjectList();
 
     if (!projectId) {

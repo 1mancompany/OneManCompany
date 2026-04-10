@@ -46,11 +46,13 @@ class ConversationType(str, Enum):
     CEO_INBOX = "ceo_inbox"
     ONE_ON_ONE = "oneonone"
     EA_CHAT = "ea_chat"
+    PROJECT = "project"
 
 
 class ConversationPhase(str, Enum):
     """Lifecycle phases of a conversation."""
     ACTIVE = "active"
+    ARCHIVED = "archived"
     CLOSING = "closing"
     CLOSED = "closed"
 
@@ -92,7 +94,7 @@ class EventType(str, Enum):
     CODE_UPDATE_AVAILABLE = "code_update_available"
     BACKEND_RESTART_SCHEDULED = "backend_restart_scheduled"
     CEO_TASK_SUBMITTED = "ceo_task_submitted"
-    CEO_SESSION_MESSAGE = "ceo_session_message"
+    CEO_SESSION_MESSAGE = "ceo_session_message"  # deprecated — kept for frontend compat; use CONVERSATION_MESSAGE
     AGENT_DONE = "agent_done"
     AGENT_LOG = "agent_log"
     AGENT_TASK_UPDATE = "agent_task_update"

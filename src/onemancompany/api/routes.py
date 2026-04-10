@@ -626,13 +626,11 @@ async def ceo_submit_task(
                 acceptance_criteria=[],
             )
             _save_project_tree(pdir, tree)
-            # Create CEO session for the new project
-            from onemancompany.core.ceo_broker import get_ceo_broker
-            broker = get_ceo_broker()
-            session = broker.get_or_create_session(ctx_id)
-            session.project_dir = Path(pdir)
-            session.push_system_message(f"Project created: {task[:100]}", source="system")
-            session.save_history(Path(pdir))
+            # Create project conversation
+            from onemancompany.core.conversation import get_conversation_service
+            _conv_svc = get_conversation_service()
+            _conv = await _conv_svc.get_or_create_project_conversation(ctx_id, [CEO_ID, EA_ID])
+            await _conv_svc.push_system_message(_conv.id, f"Project created: {task[:100]}", source_employee="system")
             # Register CEO and EA in project team for project history
             from onemancompany.agents.tree_tools import _add_to_project_team
             _add_to_project_team(pdir, CEO_ID)
@@ -2910,9 +2908,9 @@ async def archive_project_endpoint(project_id: str) -> dict:
 
     archive_project(project_id)
 
-    # Remove CEO session so it disappears from the project list
-    from onemancompany.core.ceo_broker import get_ceo_broker
-    get_ceo_broker().remove_session(project_id)
+    # Remove project conversations from in-memory index
+    from onemancompany.core.conversation import get_conversation_service
+    get_conversation_service().remove_by_project(project_id)
 
     logger.info("[archive] Archived project {} — cancelled {} task(s)", project_id, total_cancelled)
     await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT))
@@ -2946,9 +2944,9 @@ async def delete_project_endpoint(project_id: str) -> dict:
     if project_dir.exists():
         shutil.rmtree(project_dir)
 
-    # Remove CEO session so it disappears from the project list
-    from onemancompany.core.ceo_broker import get_ceo_broker
-    get_ceo_broker().remove_session(project_id)
+    # Remove project conversations from in-memory index
+    from onemancompany.core.conversation import get_conversation_service
+    get_conversation_service().remove_by_project(project_id)
 
     logger.info("[delete] Deleted project {} — cancelled {} task(s)", project_id, total_cancelled)
     await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT))
@@ -6187,44 +6185,98 @@ def _merge_tool_calls_into_history(
     return merged
 
 
+@router.post("/api/ceo/dnd")
+async def toggle_ceo_dnd(body: dict) -> dict:
+    """Toggle CEO Do Not Disturb mode."""
+    from onemancompany.core.config import set_ceo_dnd, get_ceo_dnd
+    enabled = body.get("enabled", not get_ceo_dnd())
+    set_ceo_dnd(enabled)
+    return {"status": "ok", "dnd": enabled}
+
+
+@router.get("/api/ceo/dnd")
+async def get_ceo_dnd_status() -> dict:
+    """Get CEO DND mode status."""
+    from onemancompany.core.config import get_ceo_dnd
+    return {"dnd": get_ceo_dnd()}
+
+
 @router.get("/api/ceo/sessions")
 async def list_ceo_sessions():
-    """List all CEO sessions, sorted by pending-first."""
-    from onemancompany.core.ceo_broker import get_ceo_broker
+    """List all CEO project conversations, sorted by pending-first."""
+    from onemancompany.core.conversation import get_conversation_service
+    from onemancompany.core.models import ConversationType
 
-    broker = get_ceo_broker()
-    return {"sessions": broker.list_sessions()}
+    service = get_conversation_service()
+    convs = service.list_by_phase(type=ConversationType.PROJECT.value)
+    sessions = []
+    for conv in convs:
+        sessions.append({
+            "project_id": conv.project_id or conv.id,
+            "pending_count": service.get_pending_count(conv.id),
+            "history_count": len(service.get_messages(conv.id)),
+            "conv_id": conv.id,
+        })
+    # Sort pending-first, then alphabetically by project_id
+    sessions.sort(key=lambda s: (-s["pending_count"], s.get("project_id", "")))
+    return {"sessions": sessions}
 
 
 @router.get("/api/ceo/sessions/{project_id:path}")
-async def get_ceo_session(project_id: str, include_tools: bool = False):
-    """Get a specific CEO session's history and pending status."""
-    from onemancompany.core.ceo_broker import get_ceo_broker
+async def get_ceo_session(project_id: str):
+    """Get a specific CEO session's conversation history and pending status."""
+    from onemancompany.core.conversation import get_conversation_service
 
-    broker = get_ceo_broker()
-    session = broker.get_session(project_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    service = get_conversation_service()
+    conv = None
+    for c in service.list_by_phase(type="project"):
+        if c.project_id == project_id:
+            conv = c
+            break
+    if not conv:
+        return {"history": [], "pending_count": 0}
 
-    history = session.history
-
-    if include_tools and session.project_dir:
-        import asyncio
-        from onemancompany.core.config import TASK_TREE_FILENAME
-        from onemancompany.core.task_tree import get_tree
-        tree_path = Path(session.project_dir) / TASK_TREE_FILENAME
-        if tree_path.exists():
-            tree = get_tree(str(tree_path))
-            history = await asyncio.to_thread(
-                _merge_tool_calls_into_history, history, tree, str(session.project_dir)
-            )
-
+    messages = service.get_messages(conv.id)
+    history = [
+        {
+            "role": m.sender,
+            "text": m.text,
+            "source": m.role,
+            "timestamp": m.timestamp,
+            "mentions": m.mentions,
+        }
+        for m in messages
+    ]
     return {
-        "project_id": project_id,
         "history": history,
-        "has_pending": session.has_pending,
-        "pending_count": session.pending_count,
+        "pending_count": service.get_pending_count(conv.id),
+        "conv_id": conv.id,
     }
+
+
+_MENTION_RE = re.compile(r"@(\S+)")
+
+
+def _parse_mentions(text: str, participants: list[str]) -> list[str]:
+    """Parse @mentions from CEO message. Match against participant names/nicknames."""
+    from onemancompany.core.store import load_employee
+
+    raw_mentions = _MENTION_RE.findall(text)
+    if not raw_mentions:
+        return []
+    matched: list[str] = []
+    for mention in raw_mentions:
+        mention_lower = mention.lower()
+        for emp_id in participants:
+            emp = load_employee(emp_id)
+            if not emp:
+                continue
+            name = emp.get("name", "").lower()
+            nickname = emp.get("nickname", "").lower()
+            if mention_lower == name or mention_lower == nickname or mention_lower in name:
+                if emp_id not in matched:
+                    matched.append(emp_id)
+    return matched
 
 
 @router.post("/api/ceo/sessions/{project_id:path}/message")
@@ -6234,17 +6286,38 @@ async def send_ceo_session_message(project_id: str, body: dict):
     If the session has pending interactions, resolves the front of the queue.
     Otherwise, dispatches as a CEO_FOLLOWUP instruction.
     """
-    from onemancompany.core.ceo_broker import get_ceo_broker
+    from onemancompany.core.conversation import get_conversation_service
+    from onemancompany.core.models import ConversationPhase
 
     text = (body.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Empty message")
 
-    broker = get_ceo_broker()
-    result = await broker.handle_input(project_id, text)
+    service = get_conversation_service()
+
+    # Find project conversation
+    conv = None
+    for c in service.list_by_phase(type="project"):
+        if c.project_id == project_id:
+            conv = c
+            break
+    if not conv:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Parse @mentions
+    mentions = _parse_mentions(text, conv.participants)
+
+    # Reactivate if archived
+    if conv.phase == ConversationPhase.ARCHIVED.value:
+        await service.reactivate(conv.id)
+
+    # Save CEO message
+    await service.send_message(conv.id, "ceo", "CEO", text, mentions=mentions)
+
+    # Try to resolve pending interaction
+    result = await service.resolve_interaction(conv.id, text)
 
     if result["type"] == "followup":
-        # History already persisted by CeoBroker.handle_input.
         # Dispatch as a CEO_FOLLOWUP via the existing task_followup logic.
         try:
             followup_result = await task_followup(
@@ -6253,7 +6326,6 @@ async def send_ceo_session_message(project_id: str, body: dict):
             result["followup"] = followup_result
             result["message"] = "Follow-up instruction dispatched"
         except HTTPException:
-            # Project not found or EA unavailable — degrade gracefully
             result["message"] = "Follow-up instruction recorded (dispatch failed)"
         except Exception as exc:
             logger.warning("[send_ceo_session_message] followup dispatch error: {}", exc)
@@ -6336,13 +6408,12 @@ from onemancompany.core.conversation import (
     Conversation,
     ConversationService,
     Message,
+    get_conversation_service as _get_conv_svc,
     load_conversation_meta as load_conv_meta,
     load_messages as load_conv_messages,
     save_conversation_meta,
 )
 from onemancompany.core.models import ConversationType, ConversationPhase
-
-_conversation_service = ConversationService()
 _active_adapter_tasks: set[asyncio.Task] = set()
 _active_adapter_by_conv: dict[str, asyncio.Task] = {}  # conv_id → running adapter task
 
@@ -6524,7 +6595,7 @@ async def create_conversation(body: dict) -> dict:
         reusable = _pick_reusable_oneonone_conversation(employee_id)
         if reusable:
             conv, conv_dir = reusable
-            _conversation_service.ensure_indexed(conv.id, conv_dir)
+            _get_conv_svc().ensure_indexed(conv.id, conv_dir)
             if conv.phase != ConversationPhase.ACTIVE.value:
                 conv.phase = ConversationPhase.ACTIVE.value
                 conv.closed_at = None
@@ -6540,7 +6611,7 @@ async def create_conversation(body: dict) -> dict:
                 ))
             return conv.to_dict()
 
-    conv = await _conversation_service.create(
+    conv = await _get_conv_svc().create(
         type=conv_type,
         employee_id=employee_id,
         tools_enabled=body.get("tools_enabled", False),
@@ -6555,7 +6626,7 @@ async def create_conversation(body: dict) -> dict:
 @router.get("/api/conversation/{conv_id}")
 async def get_conversation(conv_id: str) -> dict:
     try:
-        conv = _conversation_service.get(conv_id)
+        conv = _get_conv_svc().get(conv_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conv.to_dict()
@@ -6564,7 +6635,7 @@ async def get_conversation(conv_id: str) -> dict:
 @router.get("/api/conversation/{conv_id}/messages")
 async def get_conversation_messages(conv_id: str) -> dict:
     try:
-        msgs = _conversation_service.get_messages(conv_id)
+        msgs = _get_conv_svc().get_messages(conv_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"messages": [m.to_dict() for m in msgs]}
@@ -6576,7 +6647,7 @@ async def send_conversation_message(conv_id: str, body: dict) -> dict:
     if not text:
         raise HTTPException(status_code=400, detail="text is required and must be non-empty")
     try:
-        msg = await _conversation_service.send_message(
+        msg = await _get_conv_svc().send_message(
             conv_id, sender="ceo", role="CEO", text=text,
             attachments=body.get("attachments"),
         )
@@ -6607,7 +6678,7 @@ async def cancel_conversation_response(conv_id: str) -> dict:
 @router.post("/api/conversation/{conv_id}/upload")
 async def upload_conversation_files(conv_id: str, files: list[UploadFile]) -> dict:
     try:
-        conv = _conversation_service.get(conv_id)
+        conv = _get_conv_svc().get(conv_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
     saved_paths = []
@@ -6633,7 +6704,7 @@ async def upload_conversation_files(conv_id: str, files: list[UploadFile]) -> di
 @router.post("/api/conversation/{conv_id}/close")
 async def close_conversation(conv_id: str, wait_hooks: bool = False) -> dict:
     try:
-        conv, hook_result = await _conversation_service.close(conv_id, wait_hooks=wait_hooks)
+        conv, hook_result = await _get_conv_svc().close(conv_id, wait_hooks=wait_hooks)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
     resp = conv.to_dict()
@@ -6646,7 +6717,7 @@ async def close_conversation(conv_id: str, wait_hooks: bool = False) -> dict:
 async def clear_conversation_history(conv_id: str) -> dict:
     """Clear all 1-on-1 message history for the current conversation's employee."""
     try:
-        conv = _conversation_service.get(conv_id)
+        conv = _get_conv_svc().get(conv_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -6705,9 +6776,9 @@ async def list_conversations(type: str | None = None, phase: str | None = None) 
     if phase and phase not in _VALID_CONV_PHASES:
         raise HTTPException(status_code=400, detail=f"Invalid phase: must be one of {_VALID_CONV_PHASES}")
     if phase and phase != ConversationPhase.ACTIVE.value:
-        convs = _conversation_service.list_by_phase(type=type, phase=phase)
+        convs = _get_conv_svc().list_by_phase(type=type, phase=phase)
     else:
-        convs = _conversation_service.list_active(type=type)
+        convs = _get_conv_svc().list_active(type=type)
     return {"conversations": [c.to_dict() for c in convs]}
 
 
@@ -6730,8 +6801,8 @@ def _format_llm_error(exc: Exception) -> str:
 async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) -> None:
     """Background task: dispatch CEO message to adapter, persist reply."""
     try:
-        conv = _conversation_service.get(conv_id)
-        messages = _conversation_service.get_messages(conv_id)
+        conv = _get_conv_svc().get(conv_id)
+        messages = _get_conv_svc().get_messages(conv_id)
         workspace_before = (
             _snapshot_workspace_images(conv.employee_id)
             if conv.type == "oneonone" else {}
@@ -6761,7 +6832,7 @@ async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) 
         # Persist agent reply — get employee name from disk (SSOT)
         emp_data = _store.load_employee(conv.employee_id)
         emp_name = emp_data.get("name", conv.employee_id) if emp_data else conv.employee_id
-        await _conversation_service.send_message(
+        await _get_conv_svc().send_message(
             conv_id,
             sender=conv.employee_id,
             role=emp_name,
@@ -6773,7 +6844,7 @@ async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) 
         # Surface a friendly error message to the CEO console
         error_text = _format_llm_error(exc)
         try:
-            await _conversation_service.send_message(
+            await _get_conv_svc().send_message(
                 conv_id, sender=SYSTEM_SENDER, role="System",
                 text=error_text,
             )
