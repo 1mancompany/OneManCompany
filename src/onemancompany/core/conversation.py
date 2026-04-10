@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections import deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,10 +28,31 @@ from onemancompany.core.models import ConversationType, ConversationPhase, Event
 CONVERSATION_META_FILENAME = "meta.yaml"
 CONVERSATION_MESSAGES_FILENAME = "messages.yaml"
 
+# Default timeout for EA auto-reply (seconds)
+AUTO_REPLY_TIMEOUT = 120
+
 
 # ---------------------------------------------------------------------------
 # Data models
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class Interaction:
+    """A pending CEO interaction — blocks agent execution until resolved."""
+
+    node_id: str
+    tree_path: str
+    project_id: str
+    source_employee: str
+    interaction_type: str      # ceo_request | project_confirm
+    message: str
+    future: asyncio.Future = field(repr=False)
+    created_at: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.created_at:
+            self.created_at = datetime.now(timezone.utc).isoformat()
 
 
 @dataclass
@@ -152,6 +174,9 @@ class ConversationService:
 
     def __init__(self) -> None:
         self._index: dict[str, Path] = {}
+        # In-memory pending interaction queue (not persisted — Futures can't serialize)
+        self._pending: dict[str, deque[Interaction]] = {}   # conv_id → deque of Interaction
+        self._auto_reply_tasks: dict[str, asyncio.Task] = {}  # "conv_id:node_id" → timer task
 
     def ensure_indexed(self, conv_id: str, conv_dir: Path) -> None:
         """Register a conversation directory in the in-memory index."""
@@ -269,6 +294,153 @@ class ConversationService:
             },
         ))
         return msg
+
+    # ------------------------------------------------------------------
+    # Pending interaction queue (in-memory, replaces CeoBroker mechanism)
+    # ------------------------------------------------------------------
+
+    async def enqueue_interaction(self, conv_id: str, interaction: Interaction) -> None:
+        """Add a pending interaction to a conversation's queue."""
+        if conv_id not in self._pending:
+            self._pending[conv_id] = deque()
+        self._pending[conv_id].append(interaction)
+        # Push the interaction message to conversation history
+        await self.send_message(
+            conv_id, sender=interaction.source_employee,
+            role="system", text=interaction.message,
+        )
+        logger.debug(
+            "[conversation] enqueued interaction conv_id={} node_id={} type={}",
+            conv_id, interaction.node_id, interaction.interaction_type,
+        )
+        # Start auto-reply timer
+        self._start_auto_reply_timer(conv_id, interaction)
+
+    async def resolve_interaction(self, conv_id: str, ceo_text: str) -> dict:
+        """CEO replies — resolve the oldest pending interaction."""
+        pending = self._pending.get(conv_id, deque())
+        if not pending:
+            return {"type": "followup", "text": ceo_text}
+
+        interaction = pending.popleft()
+        # Cancel auto-reply timer
+        timer_key = f"{conv_id}:{interaction.node_id}"
+        timer = self._auto_reply_tasks.pop(timer_key, None)
+        if timer and not timer.done():
+            timer.cancel()
+        # Resolve the Future so the blocked agent continues
+        if not interaction.future.done():
+            interaction.future.set_result(ceo_text)
+
+        logger.info(
+            "[conversation] resolved interaction conv_id={} node_id={} type={}",
+            conv_id, interaction.node_id, interaction.interaction_type,
+        )
+        return {"type": "resolved", "node_id": interaction.node_id}
+
+    def get_pending_count(self, conv_id: str) -> int:
+        """Return the number of unresolved pending interactions for a conversation."""
+        pending = self._pending.get(conv_id, deque())
+        return len([p for p in pending if not p.future.done()])
+
+    def _start_auto_reply_timer(self, conv_id: str, interaction: Interaction) -> None:
+        """Start timer. If CEO doesn't respond within timeout, EA auto-replies."""
+        timeout = AUTO_REPLY_TIMEOUT
+
+        async def _timer() -> None:
+            try:
+                await asyncio.sleep(timeout)
+                if not interaction.future.done():
+                    reply = await self._ea_auto_reply(conv_id, interaction)
+                    if not interaction.future.done():
+                        interaction.future.set_result(reply)
+                        # Remove from pending queue
+                        pending = self._pending.get(conv_id, deque())
+                        try:
+                            pending.remove(interaction)
+                        except ValueError:
+                            pass
+                        logger.info(
+                            "[conversation] EA auto-replied conv_id={} node_id={}",
+                            conv_id, interaction.node_id,
+                        )
+            except asyncio.CancelledError:
+                logger.debug(
+                    "[conversation] auto-reply timer cancelled conv_id={} node_id={}",
+                    conv_id, interaction.node_id,
+                )
+            except Exception as e:
+                logger.error(
+                    "[conversation] auto-reply error conv_id={} node_id={}: {}",
+                    conv_id, interaction.node_id, e,
+                )
+            finally:
+                self._auto_reply_tasks.pop(f"{conv_id}:{interaction.node_id}", None)
+
+        timer_key = f"{conv_id}:{interaction.node_id}"
+        try:
+            task = asyncio.create_task(_timer())
+        except RuntimeError:
+            # No running event loop (e.g. in tests) — skip timer
+            logger.debug("[conversation] no event loop, skipping auto-reply timer for node={}", interaction.node_id)
+            return
+        self._auto_reply_tasks[timer_key] = task
+
+    @staticmethod
+    async def _ea_auto_reply(conv_id: str, interaction: Interaction) -> str:
+        """EA reads the request and decides accept/reject on behalf of CEO.
+
+        Replicates the logic from CeoBroker._ea_auto_reply.
+        """
+        import json
+        import re
+
+        from onemancompany.agents.base import _extract_text, make_llm, tracked_ainvoke
+        from onemancompany.core.config import EA_ID
+
+        llm = make_llm(EA_ID)
+        prompt = (
+            "You are the EA (Executive Assistant), making a decision on behalf of the CEO.\n\n"
+            "An employee has sent the following request to the CEO inbox:\n"
+            f"---\n{interaction.message}\n---\n\n"
+            "The CEO has not responded within the timeout period. "
+            "You need to make a decision: accept or reject this request, with a brief reason.\n\n"
+            "Guidelines:\n"
+            "- Accept requests that are reasonable, well-scoped, and align with business goals\n"
+            "- Reject requests that are vague, out of scope, or need more information\n"
+            "- Keep your response concise (2-3 sentences)\n\n"
+            "Return your decision in JSON format:\n"
+            '{"decision": "accept" or "reject", "reason": "your brief explanation"}\n'
+            "Only return JSON, no other content."
+        )
+
+        try:
+            resp = await asyncio.wait_for(
+                tracked_ainvoke(llm, prompt, category="ea_auto_reply", employee_id=EA_ID),
+                timeout=60,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[ea_auto_reply] LLM timed out for conv={} node={}, defaulting to accept",
+                conv_id, interaction.node_id,
+            )
+            return "[EA Auto-Reply] Decision: ACCEPT\nAuto-approved (EA LLM call timed out)"
+
+        raw = _extract_text(resp.content)
+        decision = "accept"
+        reason = "EA auto-approved (no valid response parsed)"
+        try:
+            json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+            if json_match:
+                parsed = json.loads(json_match.group())
+                decision = parsed.get("decision", "accept")
+                reason = parsed.get("reason", "")
+        except (json.JSONDecodeError, AttributeError) as exc:
+            logger.debug("[ea_auto_reply] failed to parse EA response: {}", exc)
+
+        reply_text = f"[EA Auto-Reply] Decision: {decision.upper()}\n{reason}"
+        logger.info("[ea_auto_reply] conv={} node={} decision={}", conv_id, interaction.node_id, decision)
+        return reply_text
 
     def rebuild_index(self) -> None:
         """Rebuild in-memory index from disk on startup."""
