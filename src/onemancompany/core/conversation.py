@@ -40,6 +40,8 @@ class Conversation:
     phase: str                   # ConversationPhase value
     employee_id: str
     tools_enabled: bool
+    participants: list[str] = field(default_factory=list)
+    project_id: str | None = None
     metadata: dict = field(default_factory=dict)
     created_at: str = ""
     closed_at: str | None = None
@@ -58,6 +60,7 @@ class Message:
     role: str
     text: str
     timestamp: str = ""
+    mentions: list[str] = field(default_factory=list)
     attachments: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
