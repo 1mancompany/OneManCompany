@@ -5540,6 +5540,65 @@ body.resize-dragging {
   color: #a1a1aa;
 }
 
+/* ===== Unread Badges ===== */
+.unread-badge {
+  background: var(--pixel-red);
+  color: #fff;
+  font-size: calc(6px + var(--font-boost));
+  font-family: 'Press Start 2P', monospace;
+  padding: 1px 4px;
+  border-radius: 8px;
+  margin-left: 4px;
+  min-width: 14px;
+  text-align: center;
+  display: inline-block;
+  line-height: 1.4;
+}
+
+/* ===== DND Toggle Active State ===== */
+#dnd-toggle-btn.active {
+  background: var(--pixel-orange);
+  color: #000;
+  border-color: var(--pixel-orange);
+}
+
+/* ===== @Mention Autocomplete ===== */
+.mention-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  z-index: 100;
+  width: 220px;
+}
+.mention-dropdown.hidden { display: none; }
+.mention-item {
+  padding: 4px 8px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: calc(8px + var(--font-boost));
+  font-family: 'Press Start 2P', monospace;
+}
+.mention-item:hover,
+.mention-item.active {
+  background: var(--pixel-purple);
+  color: #000;
+}
+.mention-name { color: var(--pixel-cyan); }
+.mention-item:hover .mention-name,
+.mention-item.active .mention-name { color: #000; }
+.mention-role {
+  color: var(--text-dim);
+  font-size: calc(6px + var(--font-boost));
+  margin-left: 8px;
+}
+
 /* ===== Announcements ===== */
 .announcement-badge {
   position: absolute;
