@@ -1,0 +1,581 @@
+// frontend/task-tree-g6.js
+// Task tree visualization with G6 (AntV) — org-chart style cards, top-down layout
+
+/* ──────────────────────────── Constants ──────────────────────────── */
+
+const DEPT_COLORS = {
+    CEO:      { badge: '#8b5cf6', bar: '#8b5cf6', text: '#fff' },
+    EA:       { badge: '#3b82f6', bar: '#3b82f6', text: '#fff' },
+    HR:       { badge: '#10b981', bar: '#10b981', text: '#fff' },
+    COO:      { badge: '#f59e0b', bar: '#f59e0b', text: '#000' },
+    CSO:      { badge: '#ef4444', bar: '#ef4444', text: '#fff' },
+    Engineer: { badge: '#06b6d4', bar: '#06b6d4', text: '#000' },
+    Cron:     { badge: '#6366f1', bar: '#6366f1', text: '#fff' },
+    Default:  { badge: '#6b7280', bar: '#6b7280', text: '#fff' },
+};
+
+const STATUS_STYLES = {
+    pending:    { color: '#f59e0b', label: '\u25cc Pending' },
+    processing: { color: '#3b82f6', label: '\u27f3 Running' },
+    completed:  { color: '#22c55e', label: '\u2713 Done' },
+    accepted:   { color: '#06b6d4', label: '\u2713 Accepted' },
+    finished:   { color: '#10b981', label: '\u2713 Finished' },
+    failed:     { color: '#ef4444', label: '\u2717 Failed' },
+    cancelled:  { color: '#6b7280', label: '\u2014 Cancelled' },
+    holding:    { color: '#8b5cf6', label: '\u23f8 Holding' },
+    blocked:    { color: '#f97316', label: '\u2298 Blocked' },
+};
+
+const CARD_W = 220, CARD_H = 90;
+
+/* ─────────────────── Word-wrap helper (shared with old code) ────── */
+
+function _wrapText(desc, maxChars, maxLines) {
+    if (!desc) return [''];
+    const words = desc.replace(/\n/g, ' ').split(/\s+/);
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+        const trial = cur ? cur + ' ' + w : w;
+        if (trial.length <= maxChars) {
+            cur = trial;
+        } else {
+            if (cur) lines.push(cur);
+            cur = w.length > maxChars ? w.substring(0, maxChars) : w;
+        }
+        if (lines.length === maxLines) { cur = ''; break; }
+    }
+    if (cur && lines.length < maxLines) lines.push(cur);
+    if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) {
+        lines[maxLines - 1] = lines[maxLines - 1].substring(0, maxChars - 1) + '\u2026';
+    }
+    if (lines.length === 0) lines.push('');
+    return lines;
+}
+
+/* ──────────────── Register custom G6 node: org-card ─────────────── */
+
+G6.registerNode('org-card', {
+    draw(cfg, group) {
+        const w = CARD_W;
+        const h = CARD_H;
+        const dept = cfg.dept || 'Default';
+        const deptColor = DEPT_COLORS[dept] || DEPT_COLORS.Default;
+        const statusStyle = STATUS_STYLES[cfg.status] || STATUS_STYLES.pending;
+        const hasChildren = cfg.children && cfg.children.length > 0;
+        const collapsed = cfg.collapsed;
+
+        // --- Shadow ---
+        group.addShape('rect', {
+            attrs: {
+                x: 2, y: 2, width: w, height: h,
+                radius: 8, fill: 'rgba(0,0,0,0.3)',
+            },
+            name: 'shadow',
+        });
+
+        // --- Card body ---
+        const cardBody = group.addShape('rect', {
+            attrs: {
+                x: 0, y: 0, width: w, height: h,
+                radius: 8, fill: '#252a3a',
+                stroke: statusStyle.color, lineWidth: 1.5,
+                cursor: 'pointer',
+            },
+            name: 'card-body',
+        });
+
+        // --- Left status bar (department color) ---
+        group.addShape('rect', {
+            attrs: {
+                x: 0, y: 0, width: 4, height: h,
+                radius: [8, 0, 0, 8],
+                fill: deptColor.bar,
+            },
+            name: 'status-bar',
+        });
+
+        // --- Right-side avatar circle ---
+        const avatarX = w - 28;
+        const avatarY = 24;
+        const avatarR = 16;
+        group.addShape('circle', {
+            attrs: {
+                x: avatarX, y: avatarY, r: avatarR,
+                fill: deptColor.badge, opacity: 0.9,
+            },
+            name: 'avatar-bg',
+        });
+        group.addShape('text', {
+            attrs: {
+                x: avatarX, y: avatarY,
+                text: cfg.avatar || '?',
+                fontSize: 12, fontWeight: 'bold',
+                fill: deptColor.text,
+                textAlign: 'center', textBaseline: 'middle',
+            },
+            name: 'avatar-text',
+        });
+
+        // --- Name (bold) ---
+        group.addShape('text', {
+            attrs: {
+                x: 14, y: 18,
+                text: _truncate(cfg.name || '', 16),
+                fontSize: 13, fontWeight: 'bold',
+                fill: '#e2e8f0',
+                textAlign: 'left', textBaseline: 'middle',
+                cursor: 'pointer',
+            },
+            name: 'name-text',
+        });
+
+        // --- Department badge (colored pill) ---
+        const badgeText = dept;
+        const badgeW = badgeText.length * 7 + 12;
+        group.addShape('rect', {
+            attrs: {
+                x: 14, y: 25,
+                width: badgeW, height: 16,
+                radius: 8,
+                fill: deptColor.badge, opacity: 0.85,
+            },
+            name: 'dept-badge-bg',
+        });
+        group.addShape('text', {
+            attrs: {
+                x: 14 + badgeW / 2, y: 33,
+                text: badgeText,
+                fontSize: 9, fontWeight: 'bold',
+                fill: deptColor.text,
+                textAlign: 'center', textBaseline: 'middle',
+            },
+            name: 'dept-badge-text',
+        });
+
+        // --- Role subtitle (gray) ---
+        group.addShape('text', {
+            attrs: {
+                x: 14 + badgeW + 6, y: 33,
+                text: _truncate(cfg.role || '', 14),
+                fontSize: 9, fill: '#94a3b8',
+                textAlign: 'left', textBaseline: 'middle',
+            },
+            name: 'role-text',
+        });
+
+        // --- Divider line ---
+        group.addShape('line', {
+            attrs: {
+                x1: 10, y1: 46, x2: w - 10, y2: 46,
+                stroke: '#374151', lineWidth: 1,
+            },
+            name: 'divider',
+        });
+
+        // --- Bottom: status dot + label ---
+        group.addShape('circle', {
+            attrs: {
+                x: 16, y: 58,
+                r: 4, fill: statusStyle.color,
+            },
+            name: 'status-dot',
+        });
+        group.addShape('text', {
+            attrs: {
+                x: 24, y: 58,
+                text: statusStyle.label,
+                fontSize: 10, fill: statusStyle.color,
+                textAlign: 'left', textBaseline: 'middle',
+            },
+            name: 'status-label',
+        });
+
+        // --- Description text (bottom area) ---
+        const descLines = _wrapText(cfg.desc || '', 30, 2);
+        descLines.forEach((line, i) => {
+            group.addShape('text', {
+                attrs: {
+                    x: 14, y: 72 + i * 12,
+                    text: line,
+                    fontSize: 9, fill: '#64748b',
+                    textAlign: 'left', textBaseline: 'middle',
+                },
+                name: `desc-line-${i}`,
+            });
+        });
+
+        // --- Collapse/expand button (if has children) ---
+        if (hasChildren) {
+            const btnY = h + 6;
+            group.addShape('circle', {
+                attrs: {
+                    x: w / 2, y: btnY, r: 8,
+                    fill: '#1e293b', stroke: '#475569', lineWidth: 1,
+                    cursor: 'pointer',
+                },
+                name: 'collapse-btn',
+            });
+            group.addShape('text', {
+                attrs: {
+                    x: w / 2, y: btnY,
+                    text: collapsed ? '+' : '\u2212',
+                    fontSize: 12, fontWeight: 'bold',
+                    fill: '#94a3b8',
+                    textAlign: 'center', textBaseline: 'middle',
+                    cursor: 'pointer',
+                },
+                name: 'collapse-icon',
+            });
+        }
+
+        return cardBody;
+    },
+
+    getAnchorPoints() {
+        return [
+            [0.5, 0],   // top center
+            [0.5, 1],   // bottom center
+        ];
+    },
+}, 'single-node');
+
+/* ──────────────────────── Utility helpers ────────────────────────── */
+
+function _truncate(str, max) {
+    return str.length > max ? str.substring(0, max - 1) + '\u2026' : str;
+}
+
+/* ──────────────────── TaskTreeRenderer class ─────────────────────── */
+
+class TaskTreeRenderer {
+    constructor(containerId, detailId) {
+        this.containerId = containerId;
+        this.detailId = detailId;
+        this.graph = null;
+        this.treeData = null;          // raw API response {nodes, root_id}
+        this.g6TreeData = null;        // transformed nested tree for G6
+        this.selectedNodeId = null;
+        this._currentProjectId = null;
+        this._resizeObserver = null;
+    }
+
+    /* ── Public API: load ─────────────────────────────────────────── */
+
+    async load(projectId) {
+        this._currentProjectId = projectId;
+        const resp = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tree`);
+        if (!resp.ok) return;
+        this.treeData = await resp.json();
+        requestAnimationFrame(() => this.render());
+    }
+
+    /* ── Public API: render ───────────────────────────────────────── */
+
+    render() {
+        if (!this.treeData || !this.treeData.nodes || !this.treeData.nodes.length) return;
+
+        const container = document.getElementById(this.containerId);
+        if (!container) return;
+
+        let { width, height } = container.getBoundingClientRect();
+        if (width < 10) width = container.parentElement?.clientWidth || 800;
+        if (height < 10) height = container.parentElement?.clientHeight || 500;
+
+        // Build nested tree data
+        this.g6TreeData = this._flatNodesToTree(this.treeData.nodes, this.treeData.root_id);
+        if (!this.g6TreeData) return;
+
+        // Destroy previous graph if exists
+        if (this.graph) {
+            this.graph.destroy();
+            this.graph = null;
+        }
+
+        // Clear container
+        container.innerHTML = '';
+
+        this.graph = new G6.TreeGraph({
+            container: this.containerId,
+            width: width,
+            height: height,
+            fitView: true,
+            fitViewPadding: [40, 40, 40, 40],
+            animate: true,
+            animateCfg: { duration: 300, easing: 'easeCubic' },
+            modes: {
+                default: [
+                    'drag-canvas',
+                    'zoom-canvas',
+                    'drag-node',
+                ],
+            },
+            defaultNode: {
+                type: 'org-card',
+                size: [CARD_W, CARD_H],
+            },
+            defaultEdge: {
+                type: 'polyline',
+                style: {
+                    stroke: '#475569',
+                    lineWidth: 2,
+                    radius: 10,
+                    endArrow: false,
+                    offset: 30,
+                },
+            },
+            layout: {
+                type: 'compactBox',
+                direction: 'TB',
+                getId: (d) => d.id,
+                getWidth: () => CARD_W,
+                getHeight: () => CARD_H + 16,  // extra space for collapse button
+                getVGap: () => 40,
+                getHGap: () => 30,
+            },
+        });
+
+        this.graph.data(this.g6TreeData);
+        this.graph.render();
+        this._colorEdges();
+        this._bindEvents();
+    }
+
+    /* ── Data transform: flat nodes → nested tree ─────────────────── */
+
+    _flatNodesToTree(nodes, rootId) {
+        const map = {};
+        nodes.forEach(n => {
+            const info = n.employee_info || {};
+            const dept = this._inferDept(info.role, n.node_type);
+            map[n.id] = {
+                id: n.id,
+                name: info.nickname || info.name || n.employee_id || n.id,
+                avatar: this._getAvatar(info, n.node_type),
+                dept: dept,
+                role: info.role || '',
+                desc: n.title || n.description_preview || n.description || '',
+                status: n.status || 'pending',
+                _raw: n,
+                children: [],
+            };
+        });
+
+        nodes.forEach(n => {
+            if (n.parent_id && map[n.parent_id]) {
+                map[n.parent_id].children.push(map[n.id]);
+            }
+        });
+
+        return map[rootId] || null;
+    }
+
+    /* ── Infer department from role/nodeType ───────────────────────── */
+
+    _inferDept(role, nodeType) {
+        if (!role && !nodeType) return 'Default';
+
+        // CEO-type nodes
+        if (nodeType === 'ceo_prompt' || nodeType === 'ceo_followup' || nodeType === 'ceo_request') {
+            return 'CEO';
+        }
+
+        const r = (role || '').toLowerCase();
+        if (r.includes('ceo') || r.includes('chief executive')) return 'CEO';
+        if (r.includes('ea') || r.includes('executive assistant') || r.includes('assistant')) return 'EA';
+        if (r.includes('hr') || r.includes('human resource') || r.includes('\u4eba\u529b')) return 'HR';
+        if (r.includes('coo') || r.includes('chief operating') || r.includes('\u8fd0\u8425')) return 'COO';
+        if (r.includes('cso') || r.includes('chief security') || r.includes('\u5b89\u5168')) return 'CSO';
+        if (r.includes('engineer') || r.includes('developer') || r.includes('dev') ||
+            r.includes('\u5de5\u7a0b') || r.includes('\u6280\u672f') || r.includes('\u7814\u53d1')) return 'Engineer';
+        if (r.includes('cron') || r.includes('scheduler') || r.includes('\u5b9a\u65f6')) return 'Cron';
+
+        if (nodeType === 'system' || nodeType === 'cron') return 'Cron';
+
+        return 'Default';
+    }
+
+    /* ── Avatar: emoji or initials ────────────────────────────────── */
+
+    _getAvatar(empInfo, nodeType) {
+        if (nodeType === 'ceo_prompt' || nodeType === 'ceo_followup' || nodeType === 'ceo_request') {
+            return '\ud83d\udc51';  // crown emoji
+        }
+        const name = empInfo?.nickname || empInfo?.name || '';
+        if (!name) return '?';
+        // Return first 2 chars as initials
+        return name.slice(0, 2);
+    }
+
+    /* ── Color edges by parent department, dashed for processing ──── */
+
+    _colorEdges() {
+        if (!this.graph) return;
+        const edges = this.graph.getEdges();
+        edges.forEach(edge => {
+            const sourceNode = edge.getSource();
+            const sourceModel = sourceNode.getModel();
+            const targetNode = edge.getTarget();
+            const targetModel = targetNode.getModel();
+            const dept = sourceModel.dept || 'Default';
+            const deptColor = DEPT_COLORS[dept] || DEPT_COLORS.Default;
+            const isProcessing = targetModel.status === 'processing';
+
+            this.graph.updateItem(edge, {
+                style: {
+                    stroke: deptColor.bar,
+                    lineWidth: isProcessing ? 2.5 : 2,
+                    lineDash: isProcessing ? [6, 3] : null,
+                    opacity: targetModel.status === 'cancelled' ? 0.3 : 0.7,
+                },
+            });
+        });
+    }
+
+    /* ── Bind graph events ────────────────────────────────────────── */
+
+    _bindEvents() {
+        if (!this.graph) return;
+
+        // Click node → selectNode
+        this.graph.on('node:click', (evt) => {
+            const model = evt.item.getModel();
+            // Check if clicked the collapse button
+            const shapeName = evt.target?.get('name');
+            if (shapeName === 'collapse-btn' || shapeName === 'collapse-icon') {
+                this._toggleCollapse(evt.item);
+                return;
+            }
+            if (model._raw) {
+                this.selectNode(model._raw);
+            }
+        });
+
+        // Hover glow
+        this.graph.on('node:mouseenter', (evt) => {
+            const body = evt.item.get('group').find(s => s.get('name') === 'card-body');
+            if (body) {
+                body.attr('shadowColor', 'rgba(59,130,246,0.5)');
+                body.attr('shadowBlur', 12);
+            }
+            this.graph.paint();
+        });
+
+        this.graph.on('node:mouseleave', (evt) => {
+            const body = evt.item.get('group').find(s => s.get('name') === 'card-body');
+            if (body) {
+                body.attr('shadowColor', null);
+                body.attr('shadowBlur', 0);
+            }
+            this.graph.paint();
+        });
+
+        // ResizeObserver for responsive
+        const container = document.getElementById(this.containerId);
+        if (container && typeof ResizeObserver !== 'undefined') {
+            this._resizeObserver = new ResizeObserver(() => {
+                if (!this.graph || this.graph.get('destroyed')) return;
+                const { width, height } = container.getBoundingClientRect();
+                if (width > 10 && height > 10) {
+                    this.graph.changeSize(width, height);
+                    this.graph.fitView(40);
+                }
+            });
+            this._resizeObserver.observe(container);
+        }
+    }
+
+    /* ── Toggle collapse/expand ────────────────────────────────────── */
+
+    _toggleCollapse(item) {
+        const model = item.getModel();
+        if (model.children && model.children.length > 0) {
+            // Collapse
+            model.collapsed = true;
+            this.graph.layout();
+            this.graph.setItemState(item, 'collapsed', true);
+        } else if (model._collapsed) {
+            // Expand
+            model.collapsed = false;
+            this.graph.layout();
+            this.graph.setItemState(item, 'collapsed', false);
+        }
+        // Update collapse icon
+        const icon = item.get('group').find(s => s.get('name') === 'collapse-icon');
+        if (icon) {
+            icon.attr('text', model.collapsed ? '+' : '\u2212');
+        }
+        this._colorEdges();
+        this.graph.paint();
+    }
+
+    /* ── Public API: updateNode ────────────────────────────────────── */
+
+    updateNode(nodeId, data) {
+        if (!this.treeData) return;
+        const node = this.treeData.nodes.find(n => n.id === nodeId);
+        if (!node) return;
+        Object.assign(node, data);
+
+        // Try incremental G6 update
+        if (this.graph) {
+            const g6Node = this.graph.findById(nodeId);
+            if (g6Node) {
+                const info = node.employee_info || {};
+                const dept = this._inferDept(info.role, node.node_type);
+                const statusStyle = STATUS_STYLES[node.status] || STATUS_STYLES.pending;
+                this.graph.updateItem(g6Node, {
+                    name: info.nickname || info.name || node.employee_id || node.id,
+                    avatar: this._getAvatar(info, node.node_type),
+                    dept: dept,
+                    role: info.role || '',
+                    desc: node.title || node.description_preview || node.description || '',
+                    status: node.status || 'pending',
+                    _raw: node,
+                });
+                this._colorEdges();
+
+                if (this.selectedNodeId === nodeId) {
+                    this.selectNode(node);
+                }
+                return;
+            }
+        }
+
+        // Fallback: full re-render
+        this.render();
+        if (this.selectedNodeId === nodeId) {
+            this.selectNode(node);
+        }
+    }
+
+    /* ── Public API: addNode ───────────────────────────────────────── */
+
+    addNode(parentId, nodeData) {
+        if (!this.treeData) return;
+        this.treeData.nodes.push(nodeData);
+        this.render();
+    }
+
+    /* ── Public API: selectNode (STUB — detail drawer is Task 4) ──── */
+
+    selectNode(nodeData) {
+        this.selectedNodeId = nodeData.id;
+        // Detail drawer rendering -- implemented in next task
+    }
+
+    /* ── Public API: destroy ──────────────────────────────────────── */
+
+    destroy() {
+        if (this._resizeObserver) {
+            this._resizeObserver.disconnect();
+            this._resizeObserver = null;
+        }
+        if (this.graph) {
+            this.graph.destroy();
+            this.graph = null;
+        }
+    }
+}
+
+window.TaskTreeRenderer = TaskTreeRenderer;
