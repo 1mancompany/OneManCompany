@@ -15,9 +15,10 @@ def conversation_service(tmp_path, monkeypatch):
 
 @pytest.fixture
 def test_app(conversation_service, monkeypatch):
-    """Patch _conversation_service in routes and return a FastAPI test app."""
+    """Patch ConversationService singleton and return a FastAPI test app."""
+    import onemancompany.core.conversation as conv_mod
+    monkeypatch.setattr(conv_mod, "_service_instance", conversation_service)
     import onemancompany.api.routes as routes_mod
-    monkeypatch.setattr(routes_mod, "_conversation_service", conversation_service)
     app = FastAPI()
     app.include_router(routes_mod.router)
     return app
