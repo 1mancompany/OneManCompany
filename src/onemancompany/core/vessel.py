@@ -843,7 +843,7 @@ class EmployeeManager:
         self._current_entries: dict[str, ScheduleEntry] = {}  # currently executing entry per employee
         self._system_tasks: dict[str, asyncio.Task] = {}  # system operation tracking
         self._deferred_schedule: set[str] = set()
-        self._hooks: dict[str, dict[str, Callable]] = {}
+        self._hooks: dict[str, dict[str, Callable]] = {}  # bridge cache only — execution goes through skill_hooks
         self._event_loop: asyncio.AbstractEventLoop | None = None  # set by drain_pending
         self._restart_pending: bool = False
         # ScheduleEntry-based scheduling (replaces boards for new code paths)
@@ -1016,8 +1016,9 @@ class EmployeeManager:
         Wraps sync callables as async callbacks with compatible signatures.
         """
         self._hooks[employee_id] = hooks
-        from onemancompany.core.skill_hooks import register_callback_hook, clear_hooks, HookEvent
-        clear_hooks(employee_id)  # prevent duplicate accumulation on re-registration
+        from onemancompany.core.skill_hooks import register_callback_hook, clear_hooks, load_hooks_from_skills, HookEvent
+        clear_hooks(employee_id)  # wipe all, then re-register both sources
+        load_hooks_from_skills(employee_id)  # re-load SKILL.md hooks first
         if hooks.get("pre_task"):
             _pre = hooks["pre_task"]
             async def _pre_wrap(hook_input, _fn=_pre):
