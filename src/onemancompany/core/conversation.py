@@ -275,7 +275,8 @@ class ConversationService:
         return conv, hook_result
 
     async def send_message(
-        self, conv_id: str, sender: str, role: str, text: str, attachments: list[str] | None = None,
+        self, conv_id: str, sender: str, role: str, text: str,
+        attachments: list[str] | None = None, mentions: list[str] | None = None,
     ) -> Message:
         """Persist a message (CEO or agent). Does NOT dispatch to adapter — caller handles that."""
         conv_dir = self._index.get(conv_id)
@@ -284,7 +285,7 @@ class ConversationService:
         now = datetime.now(timezone.utc).isoformat()
         msg = Message(
             sender=sender, role=role, text=text,
-            timestamp=now, attachments=attachments or [],
+            timestamp=now, mentions=mentions or [], attachments=attachments or [],
         )
         await append_message(conv_dir, msg)
         await event_bus.publish(CompanyEvent(
@@ -295,6 +296,7 @@ class ConversationService:
                 "role": msg.role,
                 "text": msg.text,
                 "timestamp": msg.timestamp,
+                "mentions": msg.mentions,
                 "attachments": msg.attachments,
             },
         ))

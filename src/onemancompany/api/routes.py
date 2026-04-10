@@ -6205,42 +6205,80 @@ async def get_ceo_dnd_status() -> dict:
 
 @router.get("/api/ceo/sessions")
 async def list_ceo_sessions():
-    """List all CEO sessions, sorted by pending-first."""
-    from onemancompany.core.ceo_broker import get_ceo_broker
+    """List all CEO project conversations, sorted by pending-first."""
+    from onemancompany.core.conversation import get_conversation_service
+    from onemancompany.core.models import ConversationType
 
-    broker = get_ceo_broker()
-    return {"sessions": broker.list_sessions()}
+    service = get_conversation_service()
+    convs = service.list_by_phase(type=ConversationType.PROJECT.value)
+    sessions = []
+    for conv in convs:
+        sessions.append({
+            "project_id": conv.project_id or conv.id,
+            "pending_count": service.get_pending_count(conv.id),
+            "history_count": len(service.get_messages(conv.id)),
+            "conv_id": conv.id,
+        })
+    # Sort pending-first, then alphabetically by project_id
+    sessions.sort(key=lambda s: (-s["pending_count"], s.get("project_id", "")))
+    return {"sessions": sessions}
 
 
 @router.get("/api/ceo/sessions/{project_id:path}")
-async def get_ceo_session(project_id: str, include_tools: bool = False):
-    """Get a specific CEO session's history and pending status."""
-    from onemancompany.core.ceo_broker import get_ceo_broker
+async def get_ceo_session(project_id: str):
+    """Get a specific CEO session's conversation history and pending status."""
+    from onemancompany.core.conversation import get_conversation_service
 
-    broker = get_ceo_broker()
-    session = broker.get_session(project_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    service = get_conversation_service()
+    conv = None
+    for c in service.list_by_phase(type="project"):
+        if c.project_id == project_id:
+            conv = c
+            break
+    if not conv:
+        return {"history": [], "pending_count": 0}
 
-    history = session.history
-
-    if include_tools and session.project_dir:
-        import asyncio
-        from onemancompany.core.config import TASK_TREE_FILENAME
-        from onemancompany.core.task_tree import get_tree
-        tree_path = Path(session.project_dir) / TASK_TREE_FILENAME
-        if tree_path.exists():
-            tree = get_tree(str(tree_path))
-            history = await asyncio.to_thread(
-                _merge_tool_calls_into_history, history, tree, str(session.project_dir)
-            )
-
+    messages = service.get_messages(conv.id)
+    history = [
+        {
+            "role": m.sender,
+            "text": m.text,
+            "source": m.role,
+            "timestamp": m.timestamp,
+            "mentions": m.mentions,
+        }
+        for m in messages
+    ]
     return {
-        "project_id": project_id,
         "history": history,
-        "has_pending": session.has_pending,
-        "pending_count": session.pending_count,
+        "pending_count": service.get_pending_count(conv.id),
+        "conv_id": conv.id,
     }
+
+
+_MENTION_RE = re.compile(r"@(\S+)")
+
+
+def _parse_mentions(text: str, participants: list[str]) -> list[str]:
+    """Parse @mentions from CEO message. Match against participant names/nicknames."""
+    from onemancompany.core.store import load_employee
+
+    raw_mentions = _MENTION_RE.findall(text)
+    if not raw_mentions:
+        return []
+    matched: list[str] = []
+    for mention in raw_mentions:
+        mention_lower = mention.lower()
+        for emp_id in participants:
+            emp = load_employee(emp_id)
+            if not emp:
+                continue
+            name = emp.get("name", "").lower()
+            nickname = emp.get("nickname", "").lower()
+            if mention_lower == name or mention_lower == nickname or mention_lower in name:
+                if emp_id not in matched:
+                    matched.append(emp_id)
+    return matched
 
 
 @router.post("/api/ceo/sessions/{project_id:path}/message")
@@ -6250,17 +6288,38 @@ async def send_ceo_session_message(project_id: str, body: dict):
     If the session has pending interactions, resolves the front of the queue.
     Otherwise, dispatches as a CEO_FOLLOWUP instruction.
     """
-    from onemancompany.core.ceo_broker import get_ceo_broker
+    from onemancompany.core.conversation import get_conversation_service
+    from onemancompany.core.models import ConversationPhase
 
     text = (body.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Empty message")
 
-    broker = get_ceo_broker()
-    result = await broker.handle_input(project_id, text)
+    service = get_conversation_service()
+
+    # Find project conversation
+    conv = None
+    for c in service.list_by_phase(type="project"):
+        if c.project_id == project_id:
+            conv = c
+            break
+    if not conv:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Parse @mentions
+    mentions = _parse_mentions(text, conv.participants)
+
+    # Reactivate if archived
+    if conv.phase == ConversationPhase.ARCHIVED.value:
+        await service.reactivate(conv.id)
+
+    # Save CEO message
+    await service.send_message(conv.id, "ceo", "CEO", text, mentions=mentions)
+
+    # Try to resolve pending interaction
+    result = await service.resolve_interaction(conv.id, text)
 
     if result["type"] == "followup":
-        # History already persisted by CeoBroker.handle_input.
         # Dispatch as a CEO_FOLLOWUP via the existing task_followup logic.
         try:
             followup_result = await task_followup(
@@ -6269,7 +6328,6 @@ async def send_ceo_session_message(project_id: str, body: dict):
             result["followup"] = followup_result
             result["message"] = "Follow-up instruction dispatched"
         except HTTPException:
-            # Project not found or EA unavailable — degrade gracefully
             result["message"] = "Follow-up instruction recorded (dispatch failed)"
         except Exception as exc:
             logger.warning("[send_ceo_session_message] followup dispatch error: {}", exc)
