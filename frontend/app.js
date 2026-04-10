@@ -5649,7 +5649,7 @@ class AppController {
     select.innerHTML = '<option value="">Loading models...</option>';
 
     try {
-      const resp = await fetch(`/api/models/${providerId}`);
+      const resp = await fetch(`/api/models?provider=${providerId}`);
       const data = await resp.json();
       if (data.models && data.models.length > 0) {
         let html = '<option value="">Select model...</option>';

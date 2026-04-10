@@ -1306,13 +1306,12 @@ async def update_workflow(name: str, body: dict):
 
 
 @router.get("/api/models")
-async def list_available_models() -> dict:
-    """Fetch available models from OpenRouter API (legacy endpoint)."""
-    return await list_provider_models("openrouter")
+async def list_available_models(provider: str = "openrouter") -> dict:
+    """Fetch available models for a provider (default: openrouter)."""
+    return await _fetch_provider_models(provider)
 
 
-@router.get("/api/models/{provider}")
-async def list_provider_models(provider: str) -> dict:
+async def _fetch_provider_models(provider: str) -> dict:
     """Fetch available models for any registered provider."""
     import httpx
 

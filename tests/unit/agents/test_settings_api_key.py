@@ -193,7 +193,7 @@ def test_sync_founding_defaults_skips_unchanged(tmp_path):
 @pytest.mark.asyncio
 async def test_list_provider_models_returns_normalized_list():
     """GET /api/models/{provider} returns normalized model list for any provider."""
-    from onemancompany.api.routes import list_provider_models
+    from onemancompany.api.routes import _fetch_provider_models as list_provider_models
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
@@ -226,7 +226,7 @@ async def test_list_provider_models_returns_normalized_list():
 @pytest.mark.asyncio
 async def test_list_provider_models_google_format():
     """Google returns {models: [{name: 'models/gemini-...', displayName: ...}]}."""
-    from onemancompany.api.routes import list_provider_models
+    from onemancompany.api.routes import _fetch_provider_models as list_provider_models
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
@@ -259,7 +259,7 @@ async def test_list_provider_models_google_format():
 @pytest.mark.asyncio
 async def test_list_provider_models_unknown_provider():
     """Unknown provider returns empty list with error."""
-    from onemancompany.api.routes import list_provider_models
+    from onemancompany.api.routes import _fetch_provider_models as list_provider_models
     result = await list_provider_models("nonexistent")
     assert result["models"] == []
     assert "error" in result
