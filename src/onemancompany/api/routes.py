@@ -1316,7 +1316,7 @@ async def list_provider_models(provider: str) -> dict:
     """Fetch available models for any registered provider."""
     import httpx
 
-    from onemancompany.core.config import PROVIDER_REGISTRY, get_provider, settings
+    from onemancompany.core.config import get_provider, settings
 
     prov_cfg = get_provider(provider)
     if not prov_cfg:
