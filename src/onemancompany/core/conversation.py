@@ -183,13 +183,18 @@ class ConversationService:
         self._index[conv_id] = conv_dir
 
     async def create(
-        self, type: str, employee_id: str, tools_enabled: bool = False, **metadata
+        self, type: str, employee_id: str, tools_enabled: bool = False,
+        participants: list[str] | None = None,
+        project_id: str | None = None,
+        **metadata,
     ) -> Conversation:
         conv_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         conv = Conversation(
             id=conv_id, type=type, phase=ConversationPhase.ACTIVE.value,
             employee_id=employee_id, tools_enabled=tools_enabled,
+            participants=participants or [],
+            project_id=project_id,
             metadata=metadata, created_at=now,
         )
         save_conversation_meta(conv)
@@ -441,6 +446,74 @@ class ConversationService:
         reply_text = f"[EA Auto-Reply] Decision: {decision.upper()}\n{reason}"
         logger.info("[ea_auto_reply] conv={} node={} decision={}", conv_id, interaction.node_id, decision)
         return reply_text
+
+    # ------------------------------------------------------------------
+    # High-level helpers (project conversations, 1-on-1, reactivation)
+    # ------------------------------------------------------------------
+
+    async def get_or_create_project_conversation(
+        self, project_id: str, participants: list[str] | None = None,
+    ) -> Conversation:
+        """Get existing project conversation or create new one."""
+        for conv in self.list_by_phase(type=ConversationType.PROJECT.value):
+            if conv.project_id == project_id:
+                if participants:
+                    changed = False
+                    for p in participants:
+                        if p not in conv.participants:
+                            conv.participants.append(p)
+                            changed = True
+                    if changed:
+                        save_conversation_meta(conv)
+                return conv
+        return await self.create(
+            type=ConversationType.PROJECT.value,
+            employee_id=participants[0] if participants else "",
+            participants=participants or [],
+            project_id=project_id,
+        )
+
+    async def get_or_create_oneonone(self, employee_id: str) -> Conversation:
+        """Get existing 1-on-1 or create one."""
+        for conv in self.list_by_phase(type=ConversationType.ONE_ON_ONE.value):
+            if conv.employee_id == employee_id and conv.phase != ConversationPhase.CLOSED.value:
+                return conv
+        return await self.create(
+            type=ConversationType.ONE_ON_ONE.value,
+            employee_id=employee_id,
+            participants=[employee_id],
+        )
+
+    async def push_system_message(
+        self, conv_id: str, message: str, source_employee: str = "",
+    ) -> Message:
+        """Push a system message and broadcast CONVERSATION_MESSAGE event."""
+        msg = await self.send_message(conv_id, "system", source_employee or "system", message)
+        conv = self.get(conv_id)
+        await event_bus.publish(CompanyEvent(
+            type=EventType.CONVERSATION_MESSAGE,
+            payload={
+                "conv_id": conv_id,
+                "type": conv.type,
+                "sender": "system",
+                "text": message,
+                "source_employee": source_employee,
+                "project_id": conv.project_id or "",
+                "employee_id": conv.employee_id,
+            },
+            agent="SYSTEM",
+        ))
+        return msg
+
+    async def reactivate(self, conv_id: str) -> Conversation:
+        """Reactivate an archived conversation (archived -> active)."""
+        conv = self.get(conv_id)
+        if conv.phase == ConversationPhase.ARCHIVED.value:
+            conv.phase = ConversationPhase.ACTIVE.value
+            conv.closed_at = None
+            save_conversation_meta(conv)
+            logger.debug("[conversation] reactivated: id={}", conv_id)
+        return conv
 
     def rebuild_index(self) -> None:
         """Rebuild in-memory index from disk on startup."""

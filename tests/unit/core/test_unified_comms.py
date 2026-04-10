@@ -213,3 +213,146 @@ class TestPendingQueue:
     async def test_resolve_unknown_conv_returns_followup(self, pending_svc):
         result = await pending_svc.resolve_interaction("nonexistent", "Hello")
         assert result["type"] == "followup"
+
+
+# ---------------------------------------------------------------------------
+# Project conversation helpers
+# ---------------------------------------------------------------------------
+
+
+class TestProjectConversation:
+    @pytest.mark.asyncio
+    async def test_create_project_conversation(self, pending_svc):
+        conv = await pending_svc.get_or_create_project_conversation(
+            "proj_001", participants=["00002", "00004"],
+        )
+        assert conv.type == ConversationType.PROJECT.value
+        assert conv.project_id == "proj_001"
+        assert conv.participants == ["00002", "00004"]
+        assert conv.employee_id == "00002"
+
+    @pytest.mark.asyncio
+    async def test_reuse_existing_project_conversation(self, pending_svc):
+        conv1 = await pending_svc.get_or_create_project_conversation(
+            "proj_001", participants=["00002"],
+        )
+        conv2 = await pending_svc.get_or_create_project_conversation(
+            "proj_001", participants=["00002"],
+        )
+        assert conv1.id == conv2.id
+
+    @pytest.mark.asyncio
+    async def test_add_participants_to_existing(self, pending_svc):
+        conv1 = await pending_svc.get_or_create_project_conversation(
+            "proj_001", participants=["00002"],
+        )
+        conv2 = await pending_svc.get_or_create_project_conversation(
+            "proj_001", participants=["00002", "00005"],
+        )
+        assert conv1.id == conv2.id
+        # Re-read from disk to confirm persistence
+        reloaded = pending_svc.get(conv1.id)
+        assert "00005" in reloaded.participants
+
+    @pytest.mark.asyncio
+    async def test_different_projects_different_convs(self, pending_svc):
+        conv1 = await pending_svc.get_or_create_project_conversation(
+            "proj_001", participants=["00002"],
+        )
+        conv2 = await pending_svc.get_or_create_project_conversation(
+            "proj_002", participants=["00002"],
+        )
+        assert conv1.id != conv2.id
+
+    @pytest.mark.asyncio
+    async def test_create_project_no_participants(self, pending_svc):
+        conv = await pending_svc.get_or_create_project_conversation("proj_001")
+        assert conv.participants == []
+        assert conv.employee_id == ""
+
+
+# ---------------------------------------------------------------------------
+# 1-on-1 auto-create
+# ---------------------------------------------------------------------------
+
+
+class TestOneononeAutoCreate:
+    @pytest.mark.asyncio
+    async def test_create_oneonone(self, pending_svc):
+        conv = await pending_svc.get_or_create_oneonone("00100")
+        assert conv.type == ConversationType.ONE_ON_ONE.value
+        assert conv.employee_id == "00100"
+        assert conv.participants == ["00100"]
+
+    @pytest.mark.asyncio
+    async def test_reuse_existing_oneonone(self, pending_svc):
+        conv1 = await pending_svc.get_or_create_oneonone("00100")
+        conv2 = await pending_svc.get_or_create_oneonone("00100")
+        assert conv1.id == conv2.id
+
+    @pytest.mark.asyncio
+    async def test_different_employees_different_convs(self, pending_svc):
+        conv1 = await pending_svc.get_or_create_oneonone("00100")
+        conv2 = await pending_svc.get_or_create_oneonone("00200")
+        assert conv1.id != conv2.id
+
+
+# ---------------------------------------------------------------------------
+# Push system message
+# ---------------------------------------------------------------------------
+
+
+class TestPushSystemMessage:
+    @pytest.mark.asyncio
+    async def test_push_system_message(self, pending_svc):
+        conv = await pending_svc.create(
+            type="oneonone", employee_id="00100", participants=["00100"],
+        )
+        msg = await pending_svc.push_system_message(conv.id, "Task assigned", source_employee="00002")
+        assert msg.sender == "system"
+        assert msg.text == "Task assigned"
+        # Verify message persisted
+        messages = pending_svc.get_messages(conv.id)
+        assert any(m.text == "Task assigned" for m in messages)
+
+    @pytest.mark.asyncio
+    async def test_push_system_message_default_source(self, pending_svc):
+        conv = await pending_svc.create(
+            type="oneonone", employee_id="00100", participants=["00100"],
+        )
+        msg = await pending_svc.push_system_message(conv.id, "Auto notification")
+        assert msg.sender == "system"
+        assert msg.role == "system"
+
+
+# ---------------------------------------------------------------------------
+# Reactivation
+# ---------------------------------------------------------------------------
+
+
+class TestReactivation:
+    @pytest.mark.asyncio
+    async def test_reactivate_archived(self, pending_svc):
+        from onemancompany.core.conversation import save_conversation_meta
+        conv = await pending_svc.create(
+            type="oneonone", employee_id="00100", participants=["00100"],
+        )
+        # Manually archive
+        conv.phase = ConversationPhase.ARCHIVED.value
+        conv.closed_at = "2026-01-01T00:00:00"
+        save_conversation_meta(conv)
+
+        reactivated = await pending_svc.reactivate(conv.id)
+        assert reactivated.phase == ConversationPhase.ACTIVE.value
+        assert reactivated.closed_at is None
+        # Verify persisted to disk
+        reloaded = pending_svc.get(conv.id)
+        assert reloaded.phase == ConversationPhase.ACTIVE.value
+
+    @pytest.mark.asyncio
+    async def test_reactivate_already_active_noop(self, pending_svc):
+        conv = await pending_svc.create(
+            type="oneonone", employee_id="00100", participants=["00100"],
+        )
+        reactivated = await pending_svc.reactivate(conv.id)
+        assert reactivated.phase == ConversationPhase.ACTIVE.value
