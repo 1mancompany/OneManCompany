@@ -285,21 +285,12 @@ ${green("What gets installed automatically:")}
     return;
   }
 
-  // Read version from package.json (bundled with npm package)
+  // Read version from package.json (bundled with npm package) as fallback
   let cliVersion = "unknown";
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"));
     if (pkg.version) cliVersion = pkg.version;
   } catch {}
-
-  console.log();
-  const verTag = `v${cliVersion}`;
-  const title = `OneManCompany — AI Company OS ${verTag}`;
-  const pad = Math.max(0, 44 - title.length);
-  console.log(cyan("╔═══════════════════════════════════════════════╗"));
-  console.log(cyan(`║   ${title}${" ".repeat(pad)}║`));
-  console.log(cyan("╚═══════════════════════════════════════════════╝"));
-  console.log();
 
   // ── Check git ─────────────────────────────────────────────────────────
   if (!commandExists("git")) {
@@ -358,6 +349,16 @@ ${green("What gets installed automatically:")}
     const verMatch = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
     if (verMatch) appVersion = verMatch[1];
   } catch {}
+
+  // ── Banner (after real version is known) ───────────────────────────
+  console.log();
+  const verTag = `v${appVersion}`;
+  const title = `OneManCompany — AI Company OS ${verTag}`;
+  const pad = Math.max(0, 44 - title.length);
+  console.log(cyan("╔═══════════════════════════════════════════════╗"));
+  console.log(cyan(`║   ${title}${" ".repeat(pad)}║`));
+  console.log(cyan("╚═══════════════════════════════════════════════╝"));
+  console.log();
 
   // ── Check if already running ─────────────────────────────────────────
   const existingPid = readPidFile(installDir);
