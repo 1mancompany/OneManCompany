@@ -5445,9 +5445,9 @@ class AppController {
               </div>
               <div style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
                 <label class="api-field-label">Default Model</label>
-                <input type="text" id="api-${providerId}-model" class="api-key-input" style="font-size:6px;"
-                  placeholder="${isDefault ? (defaultModel || 'e.g. gpt-4o') : 'e.g. deepseek-chat'}"
-                  value="${isDefault ? this._escAttr(defaultModel) : ''}" />
+                <select id="api-${providerId}-model" class="emp-model-select" style="font-size:6px;width:100%;padding:3px 4px;background:var(--bg-dark);color:var(--pixel-green);border:1px solid var(--border);">
+                  ${isDefault && defaultModel ? `<option value="${this._escAttr(defaultModel)}" selected>${this._escAttr(defaultModel)}</option>` : '<option value="">Select model...</option>'}
+                </select>
                 <div class="api-card-actions" style="margin-top:4px;">
                   <button class="pixel-btn small${isDefault ? '' : ' api-test-btn'}" onclick="app._setDefaultProvider('${providerId}')"
                     ${!isConfigured ? 'disabled title="Save API key first"' : ''}>${isDefault ? '✓ Default' : 'Set as Default'}</button>
@@ -5508,13 +5508,19 @@ class AppController {
       `;
 
       container.innerHTML = html;
-      // Bind toggle for provider cards
+      // Bind toggle for provider cards + lazy-load models on expand
       container.querySelectorAll('.api-card-toggle').forEach(hdr => {
         hdr.addEventListener('click', () => {
           const body = document.getElementById(hdr.dataset.target);
           if (body) {
+            const wasCollapsed = body.classList.contains('collapsed');
             hdr.classList.toggle('collapsed');
             body.classList.toggle('collapsed');
+            // Load models when expanding a configured provider
+            if (wasCollapsed) {
+              const providerId = hdr.dataset.target.replace('api-', '').replace('-body', '');
+              this._loadProviderModels(providerId);
+            }
           }
         });
       });
@@ -5632,6 +5638,41 @@ class AppController {
       }
     } catch (e) {
       if (resultEl) { resultEl.textContent = 'Error'; resultEl.className = 'api-test-result fail'; }
+    }
+  }
+
+  async _loadProviderModels(providerId) {
+    const select = document.getElementById(`api-${providerId}-model`);
+    if (!select || select.dataset.loaded) return;
+
+    const currentValue = select.value;
+    select.innerHTML = '<option value="">Loading models...</option>';
+
+    try {
+      const resp = await fetch(`/api/models/${providerId}`);
+      const data = await resp.json();
+      if (data.models && data.models.length > 0) {
+        let html = '<option value="">Select model...</option>';
+        for (const m of data.models) {
+          const selected = m.id === currentValue ? ' selected' : '';
+          const label = m.name && m.name !== m.id ? `${m.id}  (${m.name})` : m.id;
+          html += `<option value="${this._escAttr(m.id)}"${selected}>${this._escAttr(label)}</option>`;
+        }
+        select.innerHTML = html;
+        select.dataset.loaded = '1';
+      } else {
+        // No models or error — fall back to editable input
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.id = select.id;
+        input.className = 'api-key-input';
+        input.style.cssText = 'font-size:6px;';
+        input.placeholder = data.error || 'Enter model ID...';
+        input.value = currentValue;
+        select.replaceWith(input);
+      }
+    } catch {
+      select.innerHTML = `<option value="${this._escAttr(currentValue)}">${currentValue || 'Error loading'}</option>`;
     }
   }
 
