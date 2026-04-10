@@ -642,6 +642,21 @@ def _inject_default_skills(skills_dir: Path) -> None:
             dst_md = dst / "SKILL.md"
             if src_md.exists():
                 shutil.copy2(str(src_md), str(dst_md))
+            # Sync hooks/ and other subdirectories (new scripts, templates)
+            for sub in src.iterdir():
+                if sub.is_dir() and sub.name != "__pycache__":
+                    dst_sub = dst / sub.name
+                    if not dst_sub.exists():
+                        shutil.copytree(str(sub), str(dst_sub))
+                    else:
+                        # Copy new files into existing subdir
+                        for f in sub.iterdir():
+                            dst_f = dst_sub / f.name
+                            if not dst_f.exists():
+                                if f.is_file():
+                                    shutil.copy2(str(f), str(dst_f))
+                                elif f.is_dir():
+                                    shutil.copytree(str(f), str(dst_f))
 
 
 def _assign_default_avatar(emp_dir: Path, emp_num: str) -> None:
