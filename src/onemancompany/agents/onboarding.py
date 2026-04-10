@@ -623,12 +623,25 @@ async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
 
 
 def _inject_default_skills(skills_dir: Path) -> None:
-    """Copy default skills into the employee's skills folder."""
+    """Copy/update default skills into the employee's skills folder.
+
+    Always overwrites SKILL.md from the source to pick up frontmatter
+    changes (e.g. autoload flag). Preserves employee-specific files
+    in the skill directory that don't exist in the source.
+    """
     for name in _DEFAULT_SKILL_NAMES:
         src = _DEFAULT_SKILLS_DIR / name
+        if not src.exists():
+            continue
         dst = skills_dir / name
-        if src.exists() and not dst.exists():
+        if not dst.exists():
             shutil.copytree(str(src), str(dst))
+        else:
+            # Sync SKILL.md from source to pick up changes
+            src_md = src / "SKILL.md"
+            dst_md = dst / "SKILL.md"
+            if src_md.exists():
+                shutil.copy2(str(src_md), str(dst_md))
 
 
 def _assign_default_avatar(emp_dir: Path, emp_num: str) -> None:

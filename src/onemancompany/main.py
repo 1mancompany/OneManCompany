@@ -501,6 +501,14 @@ async def lifespan(app: FastAPI):
         register_founding_employee(_fid, _agent_cls, _emp_cfgs, _EMPLOYEES_DIR)
         _registered_founding.add(_fid)
 
+    # Sync default skills (SKILL.md) for all existing employees on startup
+    from onemancompany.agents.onboarding import _inject_default_skills
+    for _emp_dir in sorted(_EMPLOYEES_DIR.iterdir()):
+        if _emp_dir.is_dir() and (_emp_dir / "profile.yaml").exists():
+            _skills_dir = _emp_dir / "skills"
+            _skills_dir.mkdir(exist_ok=True)
+            _inject_default_skills(_skills_dir)
+
     # Register CeoExecutor for CEO (virtual employee — routes to TUI, no LLM)
     from onemancompany.core.ceo_broker import CeoExecutor
     from onemancompany.core.config import CEO_ID
