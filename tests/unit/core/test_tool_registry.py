@@ -522,6 +522,59 @@ class TestExecuteToolEmployeeIdAutoFill:
         assert mock_tool.ainvoke.call_args[0][0]["employee_id"] == "00004"
 
 
+# ---------------------------------------------------------------------------
+# Proxied tools — employee_id injection + schema stripping
+# ---------------------------------------------------------------------------
+
+class TestProxiedToolsEmployeeId:
+    """Proxied tools inject employee_id at system level, hidden from LLM."""
+
+    def test_schema_strips_employee_id(self):
+        from onemancompany.core.tool_registry import ToolRegistry, ToolMeta
+        from langchain_core.tools import tool as lc_tool
+
+        @lc_tool
+        def my_tool(name: str, employee_id: str = "") -> dict:
+            """A test tool."""
+            return {}
+
+        reg = ToolRegistry()
+        reg.register(my_tool, ToolMeta(name="my_tool", category="base"))
+
+        with patch("onemancompany.core.store.load_employee", return_value={"role": "EA"}):
+            proxied = reg.get_proxied_tools_for("00004")
+
+        field_names = list(proxied[0].args_schema.model_fields.keys())
+        assert "employee_id" not in field_names
+        assert "name" in field_names
+
+    @pytest.mark.asyncio
+    async def test_proxy_injects_employee_id(self):
+        from onemancompany.core.tool_registry import ToolRegistry, ToolMeta, tool_registry
+        from langchain_core.tools import tool as lc_tool
+
+        captured = {}
+
+        @lc_tool
+        async def my_tool(name: str, employee_id: str = "") -> dict:
+            """A test tool."""
+            captured["employee_id"] = employee_id
+            return {"status": "ok"}
+
+        reg = ToolRegistry()
+        reg.register(my_tool, ToolMeta(name="my_tool", category="base"))
+
+        with patch("onemancompany.core.store.load_employee", return_value={"role": "EA"}):
+            proxied = reg.get_proxied_tools_for("00004")
+
+        # Simulate LLM calling the tool WITHOUT employee_id
+        with patch("onemancompany.core.tool_registry.tool_registry", reg):
+            with patch("onemancompany.core.vessel._current_vessel"):
+                await proxied[0].ainvoke({"name": "test"})
+
+        assert captured["employee_id"] == "00004"
+
+
 class TestModuleSingleton:
     def test_singleton_exists(self):
         from onemancompany.core.tool_registry import tool_registry
