@@ -252,6 +252,24 @@ FOUNDING_LEVEL = 4          # founding employees
 CEO_LEVEL = 5               # CEO
 
 # ---------------------------------------------------------------------------
+# CEO Do Not Disturb mode
+# ---------------------------------------------------------------------------
+_CEO_DND_MODE: bool = False
+
+
+def get_ceo_dnd() -> bool:
+    """Check if CEO DND mode is enabled."""
+    return _CEO_DND_MODE
+
+
+def set_ceo_dnd(enabled: bool) -> None:
+    """Toggle CEO DND mode."""
+    global _CEO_DND_MODE
+    _CEO_DND_MODE = enabled
+    logger.info("[config] CEO DND mode: {}", "ON" if enabled else "OFF")
+
+
+# ---------------------------------------------------------------------------
 # Performance & quarterly review
 # ---------------------------------------------------------------------------
 TASKS_PER_QUARTER = 3                          # tasks needed before a review
