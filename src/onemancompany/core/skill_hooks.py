@@ -299,15 +299,15 @@ def _build_env(
 
 
 def _expand_command(command: str, env: dict[str, str]) -> str:
-    """Expand ${VAR} and $VAR references in command string using env dict."""
+    """Expand ${VAR} references in command string.
+
+    Only expands ${BRACED} syntax to avoid prefix-collision issues
+    (e.g. $OMC matching before $OMC_TOOL_NAME). The shell handles
+    bare $VAR expansion at runtime via the env dict.
+    """
     result = command
-    # Expand ${VAR} first, then $VAR (longer match first to avoid partial replace)
     for key, val in env.items():
         result = result.replace(f"${{{key}}}", val)
-    for key, val in env.items():
-        # Only replace $VAR if not already expanded as ${VAR}
-        # and followed by word boundary (space, quote, end)
-        result = result.replace(f"${key}", val)
     return result
 
 

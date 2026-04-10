@@ -1016,7 +1016,8 @@ class EmployeeManager:
         Wraps sync callables as async callbacks with compatible signatures.
         """
         self._hooks[employee_id] = hooks
-        from onemancompany.core.skill_hooks import register_callback_hook, HookEvent
+        from onemancompany.core.skill_hooks import register_callback_hook, clear_hooks, HookEvent
+        clear_hooks(employee_id)  # prevent duplicate accumulation on re-registration
         if hooks.get("pre_task"):
             _pre = hooks["pre_task"]
             async def _pre_wrap(hook_input, _fn=_pre):
@@ -1462,12 +1463,15 @@ class EmployeeManager:
             )
 
             # Task start hooks (unified skill_hooks system)
-            from onemancompany.core.skill_hooks import run_hooks as _run_hooks, HookEvent as _HE
+            from onemancompany.core.skill_hooks import run_hooks, collect_context, HookEvent
             try:
-                await _run_hooks(
-                    employee_id, _HE.TASK_START,
+                _start_results = await run_hooks(
+                    employee_id, HookEvent.TASK_START,
                     task_id=entry.node_id, task_description=task_with_ctx,
                 )
+                _extra = collect_context(_start_results)
+                if _extra:
+                    task_with_ctx = f"{task_with_ctx}\n\n[Hook context]\n{_extra}"
             except Exception:
                 logger.warning("Task start hooks failed for {}", employee_id)
 
@@ -1583,8 +1587,8 @@ class EmployeeManager:
             logger.exception("Unhandled error")
             # Task error hooks
             try:
-                await _run_hooks(
-                    employee_id, _HE.TASK_ERROR,
+                await run_hooks(
+                    employee_id, HookEvent.TASK_ERROR,
                     task_id=entry.node_id, error_message=str(e),
                 )
             except Exception as hook_err:
@@ -1672,8 +1676,8 @@ class EmployeeManager:
 
             # Task complete hooks (unified skill_hooks system)
             try:
-                await _run_hooks(
-                    employee_id, _HE.TASK_COMPLETE,
+                await run_hooks(
+                    employee_id, HookEvent.TASK_COMPLETE,
                     task_id=entry.node_id, task_description=node.result or "",
                 )
             except Exception:
