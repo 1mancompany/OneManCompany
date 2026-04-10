@@ -360,9 +360,10 @@ def _step_llm(console: Console) -> tuple[str, str, str, str]:
 
     # 3. Custom provider: ask for API compatibility and base URL
     base_url = ""
+    custom_chat_class = ""
     if provider == "custom":
-        # Custom provider must map to a real API format
-        compat = _inq.select(
+        # Custom provider — ask API format, keep provider as "custom"
+        custom_chat_class = _inq.select(
             message="API compatibility:",
             choices=[
                 {"name": "OpenAI-compatible (most providers)", "value": "openai"},
@@ -371,7 +372,6 @@ def _step_llm(console: Console) -> tuple[str, str, str, str]:
             default="openai",
             style=INQ_STYLE,
         ).execute()
-        provider = compat  # Remap to real provider for make_llm
         console.print(
             f"\n  [dim]Enter your API base URL.[/dim]\n"
             f"  [dim]Examples: https://api.openai.com/v1, https://your-server.com/v1[/dim]"
@@ -413,7 +413,7 @@ def _step_llm(console: Console) -> tuple[str, str, str, str]:
             style=INQ_STYLE,
         ).execute().strip()
 
-    return provider, api_key.strip(), model, base_url
+    return provider, api_key.strip(), model, base_url, custom_chat_class
 
 
 def _step_server(console: Console) -> tuple[str, int]:
@@ -691,6 +691,7 @@ def _step_execute(
     sandbox_enabled: bool = False,
     founder_families: dict[str, str] | None = None,
     base_url: str = "",
+    custom_chat_class: str = "",
 ) -> None:
     console.print()
     _print_step(console, 6, "GENESIS", "Company Initialization")
@@ -744,6 +745,9 @@ def _step_execute(
     # Custom base URL (for non-default provider endpoints)
     if base_url and prov_cfg and base_url != prov_cfg.base_url:
         env_lines.append(f"DEFAULT_API_BASE_URL={base_url}")
+    # Custom provider chat class
+    if custom_chat_class:
+        env_lines.append(f"CUSTOM_CHAT_CLASS={custom_chat_class}")
     # Also write base_url for OpenRouter (needed by existing code)
     if provider == PROVIDER_OPENROUTER:
         env_lines.append("OPENROUTER_BASE_URL=https://openrouter.ai/api/v1")
@@ -1004,13 +1008,13 @@ def run_wizard() -> None:
             return
 
     founder_families = _step_agent_family(console)      # Step 1: Agent Family
-    provider, api_key, model, base_url = _step_llm(console)  # Step 2: LLM Provider & Key
+    provider, api_key, model, base_url, custom_chat_class = _step_llm(console)  # Step 2: LLM Provider & Key
     extras = _step_optional(console)                     # Step 3: External Integrations
     sandbox_enabled = _step_sandbox(console)             # Step 4: Sandbox
     host, port = _step_server(console)                   # Step 5: Server
     _step_execute(console, provider, api_key, model, host, port, extras,
                   sandbox_enabled=sandbox_enabled, founder_families=founder_families,
-                  base_url=base_url)
+                  base_url=base_url, custom_chat_class=custom_chat_class)
     _step_done(console, host, port)
 
 

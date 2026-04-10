@@ -173,8 +173,13 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
 
     prov = get_provider(api_provider)
 
+    # For custom provider, override chat_class from runtime settings
+    effective_chat_class = prov.chat_class if prov else CHAT_CLASS_OPENAI
+    if api_provider == "custom" and settings.custom_chat_class:
+        effective_chat_class = settings.custom_chat_class
+
     # --- Anthropic (non-OpenAI-compatible) ---
-    if prov and prov.chat_class == CHAT_CLASS_ANTHROPIC:
+    if prov and effective_chat_class == CHAT_CLASS_ANTHROPIC:
         from langchain_anthropic import ChatAnthropic
 
         auth_method = ""
@@ -203,7 +208,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
             )
 
     # --- OpenAI-compatible providers (openrouter, openai, kimi, deepseek, etc.) ---
-    if prov and prov.chat_class == CHAT_CLASS_OPENAI:
+    if prov and effective_chat_class == CHAT_CLASS_OPENAI:
         effective_key = _resolve_provider_key(api_provider, api_key)
         if effective_key:
             base_url = prov.base_url
