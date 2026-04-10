@@ -843,7 +843,7 @@ class EmployeeManager:
         self._current_entries: dict[str, ScheduleEntry] = {}  # currently executing entry per employee
         self._system_tasks: dict[str, asyncio.Task] = {}  # system operation tracking
         self._deferred_schedule: set[str] = set()
-        self._hooks: dict[str, dict[str, Callable]] = {}
+        self._hooks: dict[str, dict[str, Callable]] = {}  # bridge cache only — execution goes through skill_hooks
         self._event_loop: asyncio.AbstractEventLoop | None = None  # set by drain_pending
         self._restart_pending: bool = False
         # ScheduleEntry-based scheduling (replaces boards for new code paths)
@@ -1010,14 +1010,42 @@ class EmployeeManager:
             self._schedule_next(employee_id)
 
     def register_hooks(self, employee_id: str, hooks: dict[str, Callable]) -> None:
-        """Register lifecycle hooks (pre_task, post_task) for an employee."""
+        """Register lifecycle hooks (pre_task, post_task) for an employee.
+
+        Bridges legacy vessel.yaml hooks into the unified skill_hooks system.
+        Wraps sync callables as async callbacks with compatible signatures.
+        """
         self._hooks[employee_id] = hooks
+        from onemancompany.core.skill_hooks import register_callback_hook, clear_hooks, load_hooks_from_skills, HookEvent
+        clear_hooks(employee_id)  # wipe all, then re-register both sources
+        load_hooks_from_skills(employee_id)  # re-load SKILL.md hooks first
+        if hooks.get("pre_task"):
+            _pre = hooks["pre_task"]
+            async def _pre_wrap(hook_input, _fn=_pre):
+                try:
+                    result = _fn(hook_input.get("task_description", ""), None)
+                    return {"additionalContext": result if isinstance(result, str) else ""}
+                except Exception as e:
+                    logger.warning("Legacy pre_task hook failed: {}", e)
+                    return {}
+            register_callback_hook(employee_id, HookEvent.TASK_START, _pre_wrap, skill_name="_vessel")
+        if hooks.get("post_task"):
+            _post = hooks["post_task"]
+            async def _post_wrap(hook_input, _fn=_post):
+                try:
+                    _fn(None, hook_input.get("task_description", ""))
+                except Exception as e:
+                    logger.warning("Legacy post_task hook failed: {}", e)
+                return {}
+            register_callback_hook(employee_id, HookEvent.TASK_COMPLETE, _post_wrap, skill_name="_vessel")
 
     def unregister(self, employee_id: str) -> None:
         self.executors.pop(employee_id, None)
         self.vessels.pop(employee_id, None)
         self.configs.pop(employee_id, None)
         self._hooks.pop(employee_id, None)
+        from onemancompany.core.skill_hooks import clear_hooks
+        clear_hooks(employee_id)
 
     def get_handle(self, employee_id: str) -> Vessel | None:
         return self.vessels.get(employee_id)
@@ -1435,16 +1463,18 @@ class EmployeeManager:
                 task_id=entry.node_id,
             )
 
-            # Pre-task hook
-            hooks = self._hooks.get(employee_id, {})
-            pre_task = hooks.get("pre_task")
-            if pre_task:
-                try:
-                    result = pre_task(task_with_ctx, context)
-                    if isinstance(result, str):
-                        task_with_ctx = result
-                except Exception:
-                    logger.warning("Pre-task hook failed for {}", employee_id)
+            # Task start hooks (unified skill_hooks system)
+            from onemancompany.core.skill_hooks import run_hooks, collect_context, HookEvent
+            try:
+                _start_results = await run_hooks(
+                    employee_id, HookEvent.TASK_START,
+                    task_id=entry.node_id, task_description=task_with_ctx,
+                )
+                _extra = collect_context(_start_results)
+                if _extra:
+                    task_with_ctx = f"{task_with_ctx}\n\n[Hook context]\n{_extra}"
+            except Exception:
+                logger.warning("Task start hooks failed for {}", employee_id)
 
             # Universal timeout — asyncio.wait_for wraps ALL executor types.
             task_timeout = node.timeout_seconds or 3600
@@ -1556,6 +1586,14 @@ class EmployeeManager:
             self._push_to_ceo_session(node, f"\u2717 {str(e)[:500]}")
             _append_progress(employee_id, f"Failed: {node.description_preview} \u2014 {e!s}")
             logger.exception("Unhandled error")
+            # Task error hooks
+            try:
+                await run_hooks(
+                    employee_id, HookEvent.TASK_ERROR,
+                    task_id=entry.node_id, error_message=str(e),
+                )
+            except Exception as hook_err:
+                logger.debug("Task error hook failed (suppressed): {}", hook_err)
         finally:
             _current_vessel.reset(loop_token)
             _current_task_id.reset(task_token)
@@ -1637,13 +1675,14 @@ class EmployeeManager:
                 if result_text:
                     self._push_to_ceo_session(node, f"✓ {result_text}")
 
-            # Post-task hook
-            post_task_hook = self._hooks.get(employee_id, {}).get("post_task")
-            if post_task_hook:
-                try:
-                    post_task_hook(node, node.result or "")
-                except Exception:
-                    logger.warning("Post-task hook failed for {}", employee_id)
+            # Task complete hooks (unified skill_hooks system)
+            try:
+                await run_hooks(
+                    employee_id, HookEvent.TASK_COMPLETE,
+                    task_id=entry.node_id, task_description=node.result or "",
+                )
+            except Exception:
+                logger.warning("Task complete hooks failed for {}", employee_id)
 
             await _store.save_employee_runtime(employee_id, current_task_summary="")
 
