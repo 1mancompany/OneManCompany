@@ -46,11 +46,13 @@ class ConversationType(str, Enum):
     CEO_INBOX = "ceo_inbox"
     ONE_ON_ONE = "oneonone"
     EA_CHAT = "ea_chat"
+    PROJECT = "project"
 
 
 class ConversationPhase(str, Enum):
     """Lifecycle phases of a conversation."""
     ACTIVE = "active"
+    ARCHIVED = "archived"
     CLOSING = "closing"
     CLOSED = "closed"
 
