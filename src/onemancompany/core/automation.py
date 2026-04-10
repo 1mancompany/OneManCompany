@@ -89,22 +89,95 @@ def _broadcast_cron_status(employee_id: str, cron_name: str, running: bool) -> N
         logger.warning("[cron] Broadcast cron_status_change failed: {}", e)
 
 
-async def _cron_loop(employee_id: str, cron_name: str, interval_seconds: int, task_description: str) -> None:
-    """Background loop that dispatches a task at regular intervals."""
-    logger.info("[cron] Started '{}' for {} every {}s", cron_name, employee_id, interval_seconds)
+async def _cron_loop(
+    employee_id: str, cron_name: str, interval_seconds: int,
+    task_description: str, project_id: str = "", tree_path: str = "",
+) -> None:
+    """Background loop that dispatches a task at regular intervals.
+
+    If tree_path is set, tasks are added as child nodes in the existing
+    project tree (root-level). Otherwise, falls back to _push_adhoc_task.
+    """
+    logger.info("[cron] Started '{}' for {} every {}s (project={}, tree={})",
+                cron_name, employee_id, interval_seconds, project_id or "none", bool(tree_path))
     try:
         while True:
             await asyncio.sleep(interval_seconds)
             try:
-                from onemancompany.api.routes import _push_adhoc_task
-                node_id, _tree_path = _push_adhoc_task(employee_id, f"[cron:{cron_name}] {task_description}")
+                node_id = _dispatch_cron_task(
+                    employee_id, cron_name, task_description,
+                    project_id=project_id, tree_path=tree_path,
+                )
                 _record_dispatched_task(employee_id, cron_name, node_id)
-                logger.debug("[cron] Dispatched '{}' to {}, node_id={}", cron_name, employee_id, node_id)
+                logger.debug("[cron] Dispatched '{}' to {}, node_id={} project={}",
+                             cron_name, employee_id, node_id, project_id or "adhoc")
             except Exception as e:
                 logger.error("[cron] Failed to dispatch '{}' to {}: {}", cron_name, employee_id, e)
     except asyncio.CancelledError:
-        logger.info(f"[cron] Stopped '{cron_name}' for {employee_id}")
+        logger.info("[cron] Stopped '{}' for {}", cron_name, employee_id)
         raise
+
+
+def _dispatch_cron_task(
+    employee_id: str, cron_name: str, task_description: str,
+    project_id: str = "", tree_path: str = "",
+) -> str:
+    """Dispatch a single cron task. Returns node_id.
+
+    If tree_path points to a valid project tree, adds a child node to it.
+    Otherwise, creates a standalone adhoc task.
+    """
+    desc = f"[cron:{cron_name}] {task_description}"
+
+    if tree_path:
+        try:
+            return _add_to_project_tree(employee_id, desc, tree_path, project_id)
+        except Exception as e:
+            logger.warning("[cron] Failed to add to project tree, falling back to adhoc: {}", e)
+
+    # Fallback: standalone adhoc task
+    from onemancompany.api.routes import _push_adhoc_task
+    node_id, _tp = _push_adhoc_task(employee_id, desc, project_id=project_id)
+    return node_id
+
+
+def _add_to_project_tree(
+    employee_id: str, description: str, tree_path: str, project_id: str,
+) -> str:
+    """Add a cron task as a child node in an existing project tree."""
+    from pathlib import Path
+    from onemancompany.core.task_tree import get_tree, save_tree_async, get_tree_lock
+    from onemancompany.core.vessel import employee_manager
+
+    tp = Path(tree_path)
+    if not tp.exists():
+        raise FileNotFoundError(f"Tree not found: {tree_path}")
+
+    with get_tree_lock(tp):
+        tree = get_tree(tp)
+        parent_id = tree.root_id
+        if not parent_id:
+            raise ValueError("Tree has no root node")
+
+        child = tree.add_child(
+            parent_id=parent_id,
+            employee_id=employee_id,
+            description=description,
+            acceptance_criteria=[],
+        )
+        # Mark as ADHOC so it doesn't block project completion checks
+        from onemancompany.core.task_lifecycle import NodeType
+        child.node_type = NodeType.ADHOC.value
+        child.task_type = "simple"  # auto-skip completed → accepted → finished
+        child.project_id = project_id
+        child.project_dir = str(tp.parent)
+
+    # Save outside lock (save_tree_async acquires its own RLock internally)
+    save_tree_async(tp)
+
+    employee_manager.schedule_node(employee_id, child.id, str(tp))
+    employee_manager._schedule_next(employee_id)
+    return child.id
 
 
 def _record_dispatched_task(employee_id: str, cron_name: str, task_id: str) -> None:
@@ -121,7 +194,7 @@ def _record_dispatched_task(employee_id: str, cron_name: str, task_id: str) -> N
     _save_automations(employee_id, data)
 
 
-def start_cron(employee_id: str, cron_name: str, interval: str, task_description: str) -> dict:
+def start_cron(employee_id: str, cron_name: str, interval: str, task_description: str, project_id: str = "", tree_path: str = "") -> dict:
     """Start a cron job for an employee.
 
     Args:
@@ -129,6 +202,8 @@ def start_cron(employee_id: str, cron_name: str, interval: str, task_description
         cron_name: Unique name for this cron (per employee).
         interval: Interval string like '5m', '1h', '30s'.
         task_description: Task to dispatch each interval.
+        project_id: If set, cron tasks are dispatched under this project.
+        tree_path: If set, cron tasks are added as child nodes in this tree.
     """
     seconds = _parse_interval(interval)
     if seconds is None or seconds < 10:
@@ -142,7 +217,10 @@ def start_cron(employee_id: str, cron_name: str, interval: str, task_description
         existing.cancel()
 
     # Start background task
-    task = asyncio.create_task(_cron_loop(employee_id, cron_name, seconds, task_description))
+    task = asyncio.create_task(_cron_loop(
+        employee_id, cron_name, seconds, task_description,
+        project_id=project_id, tree_path=tree_path,
+    ))
     _cron_tasks[key] = task
 
     # Persist
@@ -153,6 +231,8 @@ def start_cron(employee_id: str, cron_name: str, interval: str, task_description
         _KEY_NAME: cron_name,
         "interval": interval,
         "task_description": task_description,
+        "project_id": project_id,
+        "tree_path": tree_path,
         "created": datetime.now(timezone.utc).isoformat(),
     })
     _save_automations(employee_id, data)
@@ -319,9 +399,14 @@ def restore_all_crons() -> int:
             if name and interval and desc:
                 seconds = _parse_interval(interval)
                 if seconds and seconds >= 10:
+                    pid = c.get("project_id", "")
+                    tp = c.get("tree_path", "")
                     key = f"{employee_id}:{name}"
                     if key not in _cron_tasks or _cron_tasks[key].done():
-                        task = asyncio.create_task(_cron_loop(employee_id, name, seconds, desc))
+                        task = asyncio.create_task(_cron_loop(
+                            employee_id, name, seconds, desc,
+                            project_id=pid, tree_path=tp,
+                        ))
                         _cron_tasks[key] = task
                         count += 1
     return count
