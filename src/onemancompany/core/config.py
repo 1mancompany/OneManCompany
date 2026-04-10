@@ -252,20 +252,28 @@ FOUNDING_LEVEL = 4          # founding employees
 CEO_LEVEL = 5               # CEO
 
 # ---------------------------------------------------------------------------
-# CEO Do Not Disturb mode
+# CEO Do Not Disturb mode — persisted to disk
 # ---------------------------------------------------------------------------
-_CEO_DND_MODE: bool = False
+_CEO_DND_PATH = COMPANY_DIR / "ceo_dnd.yaml"
 
 
 def get_ceo_dnd() -> bool:
-    """Check if CEO DND mode is enabled."""
-    return _CEO_DND_MODE
+    """Check if CEO DND mode is enabled (reads from disk)."""
+    if _CEO_DND_PATH.exists():
+        try:
+            with open_utf(_CEO_DND_PATH) as f:
+                data = yaml.safe_load(f) or {}
+            return bool(data.get("enabled", False))
+        except Exception as e:
+            logger.warning("[config] failed to read CEO DND state, defaulting to False: {}", e)
+    return False
 
 
 def set_ceo_dnd(enabled: bool) -> None:
-    """Toggle CEO DND mode."""
-    global _CEO_DND_MODE
-    _CEO_DND_MODE = enabled
+    """Toggle CEO DND mode (persisted to disk)."""
+    _CEO_DND_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open_utf(_CEO_DND_PATH, "w") as f:
+        yaml.dump({"enabled": enabled}, f, allow_unicode=True)
     logger.info("[config] CEO DND mode: {}", "ON" if enabled else "OFF")
 
 

@@ -823,7 +823,7 @@ def _load_progress(employee_id: str, max_lines: int = PROGRESS_LOG_MAX_LINES) ->
 # Employee Manager — centralized task coordinator
 # ---------------------------------------------------------------------------
 
-from onemancompany.core.task_lifecycle import SKIP_COMPLETION_TYPES, SYSTEM_NODE_TYPES, NodeType
+from onemancompany.core.task_lifecycle import SKIP_COMPLETION_TYPES, SYSTEM_NODE_TYPES, NodeType, is_system_project_id
 
 
 class EmployeeManager:
@@ -1702,7 +1702,7 @@ class EmployeeManager:
                 if node.input_tokens + node.output_tokens > 0:
                     from onemancompany.core.project_archive import record_project_cost
                     record_project_cost(project_id, employee_id, node.model_used, node.input_tokens, node.output_tokens, node.cost_usd)
-                if not project_id.startswith("_auto_") and node.result:
+                if not is_system_project_id(project_id) and node.result:
                     from onemancompany.core.project_archive import append_action
                     summary = node.result[:MAX_SUMMARY_LEN]
                     append_action(project_id, employee_id, f"{role} task completed", summary)
@@ -2627,14 +2627,8 @@ class EmployeeManager:
             # Only block if there's an UNRESOLVED confirm node (pending/processing).
             # Resolved ones (finished/cancelled) should not block re-completion
             # after CEO gives new instructions.
-            _terminal = {TaskPhase.FINISHED.value, TaskPhase.CANCELLED.value, TaskPhase.ACCEPTED.value}
-            existing_confirm = any(
-                c for c in tree.get_children(ea_node.id)
-                if (c.node_type == NodeType.CEO_REQUEST.value or c.node_type == NodeType.CEO_REQUEST)
-                and c.employee_id == _CEO_ID
-                and c.status not in _terminal
-            )
-            if existing_confirm:
+            from onemancompany.core.task_lifecycle import has_unresolved_ceo_request
+            if has_unresolved_ceo_request(tree.get_children(ea_node.id), _CEO_ID):
                 logger.debug("[PROJECT COMPLETE] Unresolved confirm node already exists for EA {} — skipping", ea_node.id)
             else:
                 # Build completion summary for CEO
@@ -2814,12 +2808,8 @@ class EmployeeManager:
                 review_count, parent_node.id,
             )
             # Check if CEO escalation already exists to prevent infinite loop
-            existing_escalation = any(
-                c for c in children
-                if c.node_type == NodeType.CEO_REQUEST and c.employee_id == CEO_ID
-                and c.status not in (TaskPhase.CANCELLED,)
-            )
-            if existing_escalation:
+            from onemancompany.core.task_lifecycle import has_unresolved_ceo_request
+            if has_unresolved_ceo_request(children, CEO_ID):
                 logger.debug(
                     "[CIRCUIT BREAKER] CEO escalation already exists for parent {} — skipping duplicate",
                     parent_node.id,
@@ -3012,7 +3002,7 @@ class EmployeeManager:
                 )
             except Exception as e:
                 logger.exception("Unhandled error")
-                if not project_id.startswith("_auto_"):
+                if not is_system_project_id(project_id):
                     append_action(project_id, "routine", "Routine error", str(e)[:MAX_SUMMARY_LEN])
                 await event_bus.publish(
                     CompanyEvent(
@@ -3032,7 +3022,7 @@ class EmployeeManager:
             if eid not in self._running_tasks:
                 await _store.save_employee_runtime(eid, status=STATUS_IDLE)
 
-        if not project_id.startswith("_auto_"):
+        if not is_system_project_id(project_id):
             label = node.description or "Task completed"
             if agent_error:
                 label = f"{label} (with errors)"
@@ -3351,8 +3341,8 @@ class EmployeeManager:
             project_id = node.project_id
 
             async def _push():
-                # Real projects get project conversations; system tasks (_sys_*) go to 1-on-1
-                if project_id and not project_id.startswith("_sys_"):
+                # Real projects get project conversations; system tasks go to 1-on-1
+                if project_id and not is_system_project_id(project_id):
                     conv = await service.get_or_create_project_conversation(
                         project_id, [node.employee_id]
                     )

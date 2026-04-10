@@ -177,6 +177,8 @@ class ConversationService:
         # In-memory pending interaction queue (not persisted — Futures can't serialize)
         self._pending: dict[str, deque[Interaction]] = {}   # conv_id → deque of Interaction
         self._auto_reply_tasks: dict[str, asyncio.Task] = {}  # "conv_id:node_id" → timer task
+        # Locks for get_or_create_* to prevent duplicate conversation creation
+        self._create_locks: dict[str, asyncio.Lock] = {}
 
     def ensure_indexed(self, conv_id: str, conv_dir: Path) -> None:
         """Register a conversation directory in the in-memory index."""
@@ -246,6 +248,9 @@ class ConversationService:
         conv.phase = ConversationPhase.CLOSING.value
         save_conversation_meta(conv)
         logger.debug("[conversation] closing: id={}", conv_id)
+
+        # Drain pending interactions — reject Futures so blocked agents unblock
+        self._drain_pending(conv_id)
 
         # Run close hooks (imported lazily to avoid circular deps)
         # conversation_hooks.py may not exist yet — handle gracefully
@@ -358,8 +363,12 @@ class ConversationService:
         return len([p for p in pending if not p.future.done()])
 
     def _start_auto_reply_timer(self, conv_id: str, interaction: Interaction) -> None:
-        """Start timer. If CEO doesn't respond within timeout, EA auto-replies."""
-        timeout = AUTO_REPLY_TIMEOUT
+        """Start timer. If CEO doesn't respond within timeout, EA auto-replies.
+
+        When CEO DND mode is on, auto-reply triggers immediately (0s timeout).
+        """
+        from onemancompany.core.config import get_ceo_dnd
+        timeout = 0 if get_ceo_dnd() else AUTO_REPLY_TIMEOUT
 
         async def _timer() -> None:
             try:
@@ -460,38 +469,46 @@ class ConversationService:
     # High-level helpers (project conversations, 1-on-1, reactivation)
     # ------------------------------------------------------------------
 
+    def _get_create_lock(self, key: str) -> asyncio.Lock:
+        """Get or create a lock for get_or_create_* dedup."""
+        if key not in self._create_locks:
+            self._create_locks[key] = asyncio.Lock()
+        return self._create_locks[key]
+
     async def get_or_create_project_conversation(
         self, project_id: str, participants: list[str] | None = None,
     ) -> Conversation:
         """Get existing project conversation or create new one."""
-        for conv in self.list_by_phase(type=ConversationType.PROJECT.value):
-            if conv.project_id == project_id:
-                if participants:
-                    changed = False
-                    for p in participants:
-                        if p not in conv.participants:
-                            conv.participants.append(p)
-                            changed = True
-                    if changed:
-                        save_conversation_meta(conv)
-                return conv
-        return await self.create(
-            type=ConversationType.PROJECT.value,
-            employee_id=participants[0] if participants else "",
-            participants=participants or [],
-            project_id=project_id,
-        )
+        async with self._get_create_lock(f"project:{project_id}"):
+            for conv in self.list_by_phase(type=ConversationType.PROJECT.value):
+                if conv.project_id == project_id:
+                    if participants:
+                        changed = False
+                        for p in participants:
+                            if p not in conv.participants:
+                                conv.participants.append(p)
+                                changed = True
+                        if changed:
+                            save_conversation_meta(conv)
+                    return conv
+            return await self.create(
+                type=ConversationType.PROJECT.value,
+                employee_id=participants[0] if participants else "",
+                participants=participants or [],
+                project_id=project_id,
+            )
 
     async def get_or_create_oneonone(self, employee_id: str) -> Conversation:
         """Get existing 1-on-1 or create one."""
-        for conv in self.list_by_phase(type=ConversationType.ONE_ON_ONE.value):
-            if conv.employee_id == employee_id and conv.phase != ConversationPhase.CLOSED.value:
-                return conv
-        return await self.create(
-            type=ConversationType.ONE_ON_ONE.value,
-            employee_id=employee_id,
-            participants=[employee_id],
-        )
+        async with self._get_create_lock(f"oneonone:{employee_id}"):
+            for conv in self.list_by_phase(type=ConversationType.ONE_ON_ONE.value):
+                if conv.employee_id == employee_id and conv.phase != ConversationPhase.CLOSED.value:
+                    return conv
+            return await self.create(
+                type=ConversationType.ONE_ON_ONE.value,
+                employee_id=employee_id,
+                participants=[employee_id],
+            )
 
     async def push_system_message(
         self, conv_id: str, message: str, source_employee: str = "",
@@ -576,6 +593,29 @@ class ConversationService:
         if recovered:
             logger.info("[conversation] recovered {} stuck conversation(s)", recovered)
         return recovered
+
+    def _drain_pending(self, conv_id: str) -> int:
+        """Cancel auto-reply timers and reject all pending Futures for a conversation.
+
+        Returns the number of drained interactions.
+        """
+        pending = self._pending.pop(conv_id, deque())
+        drained = 0
+        for interaction in pending:
+            # Cancel associated timer
+            timer_key = f"{conv_id}:{interaction.node_id}"
+            timer = self._auto_reply_tasks.pop(timer_key, None)
+            if timer and not timer.done():
+                timer.cancel()
+            # Reject Future so blocked agent unblocks with an error
+            if not interaction.future.done():
+                interaction.future.set_exception(
+                    RuntimeError(f"Conversation {conv_id} closed while interaction pending")
+                )
+            drained += 1
+        if drained:
+            logger.info("[conversation] drained {} pending interaction(s) for conv_id={}", drained, conv_id)
+        return drained
 
     def cancel_all_timers(self) -> None:
         """Cancel all auto-reply timer tasks. Called during server shutdown."""
