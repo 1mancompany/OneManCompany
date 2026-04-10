@@ -5450,7 +5450,7 @@ class AppController {
                 </select>
                 <div class="api-card-actions" style="margin-top:4px;">
                   <button class="pixel-btn small${isDefault ? '' : ' api-test-btn'}" onclick="app._setDefaultProvider('${providerId}')"
-                    ${!isConfigured ? 'disabled title="Save API key first"' : ''}>${isDefault ? '✓ Default' : 'Set as Default'}</button>
+                    ${!isConfigured ? 'disabled title="Save API key first"' : ''}>${isDefault ? 'Save Model' : 'Set as Default'}</button>
                   <span id="api-${providerId}-default-result" class="api-test-result"></span>
                 </div>
               </div>
