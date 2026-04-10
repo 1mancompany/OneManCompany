@@ -5,9 +5,10 @@ ones. After CEO replied to a completion card and the project got new work, the s
 completion never triggered because the old (finished) CEO_REQUEST still existed.
 
 Fix: Only block on unresolved (pending/processing) CEO_REQUEST nodes.
+Now uses shared has_unresolved_ceo_request() from task_lifecycle.
 """
 
-from onemancompany.core.task_lifecycle import TaskPhase, NodeType
+from onemancompany.core.task_lifecycle import TaskPhase, NodeType, has_unresolved_ceo_request
 from onemancompany.core.task_tree import TaskNode
 
 
@@ -31,14 +32,7 @@ class TestCompletionCardGuard:
         children = [
             _make_node("child1", parent_id="ea1", employee_id="00006"),
         ]
-        _terminal = {TaskPhase.FINISHED.value, TaskPhase.CANCELLED.value, TaskPhase.ACCEPTED.value}
-        existing_confirm = any(
-            c for c in children
-            if (c.node_type == NodeType.CEO_REQUEST.value or c.node_type == NodeType.CEO_REQUEST)
-            and c.employee_id == "00001"
-            and c.status not in _terminal
-        )
-        assert existing_confirm is False
+        assert has_unresolved_ceo_request(children, "00001") is False
 
     def test_finished_confirm_allows_re_creation(self):
         """A FINISHED CEO_REQUEST should NOT block a new completion card."""
@@ -46,14 +40,7 @@ class TestCompletionCardGuard:
             _make_node("confirm1", parent_id="ea1", employee_id="00001",
                        node_type=NodeType.CEO_REQUEST, status=TaskPhase.FINISHED.value),
         ]
-        _terminal = {TaskPhase.FINISHED.value, TaskPhase.CANCELLED.value, TaskPhase.ACCEPTED.value}
-        existing_confirm = any(
-            c for c in children
-            if (c.node_type == NodeType.CEO_REQUEST.value or c.node_type == NodeType.CEO_REQUEST)
-            and c.employee_id == "00001"
-            and c.status not in _terminal
-        )
-        assert existing_confirm is False  # should allow re-creation
+        assert has_unresolved_ceo_request(children, "00001") is False
 
     def test_pending_confirm_blocks_duplicate(self):
         """A PENDING CEO_REQUEST should block duplicate creation."""
@@ -61,14 +48,7 @@ class TestCompletionCardGuard:
             _make_node("confirm1", parent_id="ea1", employee_id="00001",
                        node_type=NodeType.CEO_REQUEST, status=TaskPhase.PENDING.value),
         ]
-        _terminal = {TaskPhase.FINISHED.value, TaskPhase.CANCELLED.value, TaskPhase.ACCEPTED.value}
-        existing_confirm = any(
-            c for c in children
-            if (c.node_type == NodeType.CEO_REQUEST.value or c.node_type == NodeType.CEO_REQUEST)
-            and c.employee_id == "00001"
-            and c.status not in _terminal
-        )
-        assert existing_confirm is True  # should block
+        assert has_unresolved_ceo_request(children, "00001") is True
 
     def test_cancelled_confirm_allows_re_creation(self):
         """A CANCELLED CEO_REQUEST should NOT block a new completion card."""
@@ -76,11 +56,12 @@ class TestCompletionCardGuard:
             _make_node("confirm1", parent_id="ea1", employee_id="00001",
                        node_type=NodeType.CEO_REQUEST, status=TaskPhase.CANCELLED.value),
         ]
-        _terminal = {TaskPhase.FINISHED.value, TaskPhase.CANCELLED.value, TaskPhase.ACCEPTED.value}
-        existing_confirm = any(
-            c for c in children
-            if (c.node_type == NodeType.CEO_REQUEST.value or c.node_type == NodeType.CEO_REQUEST)
-            and c.employee_id == "00001"
-            and c.status not in _terminal
-        )
-        assert existing_confirm is False  # should allow re-creation
+        assert has_unresolved_ceo_request(children, "00001") is False
+
+    def test_processing_confirm_blocks_duplicate(self):
+        """A PROCESSING CEO_REQUEST should block duplicate creation."""
+        children = [
+            _make_node("confirm1", parent_id="ea1", employee_id="00001",
+                       node_type=NodeType.CEO_REQUEST, status=TaskPhase.PROCESSING.value),
+        ]
+        assert has_unresolved_ceo_request(children, "00001") is True

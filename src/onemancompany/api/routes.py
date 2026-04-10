@@ -6254,7 +6254,7 @@ async def get_ceo_session(project_id: str):
     }
 
 
-_MENTION_RE = re.compile(r"@(\S+)")
+_MENTION_RE = re.compile(r"@([\w\u4e00-\u9fff\u3400-\u4dbf]+)")
 
 
 def _parse_mentions(text: str, participants: list[str]) -> list[str]:

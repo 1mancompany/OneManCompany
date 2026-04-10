@@ -135,9 +135,9 @@ def _dispatch_cron_task(
         except Exception as e:
             logger.warning("[cron] Failed to add to project tree, falling back to adhoc: {}", e)
 
-    # Fallback: standalone adhoc task
+    # Fallback: standalone adhoc task (clear project_id to avoid routing to project conversation)
     from onemancompany.api.routes import _push_adhoc_task
-    node_id, _tp = _push_adhoc_task(employee_id, desc, project_id=project_id)
+    node_id, _tp = _push_adhoc_task(employee_id, desc, project_id="")
     return node_id
 
 
@@ -146,6 +146,7 @@ def _add_to_project_tree(
 ) -> str:
     """Add a cron task as a child node in an existing project tree."""
     from pathlib import Path
+    from onemancompany.core.task_lifecycle import TaskPhase, TERMINAL
     from onemancompany.core.task_tree import get_tree, save_tree_async, get_tree_lock
     from onemancompany.core.vessel import employee_manager
 
@@ -158,6 +159,11 @@ def _add_to_project_tree(
         parent_id = tree.root_id
         if not parent_id:
             raise ValueError("Tree has no root node")
+
+        # Guard: don't inject into a finished/cancelled project
+        root_node = tree.get_node(parent_id)
+        if root_node and TaskPhase(root_node.status) in TERMINAL:
+            raise ValueError(f"Project root is {root_node.status}, cannot add cron child")
 
         child = tree.add_child(
             parent_id=parent_id,

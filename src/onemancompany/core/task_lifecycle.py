@@ -110,6 +110,34 @@ SYSTEM_NODE_TYPES = frozenset({
 # Node types that should NOT trigger project completion checks
 SKIP_COMPLETION_TYPES = frozenset({NodeType.WATCHDOG_NUDGE, NodeType.ADHOC, NodeType.SYSTEM})
 
+# Prefixes for system-generated project IDs (not real projects)
+_SYSTEM_PROJECT_PREFIXES = ("_sys_", "_auto_")
+
+
+def is_system_project_id(project_id: str) -> bool:
+    """Check if a project ID is system-generated (not a real user project)."""
+    return any(project_id.startswith(p) for p in _SYSTEM_PROJECT_PREFIXES)
+
+
+# Resolved states for CEO_REQUEST nodes — these should NOT block creation of new ones
+CEO_REQUEST_RESOLVED = frozenset({TaskPhase.FINISHED, TaskPhase.ACCEPTED, TaskPhase.CANCELLED, TaskPhase.FAILED})
+
+
+def has_unresolved_ceo_request(children, ceo_employee_id: str) -> bool:
+    """Check if any CEO_REQUEST child is still unresolved (pending/processing/holding/completed).
+
+    Used by both the completion card guard and the escalation guard to prevent
+    duplicate CEO_REQUEST nodes while allowing re-creation after resolution.
+    """
+    for c in children:
+        nt = c.node_type
+        is_ceo_req = (nt == NodeType.CEO_REQUEST.value or nt == NodeType.CEO_REQUEST)
+        if is_ceo_req and c.employee_id == ceo_employee_id:
+            status = TaskPhase(c.status) if isinstance(c.status, str) else c.status
+            if status not in CEO_REQUEST_RESOLVED:
+                return True
+    return False
+
 
 # ---------------------------------------------------------------------------
 # State transition helpers
