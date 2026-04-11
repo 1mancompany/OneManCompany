@@ -3678,6 +3678,44 @@ async def get_iteration_file(project_id: str, iteration_id: str, file_path: str)
     return await get_project_file(f"{project_id}/{iteration_id}", file_path)
 
 
+@router.get("/api/projects/{project_id}/ls")
+async def list_project_dir(project_id: str, path: str = "") -> dict:
+    """List immediate children of a directory in a project workspace.
+
+    Returns files and subdirectories (one level only) for lazy tree rendering.
+    """
+    from onemancompany.core.project_archive import get_project_dir
+
+    project_dir = get_project_dir(project_id)
+    if not project_dir or not Path(project_dir).exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    target = Path(project_dir) / path if path else Path(project_dir)
+    # Security: prevent path traversal
+    try:
+        target.resolve().relative_to(Path(project_dir).resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path traversal denied")
+
+    if not target.is_dir():
+        raise HTTPException(status_code=404, detail="Not a directory")
+
+    from onemancompany.core.project_archive import _INTERNAL_DIR_NAMES, _SKIP_DIR_NAMES, _is_internal_file
+    skip = _INTERNAL_DIR_NAMES | _SKIP_DIR_NAMES
+    entries = []
+    for item in sorted(target.iterdir()):
+        name = item.name
+        if name.startswith(".") and name != ".gitignore":
+            continue
+        if _is_internal_file(name) or name in skip:
+            continue
+        entries.append({
+            "name": name,
+            "type": "dir" if item.is_dir() else "file",
+        })
+    return {"path": path, "entries": entries}
+
+
 @router.get("/api/projects/{project_id}/files/{file_path:path}")
 async def get_project_file(project_id: str, file_path: str):
     """Read a file from a project workspace."""

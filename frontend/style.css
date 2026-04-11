@@ -1673,6 +1673,7 @@ body.resize-dragging {
 }
 .file-tree-dir:hover { background: rgba(255, 255, 0, 0.06); }
 .file-tree-children.hidden { display: none; }
+.lazy-dir-children.hidden { display: none; }
 
 /* ===== Candidate Selection Modal (Boss Online) ===== */
 .candidate-modal-content {
