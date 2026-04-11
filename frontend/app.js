@@ -7045,49 +7045,6 @@ class AppController {
    * Lightweight Markdown → HTML renderer.
    * Handles: headers, bold, italic, inline code, code blocks, lists, links, newlines.
    */
-  _renderFileTree(files, baseUrl) {
-    // Build tree structure from flat file paths
-    const root = {};
-    for (const f of files) {
-      const parts = f.split('/');
-      let node = root;
-      for (let i = 0; i < parts.length - 1; i++) {
-        if (!node[parts[i]]) node[parts[i]] = {};
-        node = node[parts[i]];
-      }
-      node[parts[parts.length - 1]] = f; // leaf = full path string
-    }
-
-    const esc = s => this._escHtml(s);
-    const iconFor = ext => ({png:'\uD83D\uDDBC',jpg:'\uD83D\uDDBC',jpeg:'\uD83D\uDDBC',gif:'\uD83D\uDDBC',svg:'\uD83D\uDDBC',pdf:'\uD83D\uDCC3'})[ext] || '\uD83D\uDCC4';
-
-    const renderNode = (obj, depth) => {
-      let html = '';
-      const entries = Object.entries(obj).sort(([a, av], [b, bv]) => {
-        const aDir = typeof av === 'object', bDir = typeof bv === 'object';
-        if (aDir !== bDir) return aDir ? -1 : 1; // dirs first
-        return a.localeCompare(b);
-      });
-      for (const [name, val] of entries) {
-        if (typeof val === 'object') {
-          // Directory — collapsible
-          const pad = depth * 10;
-          html += `<div class="file-tree-dir" style="padding-left:${pad}px;font-size:6px;color:var(--pixel-yellow);padding-top:2px;padding-bottom:2px;cursor:pointer;" onclick="this.classList.toggle('collapsed');this.nextElementSibling.classList.toggle('hidden');">\u25BE ${esc(name)}/</div>`;
-          html += `<div class="file-tree-children">${renderNode(val, depth + 1)}</div>`;
-        } else {
-          // File — clickable
-          const fullPath = val;
-          const ext = name.split('.').pop().toLowerCase();
-          const pad = depth * 10;
-          html += `<div class="project-file-item" data-file="${esc(fullPath)}" data-url="${baseUrl}${encodeURIComponent(fullPath)}" data-ext="${ext}" style="font-size:6px;color:var(--pixel-green);padding:2px 2px 2px ${pad}px;border-bottom:1px solid var(--border);cursor:pointer;">${iconFor(ext)} ${esc(name)}</div>`;
-        }
-      }
-      return html;
-    };
-
-    return renderNode(root, 0);
-  }
-
   /**
    * Initialize lazy file trees — click to load top-level, click dirs to expand.
    * Call after DOM insertion of elements with class="lazy-file-tree".
@@ -7163,20 +7120,7 @@ class AppController {
   _wireFileItemClicks(container, projectId) {
     container.querySelectorAll('.project-file-item').forEach(item => {
       item.addEventListener('click', () => {
-        const fileUrl = item.dataset.url;
-        const ext = item.dataset.ext;
-        const file = item.dataset.file;
-        if (['png','jpg','jpeg','gif','svg','webp'].includes(ext)) {
-          window.open(fileUrl, '_blank');
-        } else {
-          fetch(fileUrl).then(r => r.text()).then(text => {
-            const pre = document.createElement('pre');
-            pre.style.cssText = 'font-size:5px;background:var(--bg-dark);padding:6px;border:1px solid var(--border);max-height:200px;overflow:auto;white-space:pre-wrap;color:var(--pixel-white);';
-            pre.textContent = text.substring(0, 10000);
-            item.parentElement.insertBefore(pre, item.nextSibling);
-            item.style.pointerEvents = 'none';
-          }).catch(() => {});
-        }
+        this._openProjectFile(item.dataset.file, item.dataset.url, item.dataset.ext);
       });
     });
   }
