@@ -1349,9 +1349,9 @@ class EmployeeManager:
         if node.project_id:
             from onemancompany.core.system_cron import clear_watchdog_nudge
             clear_watchdog_nudge(node.project_id)
-        self._log_node(employee_id, entry.node_id, "start", f"Starting task: {node.description_preview}")
+        self._log_node(employee_id, entry.node_id, "start", f"Starting task: {node.description}")
         self._publish_node_update(employee_id, node)
-        self._push_to_conversation(node, f"▶ {node.title or node.description_preview}")
+        self._push_to_conversation(node, f"▶ {node.title or node.description}")
 
         await _store.save_employee_runtime(employee_id, current_task_summary=node.description_preview[:100])
 
