@@ -1034,7 +1034,7 @@ async def execute_hire(
                 f"---\nname: {skill_name}\ndescription: \"{name}'s {skill_name} skill.\"\n---\n\n"
                 f"# {skill_name}\n\n(Auto-created by HR during hiring.)\n")
 
-    # Inject default skills (ontology, proactive-agent, self-improving-agent)
+    # Inject default skills (task_lifecycle)
     _inject_default_skills(skills_dir)
 
     # Create initial SOUL.md in workspace

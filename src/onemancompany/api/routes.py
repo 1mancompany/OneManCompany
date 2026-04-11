@@ -3719,8 +3719,8 @@ async def list_project_dir(project_id: str, path: str = "") -> dict:
 @router.get("/api/projects/{project_id}/{iteration_id}/ls")
 async def list_iteration_dir(project_id: str, iteration_id: str, path: str = "") -> dict:
     """List immediate children of a directory in an iteration workspace."""
-    import re
-    if not re.match(r"^iter_\d+$", iteration_id):
+    from onemancompany.core.project_archive import _ITER_RE
+    if not _ITER_RE.match(iteration_id):
         raise HTTPException(404, "Not found")
     return await list_project_dir(f"{project_id}/{iteration_id}", path)
 
