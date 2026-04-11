@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 from loguru import logger
 import shutil
 import threading
@@ -689,10 +690,14 @@ def list_project_files(project_id: str, limit: int = _LIST_FILES_LIMIT) -> list[
 
 def _list_files_ripgrep(project_dir: Path, limit: int) -> list[str] | None:
     """List files using ripgrep (respects .gitignore). Returns None if rg unavailable."""
-    import subprocess
     try:
+        cmd = ["rg", "--files", "--sort=modified", "--hidden"]
+        # Explicitly exclude heavy dirs regardless of .gitignore presence
+        for d in _SKIP_DIR_NAMES:
+            cmd.extend(["--glob", f"!{d}/"])
+        logger.debug("[list_project_files] using ripgrep")
         result = subprocess.run(
-            ["rg", "--files", "--sort=modified", "--hidden"],
+            cmd,
             cwd=str(project_dir),
             capture_output=True, text=True, timeout=10,
         )
@@ -710,6 +715,7 @@ def _list_files_ripgrep(project_dir: Path, limit: int) -> list[str] | None:
 
 def _list_files_walk(project_dir: Path, limit: int, project_id: str) -> list[str]:
     """Fallback: list files using os.walk with directory pruning."""
+    logger.debug("[list_project_files] falling back to os.walk")
     files = []
     skip_dirs = _INTERNAL_DIR_NAMES | _SKIP_DIR_NAMES
     for dirpath, dirnames, filenames in os.walk(project_dir):

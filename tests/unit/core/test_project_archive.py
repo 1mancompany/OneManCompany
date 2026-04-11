@@ -305,13 +305,7 @@ class TestProjectFiles:
         nm.mkdir(parents=True)
         (nm / "index.js").write_text("module.exports = {}")
         (nm / "package.json").write_text('{"name":"some-pkg"}')
-        # Also test .git exclusion
-        git_dir = iter_dir / ".git" / "objects"
-        git_dir.mkdir(parents=True)
-        (git_dir / "abc123").write_text("blob")
-        # Add .gitignore so ripgrep skips node_modules
-        (iter_dir / ".gitignore").write_text("node_modules/\n")
-
+        # No .gitignore — rg must still skip via --glob exclusions
         files = pa.list_project_files(slug)
         assert "index.js" in files
         assert not any("node_modules" in f for f in files)
