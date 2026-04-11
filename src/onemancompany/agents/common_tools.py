@@ -1413,7 +1413,9 @@ async def report_to_ceo(message: str, employee_id: str = "") -> dict:
 
 def _credential_env_key(service_name: str) -> str:
     """Convert service name to env var key: 'stripe' -> 'STRIPE_API_KEY'."""
-    return f"{service_name.upper().replace('-', '_').replace(' ', '_')}_API_KEY"
+    import re
+    clean = re.sub(r'[^A-Za-z0-9_]', '_', service_name.upper())
+    return f"{clean}_API_KEY"
 
 
 @tool

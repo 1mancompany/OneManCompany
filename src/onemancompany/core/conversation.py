@@ -361,13 +361,23 @@ class ConversationService:
 
         # Credential requests: store as env var and mask the reply text
         if interaction.interaction_type == "credential_request" and interaction.credential_env_key:
-            from onemancompany.core.config import update_env_var
-            update_env_var(interaction.credential_env_key, ceo_text)
-            result["display_text"] = f"••• (saved as {interaction.credential_env_key})"
-            logger.info(
-                "[conversation] stored credential {} for node={}",
-                interaction.credential_env_key, interaction.node_id,
-            )
+            import os
+            clean_value = ceo_text.strip()
+            if clean_value and '\n' not in clean_value and '\r' not in clean_value:
+                from onemancompany.core.config import update_env_var
+                update_env_var(interaction.credential_env_key, clean_value)
+                os.environ[interaction.credential_env_key] = clean_value
+                result["display_text"] = f"••• (saved as {interaction.credential_env_key})"
+                logger.info(
+                    "[conversation] stored credential {} for node={}",
+                    interaction.credential_env_key, interaction.node_id,
+                )
+            else:
+                result["display_text"] = "(empty or invalid key — not saved)"
+                logger.warning(
+                    "[conversation] empty/invalid credential for {} node={}",
+                    interaction.credential_env_key, interaction.node_id,
+                )
 
         return result
 
@@ -380,7 +390,10 @@ class ConversationService:
         """Start timer. If CEO doesn't respond within timeout, EA auto-replies.
 
         When CEO DND mode is on, auto-reply triggers immediately (0s timeout).
+        Credential requests never auto-reply — must wait for CEO.
         """
+        if interaction.interaction_type == "credential_request":
+            return
         from onemancompany.core.config import get_ceo_dnd
         timeout = 0 if get_ceo_dnd() else AUTO_REPLY_TIMEOUT
 

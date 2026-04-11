@@ -135,3 +135,97 @@ class TestResolveCredentialInteraction:
         assert result["type"] == "resolved"
         assert "display_text" not in result
         mock_update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_credential_resolve_rejects_empty_key(self):
+        """Empty or whitespace-only key should not be stored."""
+        import asyncio
+        from onemancompany.core.conversation import ConversationService, Interaction
+
+        service = ConversationService.__new__(ConversationService)
+        service._pending = {}
+        service._auto_reply_tasks = {}
+
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        interaction = Interaction(
+            node_id="node_abc",
+            tree_path="",
+            project_id="proj_1",
+            source_employee="00004",
+            interaction_type="credential_request",
+            message="Need key",
+            future=future,
+            credential_env_key="EMPTY_API_KEY",
+        )
+        from collections import deque
+        service._pending["conv_123"] = deque([interaction])
+
+        with patch("onemancompany.core.config.update_env_var") as mock_update:
+            result = await service.resolve_interaction("conv_123", "   ")
+
+        assert result["display_text"] == "(empty or invalid key — not saved)"
+        mock_update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_credential_resolve_rejects_newlines(self):
+        """Keys with newlines should not be stored (would corrupt .env)."""
+        import asyncio
+        from onemancompany.core.conversation import ConversationService, Interaction
+
+        service = ConversationService.__new__(ConversationService)
+        service._pending = {}
+        service._auto_reply_tasks = {}
+
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        interaction = Interaction(
+            node_id="node_abc",
+            tree_path="",
+            project_id="proj_1",
+            source_employee="00004",
+            interaction_type="credential_request",
+            message="Need key",
+            future=future,
+            credential_env_key="BAD_API_KEY",
+        )
+        from collections import deque
+        service._pending["conv_123"] = deque([interaction])
+
+        with patch("onemancompany.core.config.update_env_var") as mock_update:
+            result = await service.resolve_interaction("conv_123", "sk-abc\ninjection")
+
+        mock_update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_credential_no_auto_reply_timer(self):
+        """Credential requests must NOT start auto-reply timer."""
+        import asyncio
+        from onemancompany.core.conversation import ConversationService, Interaction
+        from collections import deque
+
+        service = ConversationService.__new__(ConversationService)
+        service._pending = {}
+        service._auto_reply_tasks = {}
+        service._conversations = {}
+        service.send_message = AsyncMock()
+
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        interaction = Interaction(
+            node_id="node_abc",
+            tree_path="",
+            project_id="proj_1",
+            source_employee="00004",
+            interaction_type="credential_request",
+            message="Need key",
+            future=future,
+            credential_env_key="TEST_API_KEY",
+        )
+
+        with patch("onemancompany.core.conversation.event_bus") as mock_bus:
+            mock_bus.publish = AsyncMock()
+            await service.enqueue_interaction("conv_123", interaction)
+
+        # No timer should have been started
+        assert len(service._auto_reply_tasks) == 0
