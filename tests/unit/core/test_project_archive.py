@@ -294,6 +294,27 @@ class TestProjectFiles:
         result = pa.save_project_file(slug, "../../etc/passwd", "evil")
         assert result["status"] == "error"
 
+    def test_list_excludes_node_modules(self, tmp_path):
+        """Bug regression: node_modules must be skipped to prevent CPU hang."""
+        slug = pa.create_named_project("NodeModules")
+        pa.create_iteration(slug, "task", "COO")
+        pa.save_project_file(slug, "index.js", "console.log('hi')")
+        # Simulate node_modules with a few files
+        iter_dir = pa._resolve_project_path(slug)
+        nm = iter_dir / "node_modules" / "some-pkg"
+        nm.mkdir(parents=True)
+        (nm / "index.js").write_text("module.exports = {}")
+        (nm / "package.json").write_text('{"name":"some-pkg"}')
+        # Also test .git exclusion
+        git_dir = iter_dir / ".git" / "objects"
+        git_dir.mkdir(parents=True)
+        (git_dir / "abc123").write_text("blob")
+
+        files = pa.list_project_files(slug)
+        assert "index.js" in files
+        assert not any("node_modules" in f for f in files)
+        assert not any(".git" in f for f in files)
+
     def test_list_empty_project(self, tmp_path):
         slug = pa.create_named_project("Empty")
         pa.create_iteration(slug, "task", "COO")

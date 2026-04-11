@@ -10,6 +10,7 @@ Employees can save artifacts to their project workspace via save_project_file().
 """
 from __future__ import annotations
 
+import os
 import re
 from loguru import logger
 import shutil
@@ -49,6 +50,12 @@ PA_TOKEN_USAGE = "token_usage"
 # Internal infrastructure files excluded from user-facing document listing
 _INTERNAL_FILE_NAMES = frozenset({PROJECT_YAML_FILENAME, TASK_TREE_FILENAME})
 _INTERNAL_DIR_NAMES = frozenset({NODES_DIR_NAME})
+# Heavy dependency/build directories to skip during file listing (prevents CPU hang)
+_SKIP_DIR_NAMES = frozenset({
+    "node_modules", ".git", "__pycache__", ".venv", "venv",
+    ".next", ".nuxt", "dist", "build", ".cache", ".parcel-cache",
+    ".turbo", ".svelte-kit", "coverage", ".pytest_cache",
+})
 
 # Project / iteration status strings (NOT TaskPhase — project-level lifecycle)
 PROJECT_STATUS_ACTIVE = "active"
@@ -662,15 +669,16 @@ def list_project_files(project_id: str) -> list[str]:
         return []
 
     files = []
-    for p in sorted(project_dir.rglob("*")):
-        if not p.is_file():
-            continue
-        if _is_internal_file(p.name):
-            continue
-        rel = p.relative_to(project_dir)
-        if rel.parts and rel.parts[0] in _INTERNAL_DIR_NAMES:
-            continue
-        files.append(str(rel))
+    skip_dirs = _INTERNAL_DIR_NAMES | _SKIP_DIR_NAMES
+    for dirpath, dirnames, filenames in os.walk(project_dir):
+        # Prune heavy directories in-place (prevents os.walk from descending)
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for fname in filenames:
+            if _is_internal_file(fname):
+                continue
+            rel = Path(dirpath, fname).relative_to(project_dir)
+            files.append(str(rel))
+    files.sort()
     logger.debug("[list_project_files] found {} files", len(files))
     return files
 
