@@ -757,9 +757,10 @@ class AppController {
     const fallback = (e) => ({ agent: (e.type || 'SYS').toUpperCase(), text: `${e.name || e.topic || e.task || e.type || ''}` });
     for (const e of entries) {
       const { agent, text } = (this._activityTypeMap[e.type] || fallback)(e);
-      const ts = e.timestamp ? e.timestamp.substring(11, 19) : '        ';
+      const ts = e.timestamp ? e.timestamp.substring(11, 19) : '';
       const color = this._activityLogAnsi[agent.toLowerCase()] || ANSI.gray;
-      this._activityXterm.writeln(`${ANSI.gray}${ts}${ANSI.reset} ${color}${agent}${ANSI.reset} ${text}`);
+      const prefix = ts ? `${ANSI.gray}${ts}${ANSI.reset} ` : '';
+      this._activityXterm.writeln(`${prefix}${color}${agent}${ANSI.reset} ${text}`);
     }
   }
 
