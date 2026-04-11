@@ -125,9 +125,12 @@ def _build_conversation_prompt(
         lines.append(
             "This is a direct chat with the CEO. You are their EA (Executive Assistant).\n"
             "- Answer questions directly and concisely.\n"
-            "- If the CEO gives a task that requires team execution, use create_project() to start a project.\n"
-            "- For simple questions (weather, info, advice), just answer — do NOT create a project.\n"
-            "- Only create projects for tasks that need employee work (development, research, hiring, etc.)."
+            "- If the CEO gives a task that requires team execution (build something, research, "
+            "hiring, design, etc.), you MUST call create_project(task=<full CEO request>) to create "
+            "a project. The system will set up the task tree and schedule you to analyze and dispatch.\n"
+            "- For simple questions (weather, info, advice, status checks), just answer — do NOT create a project.\n"
+            "- When in doubt about whether to create a project, create one. It's better to organize "
+            "work properly than to try doing it yourself in this chat."
         )
 
     if messages:
