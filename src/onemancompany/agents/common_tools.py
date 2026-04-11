@@ -1411,6 +1411,107 @@ async def report_to_ceo(message: str, employee_id: str = "") -> dict:
     return {"status": "ok", "channel": conv.type, "conv_id": conv.id}
 
 
+def _credential_env_key(service_name: str) -> str:
+    """Convert service name to env var key: 'stripe' -> 'STRIPE_API_KEY'."""
+    return f"{service_name.upper().replace('-', '_').replace(' ', '_')}_API_KEY"
+
+
+@tool
+async def request_api_key(service_name: str, reason: str, employee_id: str = "") -> dict:
+    """Request an API key from the CEO via the chat channel.
+
+    CEO will see your request in the conversation and can type the key directly.
+    The key is stored securely as an environment variable and masked in chat history.
+
+    IMPORTANT: If CEO has Do Not Disturb mode on, this tool will fail immediately.
+    In that case, check if the key already exists via bash (echo $SERVICE_API_KEY),
+    or try an alternative approach that doesn't require the key.
+
+    Args:
+        service_name: The service name (e.g. "stripe", "openai", "github").
+            Stored as {SERVICE_NAME}_API_KEY environment variable.
+        reason: Why you need this API key — shown to CEO.
+        employee_id: Your employee ID (auto-filled).
+    """
+    if err := _validate_employee_id(employee_id):
+        return err
+
+    import os
+    from onemancompany.core.config import get_ceo_dnd
+    from onemancompany.core.conversation import get_conversation_service, Interaction
+
+    env_key = _credential_env_key(service_name)
+
+    # Check if key already exists
+    existing = os.environ.get(env_key)
+    if existing:
+        return {
+            "status": "already_exists",
+            "env_key": env_key,
+            "message": f"API key already available as ${env_key}.",
+        }
+
+    # DND guard — refuse immediately
+    if get_ceo_dnd():
+        return {
+            "status": "dnd_active",
+            "env_key": env_key,
+            "message": (
+                f"CEO is not available (Do Not Disturb). Cannot request API key for {service_name}. "
+                f"Try an alternative approach that doesn't require this key, "
+                f"or wait and retry when CEO is back."
+            ),
+        }
+
+    service = get_conversation_service()
+
+    # Use project conversation if in project context, else 1-on-1
+    project_id = _get_current_project_id()
+    if project_id:
+        conv = await service.get_or_create_project_conversation(project_id, [employee_id])
+    else:
+        conv = await service.get_or_create_oneonone(employee_id)
+
+    # Create interaction with credential_request type
+    import asyncio
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+
+    # Use a synthetic node_id for credential requests
+    import uuid
+    node_id = f"cred_{uuid.uuid4().hex[:8]}"
+
+    interaction = Interaction(
+        node_id=node_id,
+        tree_path="",
+        project_id=project_id or "",
+        source_employee=employee_id,
+        interaction_type="credential_request",
+        message=f"🔑 I need an API key for **{service_name}**.\nReason: {reason}\n\nPlease type the key below — it will be stored securely as `${env_key}` and masked in chat history.",
+        future=future,
+        credential_env_key=env_key,
+    )
+
+    await service.enqueue_interaction(conv.id, interaction)
+    logger.info("[request_api_key] employee={} service={} env_key={} conv={}", employee_id, service_name, env_key, conv.id)
+
+    # Block until CEO replies (or auto-reply if DND turns on later)
+    ceo_response = await future
+
+    # Check if we actually got a key (auto-reply would give a text response, not a key)
+    if ceo_response and len(ceo_response.strip()) > 0:
+        return {
+            "status": "ok",
+            "env_key": env_key,
+            "message": f"API key saved as ${env_key}. You can now use it.",
+        }
+    return {
+        "status": "no_key",
+        "env_key": env_key,
+        "message": "CEO did not provide an API key. Try an alternative approach.",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Skill loading — on-demand skill content retrieval (Claude-style)
 # ---------------------------------------------------------------------------
@@ -1784,7 +1885,7 @@ def _register_all_internal_tools() -> None:
         set_cron, stop_cron_job, setup_webhook, remove_webhook,
         list_automations, report_to_ceo,
         start_background_task, check_background_task, stop_background_task,
-        list_background_tasks,
+        list_background_tasks, request_api_key,
     ]
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))

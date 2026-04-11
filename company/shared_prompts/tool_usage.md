@@ -10,6 +10,7 @@
 - pull_meeting: ONLY for multi-person communication/discussion (2+ colleagues). Never call a meeting with yourself alone — if you need to think, just think internally.
 - use_tool: Access company equipment/tools registered by COO.
 - request_tool_access: Apply for access to tools you don't have permission to use.
+- request_api_key: Request an API key from the CEO. The key is stored securely as an environment variable. Fails if CEO is in Do Not Disturb mode — use alternatives in that case.
 
 ## Modifying Company-Level Knowledge
 When your task involves updating **company direction, culture, workflows, SOPs, or shared guidance**, you do NOT have direct write access to these resources. Instead:

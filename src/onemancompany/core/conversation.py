@@ -45,10 +45,11 @@ class Interaction:
     tree_path: str
     project_id: str
     source_employee: str
-    interaction_type: str      # ceo_request | project_confirm
+    interaction_type: str      # ceo_request | project_confirm | credential_request
     message: str
     future: asyncio.Future = field(repr=False)
     created_at: str = ""
+    credential_env_key: str = ""  # for credential_request: env var name to store the key
 
     def __post_init__(self) -> None:
         if not self.created_at:
@@ -355,7 +356,20 @@ class ConversationService:
             "[conversation] resolved interaction conv_id={} node_id={} type={}",
             conv_id, interaction.node_id, interaction.interaction_type,
         )
-        return {"type": "resolved", "node_id": interaction.node_id}
+
+        result: dict = {"type": "resolved", "node_id": interaction.node_id}
+
+        # Credential requests: store as env var and mask the reply text
+        if interaction.interaction_type == "credential_request" and interaction.credential_env_key:
+            from onemancompany.core.config import update_env_var
+            update_env_var(interaction.credential_env_key, ceo_text)
+            result["display_text"] = f"••• (saved as {interaction.credential_env_key})"
+            logger.info(
+                "[conversation] stored credential {} for node={}",
+                interaction.credential_env_key, interaction.node_id,
+            )
+
+        return result
 
     def get_pending_count(self, conv_id: str) -> int:
         """Return the number of unresolved pending interactions for a conversation."""
