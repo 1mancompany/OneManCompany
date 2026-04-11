@@ -6311,11 +6311,12 @@ async def send_ceo_session_message(project_id: str, body: dict):
     if conv.phase == ConversationPhase.ARCHIVED.value:
         await service.reactivate(conv.id)
 
-    # Save CEO message
-    await service.send_message(conv.id, "ceo", "CEO", text, mentions=mentions)
-
-    # Try to resolve pending interaction
+    # Try to resolve pending interaction BEFORE persisting message
     result = await service.resolve_interaction(conv.id, text)
+
+    # Persist CEO message (masked for credential requests)
+    display_text = result.get("display_text", text)
+    await service.send_message(conv.id, "ceo", "CEO", display_text, mentions=mentions)
 
     if result["type"] == "followup":
         # Dispatch as a CEO_FOLLOWUP via the existing task_followup logic.
@@ -6653,10 +6654,11 @@ async def send_conversation_message(conv_id: str, body: dict) -> dict:
     # where timeout=0 fires on next event loop tick).
     result = await service.resolve_interaction(conv_id, text)
     if result["type"] == "resolved":
-        # Persist CEO message to conversation history after resolving
+        # For credential requests, persist masked text instead of the actual key
+        display_text = result.get("display_text", text)
         try:
             await service.send_message(
-                conv_id, sender="ceo", role="CEO", text=text,
+                conv_id, sender="ceo", role="CEO", text=display_text,
                 attachments=body.get("attachments"),
             )
         except ValueError:
