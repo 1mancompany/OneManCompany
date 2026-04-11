@@ -4568,7 +4568,7 @@ async def hire_from_cv(body: dict) -> dict:
             # Dispatch COO to assign department and desk position
             _push_adhoc_task(
                 COO_ID,
-                f"A new employee has just onboarded via CV hire. Please assign department and role using assign_department(employee_id, department, role).\n"
+                f"A new employee has just onboarded via CV hire. Please assign department and role using assign_department(target_employee_id, department, role).\n"
                 f"Available departments: Engineering, Design, Analytics, Marketing\n"
                 f"Determine the role based on the employee's name and skills.\n\n"
                 f"- {name}（{nickname}）#{emp.id}",
@@ -4893,7 +4893,7 @@ async def _do_batch_hire(
                 )
                 _push_adhoc_task(
                     COO_ID,
-                    f"The following new employees have just onboarded. Please assign departments and roles to each using assign_department(employee_id, department, role).\n"
+                    f"The following new employees have just onboarded. Please assign departments and roles to each using assign_department(target_employee_id, department, role).\n"
                     f"Available departments: Engineering, Design, Analytics, Marketing\n"
                     f"Determine the role based on the employee's name and skills (e.g., Engineer, Designer, PM, QA Engineer, etc.).\n\n"
                     f"{emp_lines}",

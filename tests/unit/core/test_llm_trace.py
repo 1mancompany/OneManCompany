@@ -36,12 +36,12 @@ class TestLlmTracer:
     def test_log_tool_call(self, tmp_path):
         path = tmp_path / "llm_trace.jsonl"
         tracer = LlmTracer(path)
-        tracer.log_tool_call("node1", "00003", "dispatch_child", {"employee_id": "00010", "description": "Build API"})
+        tracer.log_tool_call("node1", "00003", "dispatch_child", {"target_employee_id": "00010", "description": "Build API"})
 
         record = json.loads(path.read_text().strip())
         assert record["type"] == "tool_call"
         assert record["content"]["tool"] == "dispatch_child"
-        assert record["content"]["args"]["employee_id"] == "00010"
+        assert record["content"]["args"]["target_employee_id"] == "00010"
 
     def test_log_tool_result(self, tmp_path):
         path = tmp_path / "llm_trace.jsonl"

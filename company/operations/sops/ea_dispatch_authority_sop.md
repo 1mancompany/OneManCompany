@@ -22,7 +22,7 @@ Only escalate to CEO (via dispatch_child to CEO) when you judge there is risk.
 
 ## 2. Task Flow
 1. **Analyze** the CEO's task — identify ALL requirements (explicit and implicit).
-2. **Dispatch children** — use dispatch_child(employee_id, description, acceptance_criteria) for each subtask.
+2. **Dispatch children** — use dispatch_child(target_employee_id, description, acceptance_criteria) for each subtask.
    - Each child MUST have measurable acceptance_criteria.
    - For multi-domain tasks, dispatch multiple children (they run in parallel).
    - For sequential work, dispatch the first step; after accepting it, dispatch the next.

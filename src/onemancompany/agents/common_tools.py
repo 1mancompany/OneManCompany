@@ -1042,7 +1042,7 @@ async def pull_meeting(
 
 
 @tool
-def use_tool(tool_name_or_id: str, employee_id: str) -> dict:
+def use_tool(tool_name_or_id: str, target_employee_id: str) -> dict:
     """Use a company tool — checks authorization and returns tool details + file contents.
 
     Employees must be authorized (in allowed_users) to use restricted tools.
@@ -1050,7 +1050,7 @@ def use_tool(tool_name_or_id: str, employee_id: str) -> dict:
 
     Args:
         tool_name_or_id: The tool's ID, name (case-insensitive), or folder_name.
-        employee_id: The employee ID requesting access.
+        target_employee_id: The employee ID requesting access.
 
     Returns:
         Tool metadata and file contents if authorized, or an access-denied message.
@@ -1077,10 +1077,10 @@ def use_tool(tool_name_or_id: str, employee_id: str) -> dict:
         return {"status": "error", "message": f"Tool '{tool_name_or_id}' not found. Use list_automations() to see available tools."}
 
     # Auth check
-    if found.allowed_users and employee_id not in found.allowed_users:
+    if found.allowed_users and target_employee_id not in found.allowed_users:
         return {
             "status": "denied",
-            "message": f"Access denied: employee {employee_id} is not authorized to use '{found.name}'.",
+            "message": f"Access denied: employee {target_employee_id} is not authorized to use '{found.name}'.",
             "allowed_users": found.allowed_users,
         }
 
@@ -1188,18 +1188,18 @@ def request_tool_access(tool_name: str, reason: str, employee_id: str = "") -> d
         f"Tool access request: Employee {emp_name} (ID: {employee_id}, {emp_dept}/{emp_role}, Lv.{emp_level}) "
         f"requests access to tool '{tool_name}'. Reason: {reason}. "
         f"Evaluate whether this is appropriate for their role and department. "
-        f"If approved, call manage_tool_access(employee_id='{employee_id}', tool_name='{tool_name}', action='grant')."
+        f"If approved, call manage_tool_access(target_employee_id='{employee_id}', tool_name='{tool_name}', action='grant')."
     )
     loop.push_task(task_desc)
     return {"status": "requested", "message": f"Access request for '{tool_name}' sent to COO for review."}
 
 
 @tool
-def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id: str = "") -> dict:
+def manage_tool_access(target_employee_id: str, tool_name: str, action: str, manager_id: str = "") -> dict:
     """Grant or revoke LangChain tool access for an employee. Only COO can use this.
 
     Args:
-        employee_id: Target employee's ID.
+        target_employee_id: Target employee's ID.
         tool_name: Name of the tool to grant or revoke.
         action: "grant" or "revoke".
         manager_id: Your employee ID (must be COO).
@@ -1211,9 +1211,9 @@ def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id
         return {"status": "denied", "message": "Only COO (00003) can manage tool access."}
 
     # Read from store to validate existence; mutations still go through company_state (Task 9)
-    emp_data = load_employee(employee_id)
+    emp_data = load_employee(target_employee_id)
     if not emp_data:
-        return {"status": "error", "message": f"Employee {employee_id} not found. Use list_colleagues() to find valid IDs."}
+        return {"status": "error", "message": f"Employee {target_employee_id} not found. Use list_colleagues() to find valid IDs."}
 
     current_perms = list(emp_data.get(PF_TOOL_PERMISSIONS, []) or [])
 
@@ -1231,14 +1231,14 @@ def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id
     from onemancompany.core import store as _store
     try:
         _asyncio.get_running_loop().create_task(
-            _store.save_employee(employee_id, {"tool_permissions": current_perms})
+            _store.save_employee(target_employee_id, {"tool_permissions": current_perms})
         )
     except RuntimeError:
-        logger.debug("No event loop for tool_permissions persist of {}", employee_id)
+        logger.debug("No event loop for tool_permissions persist of {}", target_employee_id)
 
     return {
         "status": "ok",
-        "employee": employee_id,
+        "employee": target_employee_id,
         "tool": tool_name,
         "action": action,
         "current_tool_permissions": current_perms,

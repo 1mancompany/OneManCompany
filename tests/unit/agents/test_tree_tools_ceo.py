@@ -55,7 +55,7 @@ class TestStandaloneCeoRequest:
         try:
             with patch("onemancompany.core.vessel.employee_manager", mock_em):
                 result = dispatch_child.invoke({
-                    "employee_id": CEO_ID,
+                    "target_employee_id": CEO_ID,
                     "description": "Need CEO decision on budget",
                     "acceptance_criteria": ["Approve"],
                 })
@@ -80,7 +80,7 @@ class TestStandaloneCeoRequest:
         try:
             with patch("onemancompany.core.vessel.employee_manager", mock_em):
                 result = dispatch_child.invoke({
-                    "employee_id": "00010",
+                    "target_employee_id": "00010",
                     "description": "Some task",
                     "acceptance_criteria": ["Done"],
                 })
@@ -121,7 +121,7 @@ class TestDispatchChildCeo:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": CEO_ID,
+                    "target_employee_id": CEO_ID,
                     "description": "Need approval",
                     "acceptance_criteria": ["Approve"],
                 })
@@ -150,7 +150,7 @@ class TestDispatchChildCeo:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": CEO_ID,
+                    "target_employee_id": CEO_ID,
                     "description": "Need approval",
                     "acceptance_criteria": ["Approve"],
                 })
@@ -182,7 +182,7 @@ class TestCeoRequestIdempotency:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result1 = dispatch_child.invoke({
-                    "employee_id": CEO_ID,
+                    "target_employee_id": CEO_ID,
                     "description": "Need approval",
                     "acceptance_criteria": ["Approve"],
                 })
@@ -190,7 +190,7 @@ class TestCeoRequestIdempotency:
                 first_id = result1["node_id"]
 
                 result2 = dispatch_child.invoke({
-                    "employee_id": CEO_ID,
+                    "target_employee_id": CEO_ID,
                     "description": "Need approval again",
                     "acceptance_criteria": ["Approve"],
                 })
@@ -220,7 +220,7 @@ class TestHoldReason:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": CEO_ID,
+                    "target_employee_id": CEO_ID,
                     "description": "Need approval",
                     "acceptance_criteria": ["Approve"],
                 })

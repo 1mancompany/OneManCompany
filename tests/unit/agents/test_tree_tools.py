@@ -71,7 +71,7 @@ class TestDispatchChild:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00100",
+                    "target_employee_id": "00100",
                     "description": "build feature X",
                     "acceptance_criteria": ["tests pass", "docs updated"],
                 })
@@ -131,7 +131,7 @@ class TestDispatchChild:
                        return_value=(str(iter_dir), tree_path)),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00100",
+                    "target_employee_id": "00100",
                     "description": "build feature",
                     "acceptance_criteria": ["done"],
                 })
@@ -181,7 +181,7 @@ class TestDispatchChild:
                        return_value=(str(iter_dir), tree_path)),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00100",
+                    "target_employee_id": "00100",
                     "description": "another task",
                     "acceptance_criteria": ["done"],
                 })
@@ -226,7 +226,7 @@ class TestDispatchChild:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "99999",
+                    "target_employee_id": "99999",
                     "description": "do stuff",
                     "acceptance_criteria": ["done"],
                 })
@@ -256,7 +256,7 @@ class TestDispatchChild:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00100",
+                    "target_employee_id": "00100",
                     "description": "build X",
                     "acceptance_criteria": ["works"],
                     "timeout_seconds": 1800,
@@ -278,7 +278,7 @@ class TestDispatchChild:
 
         try:
             result = dispatch_child.invoke({
-                "employee_id": "00100",
+                "target_employee_id": "00100",
                 "description": "do stuff",
                 "acceptance_criteria": ["done"],
             })
@@ -465,7 +465,7 @@ class TestEADispatchConstraint:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00006",
+                    "target_employee_id": "00006",
                     "description": "do coding",
                     "acceptance_criteria": ["done"],
                 })
@@ -495,7 +495,7 @@ class TestEADispatchConstraint:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00003",
+                    "target_employee_id": "00003",
                     "description": "manage project",
                     "acceptance_criteria": ["delivered"],
                 })
@@ -525,7 +525,7 @@ class TestEADispatchConstraint:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00006",
+                    "target_employee_id": "00006",
                     "description": "do coding",
                     "acceptance_criteria": ["done"],
                 })
@@ -555,7 +555,7 @@ class TestEADispatchConstraint:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00006",
+                    "target_employee_id": "00006",
                     "description": "do coding",
                     "acceptance_criteria": ["done"],
                 })
@@ -585,7 +585,7 @@ class TestEADispatchConstraint:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00004",
+                    "target_employee_id": "00004",
                     "description": "self task",
                     "acceptance_criteria": ["done"],
                 })
@@ -614,7 +614,7 @@ class TestEADispatchConstraint:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00006",
+                    "target_employee_id": "00006",
                     "description": "write code",
                     "acceptance_criteria": ["works"],
                 })
@@ -651,7 +651,7 @@ class TestDispatchChildDependency:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00100",
+                    "target_employee_id": "00100",
                     "description": "task B",
                     "acceptance_criteria": ["done"],
                     "depends_on": [dep_node.id],
@@ -690,7 +690,7 @@ class TestDispatchChildDependency:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00100",
+                    "target_employee_id": "00100",
                     "description": "task B",
                     "acceptance_criteria": ["done"],
                     "depends_on": [dep_node.id],
@@ -722,7 +722,7 @@ class TestDispatchChildDependency:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00100",
+                    "target_employee_id": "00100",
                     "description": "task B",
                     "acceptance_criteria": ["done"],
                     "depends_on": ["nonexistent_id"],
@@ -753,7 +753,7 @@ class TestDispatchChildDependency:
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
-                    "employee_id": "00100",
+                    "target_employee_id": "00100",
                     "description": "task A",
                     "acceptance_criteria": ["done"],
                 })
@@ -1079,7 +1079,7 @@ class TestDispatchChildLimits:
             with patch("onemancompany.core.vessel.employee_manager", em_mock), \
                  patch("onemancompany.core.store.load_employee", return_value={"id": "e2", "name": "Test"}):
                 result = dispatch_child.invoke({
-                    "employee_id": "e2",
+                    "target_employee_id": "e2",
                     "description": "One too many",
                     "acceptance_criteria": [],
                 })
@@ -1119,7 +1119,7 @@ class TestDispatchChildLimits:
             with patch("onemancompany.core.vessel.employee_manager", em_mock), \
                  patch("onemancompany.core.store.load_employee", return_value={"id": "e99", "name": "Test"}):
                 result = dispatch_child.invoke({
-                    "employee_id": "e99",
+                    "target_employee_id": "e99",
                     "description": "Too deep",
                     "acceptance_criteria": [],
                 })
