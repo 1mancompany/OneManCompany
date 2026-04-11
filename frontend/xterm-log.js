@@ -90,7 +90,14 @@ class XTermLog {
 
   _fit() {
     if (this._fitAddon) {
-      try { this._fitAddon.fit(); } catch (e) { console.warn('[XTermLog] fit failed:', e); }
+      try {
+        this._fitAddon.fit();
+        // Reduce columns by 1 to prevent right-edge clipping (border pixels)
+        const dims = this._fitAddon.proposeDimensions();
+        if (dims && dims.cols > 2) {
+          this._term.resize(dims.cols - 1, dims.rows);
+        }
+      } catch (e) { console.warn('[XTermLog] fit failed:', e); }
     }
   }
 
