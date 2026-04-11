@@ -27,6 +27,7 @@ const STATUS_STYLES = {
 };
 
 const CARD_W = 220, CARD_H = 90;
+const CHILDREN_PAGE_SIZE = 5;
 
 /* ─────────────────── Word-wrap helper (shared with old code) ────── */
 
@@ -139,12 +140,39 @@ G6.registerNode('org-card', {
             });
         }
 
-        // --- Name (bold) ---
+        // --- "Show more" virtual node: simplified card ---
+        if (cfg._isShowMore) {
+            group.addShape('text', {
+                attrs: {
+                    x: w / 2, y: h / 2 - 6,
+                    text: cfg.name || '+N more',
+                    fontSize: 13, fontWeight: 'bold',
+                    fill: '#8a8f98',
+                    textAlign: 'center', textBaseline: 'middle',
+                    cursor: 'pointer',
+                },
+                name: 'more-text',
+            });
+            group.addShape('text', {
+                attrs: {
+                    x: w / 2, y: h / 2 + 10,
+                    text: 'Click to expand',
+                    fontSize: 9, fill: '#62666d',
+                    textAlign: 'center', textBaseline: 'middle',
+                    cursor: 'pointer',
+                },
+                name: 'more-hint',
+            });
+            return cardBody;
+        }
+
+        // --- Top row: Name + Dept Badge + Status (all on one line) ---
+        const maxTopW = w - 50; // leave room for avatar
         group.addShape('text', {
             attrs: {
-                x: 14, y: 18,
-                text: _truncate(cfg.name || '', 16),
-                fontSize: 13, fontWeight: 'bold',
+                x: 14, y: 16,
+                text: _truncate(cfg.name || '', 10),
+                fontSize: 12, fontWeight: 'bold',
                 fill: '#f7f8f8',
                 textAlign: 'left', textBaseline: 'middle',
                 cursor: 'pointer',
@@ -152,13 +180,14 @@ G6.registerNode('org-card', {
             name: 'name-text',
         });
 
-        // --- Department badge (subtle pill: dept color at 20% opacity bg, full color text) ---
+        // Department badge (right of name)
+        const nameW = Math.min((cfg.name || '').length, 10) * 7 + 14;
         const badgeText = dept;
-        const badgeW = badgeText.length * 7 + 12;
+        const badgeW = badgeText.length * 6 + 10;
         group.addShape('rect', {
             attrs: {
-                x: 14, y: 25,
-                width: badgeW, height: 16,
+                x: nameW, y: 8,
+                width: badgeW, height: 14,
                 radius: 6,
                 fill: deptColor.badge, opacity: 0.2,
             },
@@ -166,61 +195,51 @@ G6.registerNode('org-card', {
         });
         group.addShape('text', {
             attrs: {
-                x: 14 + badgeW / 2, y: 33,
+                x: nameW + badgeW / 2, y: 15,
                 text: badgeText,
-                fontSize: 9, fontWeight: 'bold',
+                fontSize: 8, fontWeight: 'bold',
                 fill: deptColor.badge,
                 textAlign: 'center', textBaseline: 'middle',
             },
             name: 'dept-badge-text',
         });
 
-        // --- Role subtitle (gray) ---
-        group.addShape('text', {
-            attrs: {
-                x: 14 + badgeW + 6, y: 33,
-                text: _truncate(cfg.role || '', 14),
-                fontSize: 9, fill: '#8a8f98',
-                textAlign: 'left', textBaseline: 'middle',
-            },
-            name: 'role-text',
-        });
-
-        // --- Divider line ---
-        group.addShape('line', {
-            attrs: {
-                x1: 10, y1: 46, x2: w - 10, y2: 46,
-                stroke: 'rgba(255,255,255,0.05)', lineWidth: 1,
-            },
-            name: 'divider',
-        });
-
-        // --- Bottom: status dot + label ---
+        // Status indicator (right of dept badge, clamped before avatar)
+        const statusX = Math.min(nameW + badgeW + 6, maxTopW - 50);
         group.addShape('circle', {
             attrs: {
-                x: 16, y: 58,
-                r: 4, fill: statusStyle.color,
+                x: statusX, y: 15,
+                r: 3, fill: statusStyle.color,
             },
             name: 'status-dot',
         });
         group.addShape('text', {
             attrs: {
-                x: 24, y: 58,
-                text: statusStyle.label,
-                fontSize: 10, fill: statusStyle.color,
+                x: statusX + 6, y: 15,
+                text: _truncate(statusStyle.label, 8),
+                fontSize: 8, fill: statusStyle.color,
                 textAlign: 'left', textBaseline: 'middle',
             },
             name: 'status-label',
         });
 
-        // --- Description text (bottom area) ---
-        const descLines = _wrapText(cfg.desc || '', 30, 2);
+        // --- Divider line ---
+        group.addShape('line', {
+            attrs: {
+                x1: 10, y1: 28, x2: w - 10, y2: 28,
+                stroke: 'rgba(255,255,255,0.05)', lineWidth: 1,
+            },
+            name: 'divider',
+        });
+
+        // --- Bottom area: full task description (3 lines) ---
+        const descLines = _wrapText(cfg.desc || '', 32, 3);
         descLines.forEach((line, i) => {
             group.addShape('text', {
                 attrs: {
-                    x: 14, y: 72 + i * 12,
+                    x: 14, y: 40 + i * 13,
                     text: line,
-                    fontSize: 9, fill: '#62666d',
+                    fontSize: 10, fill: '#8a8f98',
                     textAlign: 'left', textBaseline: 'middle',
                 },
                 name: `desc-line-${i}`,
@@ -391,7 +410,39 @@ class TaskTreeRenderer {
             }
         });
 
+        // Paginate: if a node has > PAGE_SIZE children, show first PAGE_SIZE
+        // + a "show more" virtual node. Click to expand next batch.
+        const PAGE_SIZE = CHILDREN_PAGE_SIZE;
+        this._paginateChildren(map[rootId], PAGE_SIZE);
+
         return map[rootId] || null;
+    }
+
+    _paginateChildren(node, pageSize) {
+        if (!node || !node.children) return;
+        // Recurse first so nested nodes are paginated too
+        node.children.forEach(c => this._paginateChildren(c, pageSize));
+
+        if (node.children.length > pageSize) {
+            const visible = node.children.slice(0, pageSize);
+            const hidden = node.children.slice(pageSize);
+            const moreNode = {
+                id: `_more_${node.id}`,
+                name: `+${hidden.length} more`,
+                avatar: '···',
+                avatarUrl: '',
+                dept: 'Default',
+                role: '',
+                desc: `Click to show ${hidden.length} more tasks`,
+                status: 'pending',
+                _isShowMore: true,
+                _parentId: node.id,
+                _hiddenChildren: hidden,
+                children: [],
+            };
+            visible.push(moreNode);
+            node.children = visible;
+        }
     }
 
     /* ── Infer department from role/nodeType ───────────────────────── */
@@ -499,6 +550,11 @@ class TaskTreeRenderer {
                 this._toggleCollapse(evt.item);
                 return;
             }
+            // "Show more" pagination node — expand next batch
+            if (model._isShowMore) {
+                this._expandMoreChildren(model);
+                return;
+            }
             if (model._raw) {
                 this.selectNode(model._raw);
             }
@@ -558,6 +614,54 @@ class TaskTreeRenderer {
         }
         this._colorEdges();
         this.graph.paint();
+    }
+
+    /* ── Pagination: expand "show more" node ──────────────────────── */
+
+    _expandMoreChildren(moreModel) {
+        // Find the parent in the G6 tree and expand next batch
+        const PAGE_SIZE = CHILDREN_PAGE_SIZE;
+        const parentItem = this.graph.findById(moreModel._parentId);
+        if (!parentItem) return;
+
+        const parentModel = parentItem.getModel();
+        const hidden = moreModel._hiddenChildren || [];
+        if (!hidden.length) return;
+
+        // Remove the "show more" node
+        const moreItem = this.graph.findById(moreModel.id);
+        if (moreItem) this.graph.removeChild(moreModel.id);
+
+        // Add next batch
+        const nextBatch = hidden.slice(0, PAGE_SIZE);
+        const remaining = hidden.slice(PAGE_SIZE);
+
+        nextBatch.forEach(child => {
+            this.graph.addChild(child, parentModel.id);
+        });
+
+        // If still more hidden, add a new "show more" node
+        if (remaining.length > 0) {
+            const newMore = {
+                id: `_more_${moreModel._parentId}_${Date.now()}`,
+                name: `+${remaining.length} more`,
+                avatar: '···',
+                avatarUrl: '',
+                dept: 'Default',
+                role: '',
+                desc: `Click to show ${remaining.length} more tasks`,
+                status: 'pending',
+                _isShowMore: true,
+                _parentId: moreModel._parentId,
+                _hiddenChildren: remaining,
+                children: [],
+            };
+            this.graph.addChild(newMore, parentModel.id);
+        }
+
+        this.graph.layout();
+        this.graph.fitView();
+        this._colorEdges();
     }
 
     /* ── Public API: updateNode ────────────────────────────────────── */
