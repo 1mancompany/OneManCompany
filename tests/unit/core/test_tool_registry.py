@@ -575,13 +575,13 @@ class TestProxiedToolsEmployeeId:
         assert captured["employee_id"] == "00004"
 
 
-    def test_schema_keeps_required_employee_id(self):
-        """dispatch_child has employee_id as REQUIRED (target) — must NOT be stripped."""
+    def test_schema_keeps_required_target_employee_id(self):
+        """target_employee_id is REQUIRED (target) — must NOT be stripped."""
         from onemancompany.core.tool_registry import ToolRegistry, ToolMeta
         from langchain_core.tools import tool as lc_tool
 
         @lc_tool
-        def dispatch_child(employee_id: str, description: str) -> dict:
+        def dispatch_child(target_employee_id: str, description: str) -> dict:
             """Dispatch a child task to an employee."""
             return {}
 
@@ -592,14 +592,14 @@ class TestProxiedToolsEmployeeId:
             proxied = reg.get_proxied_tools_for("00004")
 
         field_names = list(proxied[0].args_schema.model_fields.keys())
-        assert "employee_id" in field_names, "Required employee_id must stay in schema"
+        assert "target_employee_id" in field_names, "Required target_employee_id must stay in schema"
 
     @pytest.mark.asyncio
-    async def test_proxy_does_not_overwrite_required_employee_id(self):
-        """Bug regression: proxy must NOT overwrite target employee_id with caller's ID.
+    async def test_proxy_does_not_overwrite_target_employee_id(self):
+        """Bug regression: proxy must NOT overwrite target_employee_id with caller's ID.
 
-        dispatch_child(employee_id="00002") called by EA (00004) must pass
-        employee_id="00002" to the tool, not "00004".
+        dispatch_child(target_employee_id="00002") called by EA (00004) must pass
+        target_employee_id="00002" to the tool, not "00004".
         """
         from onemancompany.core.tool_registry import ToolRegistry, ToolMeta
         from langchain_core.tools import tool as lc_tool
@@ -607,9 +607,9 @@ class TestProxiedToolsEmployeeId:
         captured = {}
 
         @lc_tool
-        async def dispatch_child(employee_id: str, description: str) -> dict:
+        async def dispatch_child(target_employee_id: str, description: str) -> dict:
             """Dispatch a child task to an employee."""
-            captured["employee_id"] = employee_id
+            captured["target_employee_id"] = target_employee_id
             return {"status": "ok"}
 
         reg = ToolRegistry()
@@ -618,13 +618,13 @@ class TestProxiedToolsEmployeeId:
         with patch("onemancompany.core.store.load_employee", return_value={"role": "EA"}):
             proxied = reg.get_proxied_tools_for("00004")
 
-        # LLM calls with target employee_id="00002"
+        # LLM calls with target_employee_id="00002"
         with patch("onemancompany.core.tool_registry.tool_registry", reg):
             with patch("onemancompany.core.vessel._current_vessel"):
-                await proxied[0].ainvoke({"employee_id": "00002", "description": "task"})
+                await proxied[0].ainvoke({"target_employee_id": "00002", "description": "task"})
 
-        assert captured["employee_id"] == "00002", (
-            f"Target employee_id should be '00002', got '{captured['employee_id']}'"
+        assert captured["target_employee_id"] == "00002", (
+            f"target_employee_id should be '00002', got '{captured['target_employee_id']}'"
         )
 
 

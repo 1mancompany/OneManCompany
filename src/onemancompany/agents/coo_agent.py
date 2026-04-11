@@ -302,7 +302,7 @@ def list_tools() -> list[dict]:
 
 
 @tool
-def grant_tool_access(tool_id: str, employee_id: str) -> dict:
+def grant_tool_access(tool_id: str, target_employee_id: str) -> dict:
     """Grant an employee access to a specific tool.
 
     If the tool currently has open access (empty allowed_users), granting access
@@ -311,7 +311,7 @@ def grant_tool_access(tool_id: str, employee_id: str) -> dict:
 
     Args:
         tool_id: The ID of the tool.
-        employee_id: The employee ID to grant access to.
+        target_employee_id: The employee ID to grant access to.
 
     Returns:
         Updated access list.
@@ -319,8 +319,8 @@ def grant_tool_access(tool_id: str, employee_id: str) -> dict:
     t = company_state.tools.get(tool_id)
     if not t:
         return {"status": "error", "message": f"Tool '{tool_id}' not found."}
-    if employee_id not in t.allowed_users:
-        t.allowed_users.append(employee_id)
+    if target_employee_id not in t.allowed_users:
+        t.allowed_users.append(target_employee_id)
         _persist_tool(t)
     return {
         "status": "success",
@@ -330,7 +330,7 @@ def grant_tool_access(tool_id: str, employee_id: str) -> dict:
 
 
 @tool
-def revoke_tool_access(tool_id: str, employee_id: str) -> dict:
+def revoke_tool_access(tool_id: str, target_employee_id: str) -> dict:
     """Revoke an employee's access to a specific tool.
 
     If the allowed_users list becomes empty after revocation, the tool
@@ -338,7 +338,7 @@ def revoke_tool_access(tool_id: str, employee_id: str) -> dict:
 
     Args:
         tool_id: The ID of the tool.
-        employee_id: The employee ID to revoke access from.
+        target_employee_id: The employee ID to revoke access from.
 
     Returns:
         Updated access list.
@@ -346,8 +346,8 @@ def revoke_tool_access(tool_id: str, employee_id: str) -> dict:
     t = company_state.tools.get(tool_id)
     if not t:
         return {"status": "error", "message": f"Tool '{tool_id}' not found."}
-    if employee_id in t.allowed_users:
-        t.allowed_users.remove(employee_id)
+    if target_employee_id in t.allowed_users:
+        t.allowed_users.remove(target_employee_id)
         _persist_tool(t)
     return {
         "status": "success",
@@ -393,21 +393,21 @@ def list_meeting_rooms() -> list[dict]:
 
 
 @tool
-def book_meeting_room(employee_id: str, participants: list[str], purpose: str = "") -> dict:
+def book_meeting_room(target_employee_id: str, participants: list[str], purpose: str = "") -> dict:
     """Book a meeting room for an employee to communicate with others.
 
     Employees must book a meeting room before they can communicate with other employees.
     If no rooms are available, the employee should work on other tasks or refine their work.
 
     Args:
-        employee_id: The ID of the employee requesting the room.
+        target_employee_id: The ID of the employee requesting the room.
         participants: List of employee IDs who will join the meeting.
         purpose: Brief description of the meeting purpose.
 
     Returns:
         Booking result — success with room details, or denied if no rooms free.
     """
-    all_participants = [employee_id] + participants
+    all_participants = [target_employee_id] + participants
     # Meetings require at least 2 distinct people
     if len(set(all_participants)) < 2:
         return {
@@ -420,13 +420,13 @@ def book_meeting_room(employee_id: str, participants: list[str], purpose: str = 
             if len(all_participants) > room.capacity:
                 continue
             room.is_booked = True
-            room.booked_by = employee_id
+            room.booked_by = target_employee_id
             room.participants = all_participants
             from onemancompany.core.store import save_room
             try:
                 asyncio.get_running_loop().create_task(save_room(room.id, {
                     "is_booked": True,
-                    "booked_by": employee_id,
+                    "booked_by": target_employee_id,
                     "participants": all_participants,
                 }))
             except RuntimeError:
@@ -434,7 +434,7 @@ def book_meeting_room(employee_id: str, participants: list[str], purpose: str = 
             _append_activity({
                 "type": "meeting_booked",
                 "room": room.name,
-                "booked_by": employee_id,
+                "booked_by": target_employee_id,
                 "participants": all_participants,
                 "purpose": purpose,
             })
@@ -448,7 +448,7 @@ def book_meeting_room(employee_id: str, participants: list[str], purpose: str = 
 
     _append_activity({
         "type": "meeting_denied",
-        "requested_by": employee_id,
+        "requested_by": target_employee_id,
         "reason": "no_free_rooms",
     })
     return {
@@ -625,7 +625,7 @@ def request_hiring(
     # Try dispatch_child to keep hiring in the project tree
     from onemancompany.agents.tree_tools import dispatch_child
     result = dispatch_child.invoke({
-        "employee_id": HR_ID,
+        "target_employee_id": HR_ID,
         "title": f"Hire {role}",
         "description": jd,
         "acceptance_criteria": [f"Successfully hired {role}", "New employee onboarding completed"],
@@ -754,7 +754,7 @@ def deposit_company_knowledge(
 
 
 @tool
-async def assign_department(employee_id: str, department: str, role: str = "") -> dict:
+async def assign_department(target_employee_id: str, department: str, role: str = "") -> dict:
     """Assign or change an employee's department and role.
 
     Updates the employee's department (and optionally role), recalculates
@@ -763,14 +763,14 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
     For new hires, ALWAYS provide both department and role.
 
     Args:
-        employee_id: The employee number (e.g. "00008").
+        target_employee_id: The employee number (e.g. "00008").
         department: Target department name (e.g. "Engineering", "Design",
             "Analytics", "Marketing").
         role: The employee's role/title (e.g. "Engineer", "Designer", "PM",
             "QA Engineer"). Required for new hires.
 
     Returns:
-        dict with status, employee_id, department, role, desk_position.
+        dict with status, target_employee_id, department, role, desk_position.
     """
     from onemancompany.core import store as _store
     from onemancompany.core.config import (
@@ -779,9 +779,9 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
     )
     from onemancompany.core.layout import compute_layout, get_next_desk_for_department
 
-    emp_data = _store.load_employee(employee_id)
+    emp_data = _store.load_employee(target_employee_id)
     if not emp_data:
-        return {"status": "error", "error": f"Employee {employee_id} not found"}
+        return {"status": "error", "error": f"Employee {target_employee_id} not found"}
 
     old_dept = emp_data.get(PF_DEPARTMENT, "General")
     old_role = emp_data.get(PF_ROLE, "")
@@ -791,10 +791,10 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
     if no_dept_change and no_role_change:
         return {
             "status": "no_change",
-            "employee_id": employee_id,
+            "employee_id": target_employee_id,
             "department": department,
             "role": old_role,
-            "message": f"{emp_data.get(PF_NAME, employee_id)} already has department={department}, role={old_role}",
+            "message": f"{emp_data.get(PF_NAME, target_employee_id)} already has department={department}, role={old_role}",
         }
 
     updates: dict = {}
@@ -822,7 +822,7 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
         if role not in ROLE_DEPARTMENT_MAP and department:
             ROLE_DEPARTMENT_MAP[role] = department
 
-    await _store.save_employee(employee_id, updates)
+    await _store.save_employee(target_employee_id, updates)
 
     # Recompute office layout if department changed
     if not no_dept_change:
@@ -831,8 +831,8 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
     activity_type = "department_changed" if not no_dept_change else "role_changed"
     _append_activity({
         "type": activity_type,
-        "employee_id": employee_id,
-        "name": emp_data.get(PF_NAME, employee_id),
+        "employee_id": target_employee_id,
+        "name": emp_data.get(PF_NAME, target_employee_id),
         "from_department": old_dept,
         "to_department": department,
         "from_role": old_role,
@@ -845,11 +845,11 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
 
     final_role = role or old_role
     logger.info("Assigned {} → dept={}, role={} for {}",
-                old_dept, department, final_role, employee_id)
+                old_dept, department, final_role, target_employee_id)
 
     result = {
         "status": "ok",
-        "employee_id": employee_id,
+        "employee_id": target_employee_id,
         "name": emp_data.get(PF_NAME, ""),
         "department": department,
         "role": final_role,
