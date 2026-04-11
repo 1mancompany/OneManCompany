@@ -97,7 +97,7 @@ G6.registerNode('org-card', {
             name: 'status-bar',
         });
 
-        // --- Right-side avatar circle ---
+        // --- Right-side avatar ---
         const avatarX = w - 28;
         const avatarY = 24;
         const avatarR = 16;
@@ -108,16 +108,36 @@ G6.registerNode('org-card', {
             },
             name: 'avatar-bg',
         });
-        group.addShape('text', {
-            attrs: {
-                x: avatarX, y: avatarY,
-                text: cfg.avatar || '?',
-                fontSize: 12, fontWeight: 'bold',
-                fill: deptColor.text,
-                textAlign: 'center', textBaseline: 'middle',
-            },
-            name: 'avatar-text',
-        });
+        // Use avatar image if available, fallback to initials text
+        if (cfg.avatarUrl) {
+            group.addShape('image', {
+                attrs: {
+                    x: avatarX - avatarR, y: avatarY - avatarR,
+                    width: avatarR * 2, height: avatarR * 2,
+                    img: cfg.avatarUrl,
+                },
+                name: 'avatar-img',
+            });
+            // Clip circle over image
+            group.addShape('circle', {
+                attrs: {
+                    x: avatarX, y: avatarY, r: avatarR,
+                    fill: 'transparent', stroke: deptColor.badge, lineWidth: 2,
+                },
+                name: 'avatar-border',
+            });
+        } else {
+            group.addShape('text', {
+                attrs: {
+                    x: avatarX, y: avatarY,
+                    text: cfg.avatar || '?',
+                    fontSize: 12, fontWeight: 'bold',
+                    fill: deptColor.text,
+                    textAlign: 'center', textBaseline: 'middle',
+                },
+                name: 'avatar-text',
+            });
+        }
 
         // --- Name (bold) ---
         group.addShape('text', {
@@ -355,9 +375,10 @@ class TaskTreeRenderer {
                 id: n.id,
                 name: info.nickname || info.name || n.employee_id || n.id,
                 avatar: this._getAvatar(info, n.node_type),
+                avatarUrl: info.avatar_url || '',
                 dept: dept,
                 role: info.role || '',
-                desc: n.title || n.description_preview || n.description || '',
+                desc: n.description_preview || n.title || n.description || '',
                 status: n.status || 'pending',
                 _raw: n,
                 children: [],
