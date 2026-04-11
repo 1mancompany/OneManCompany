@@ -94,13 +94,13 @@ class TestCreateNamedProject:
         assert doc["status"] == "active"
         assert doc["iterations"] == []
 
-    def test_duplicate_name_gets_suffix(self, tmp_path):
+    def test_duplicate_name_gets_unique_ids(self, tmp_path):
         slug1 = pa.create_named_project("Test Project")
         slug2 = pa.create_named_project("Test Project")
         assert slug1 != slug2
-        # Both contain the same base slug; differ by uuid prefix
-        assert "test-project" in slug1
-        assert "test-project" in slug2
+        # Both are UUID-based (12 hex chars), no project name in directory
+        assert len(slug1) == 12
+        assert len(slug2) == 12
 
 
 # ---------------------------------------------------------------------------
@@ -858,11 +858,9 @@ class TestCostSummaryIterationSkip:
 
 
 def test_create_named_project_format(tmp_path, monkeypatch):
-    """Project dir name must be {uuid6}_{slug}_{MMDDHHMMSS}."""
+    """Project dir name must be a 12-char UUID hex."""
     monkeypatch.setattr(pa, "PROJECTS_DIR", tmp_path)
     slug = pa.create_named_project("PRDBench Project 19")
-    parts = slug.split("_")
-    assert len(parts) >= 3
-    assert len(parts[0]) == 6  # short uuid hex
-    assert parts[-1].isdigit() and len(parts[-1]) == 10  # MMDDHHMMSS
-    assert "prdbench" in slug.lower()
+    assert len(slug) == 12
+    # Must be valid hex
+    int(slug, 16)

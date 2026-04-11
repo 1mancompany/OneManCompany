@@ -594,6 +594,8 @@ def get_project_dir(project_id: str) -> str:
 
     All files (task_tree.yaml, nodes/, user documents) live here.
     """
+    from urllib.parse import unquote
+    project_id = unquote(project_id)
     if _is_iteration(project_id):
         slug = _find_project_for_iteration(project_id)
         _, bare_id = _split_qualified_iter(project_id)
