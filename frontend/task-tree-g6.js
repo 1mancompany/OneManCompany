@@ -368,7 +368,7 @@ class TaskTreeRenderer {
             modes: {
                 default: [
                     'drag-canvas',
-                    { type: 'zoom-canvas', sensitivity: 1.5 },
+                    { type: 'zoom-canvas', sensitivity: 0.5 },
                     'drag-node',
                 ],
             },

@@ -6647,6 +6647,22 @@ async def send_conversation_message(conv_id: str, body: dict) -> dict:
     if not text:
         raise HTTPException(status_code=400, detail="text is required and must be non-empty")
     service = _get_conv_svc()
+
+    # Resolve pending interaction BEFORE persisting message to avoid
+    # race condition with auto-reply timer (especially in DND mode
+    # where timeout=0 fires on next event loop tick).
+    result = await service.resolve_interaction(conv_id, text)
+    if result["type"] == "resolved":
+        # Persist CEO message to conversation history after resolving
+        try:
+            await service.send_message(
+                conv_id, sender="ceo", role="CEO", text=text,
+                attachments=body.get("attachments"),
+            )
+        except ValueError:
+            logger.debug("[conversation] conv {} gone after resolve, skipping message persist", conv_id)
+        return {"status": "resolved", "result": result}
+
     try:
         msg = await service.send_message(
             conv_id, sender="ceo", role="CEO", text=text,
@@ -6654,11 +6670,6 @@ async def send_conversation_message(conv_id: str, body: dict) -> dict:
         )
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
-
-    # Try to resolve pending interaction first (e.g. CEO confirm/reply)
-    result = await service.resolve_interaction(conv_id, text)
-    if result["type"] == "resolved":
-        return {"status": "resolved", "result": result}
 
     # No pending interaction — dispatch to adapter in background
     task = asyncio.create_task(_dispatch_conversation_to_adapter(conv_id, msg))

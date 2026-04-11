@@ -209,6 +209,37 @@ class TestLaunchTask:
             )
 
 
+    @pytest.mark.asyncio
+    async def test_launch_rejects_server_port(self, tmp_path):
+        """Bug regression: background tasks must not bind to the server port."""
+        from onemancompany.core.background_tasks import BackgroundTaskManager
+
+        mgr = BackgroundTaskManager(data_dir=tmp_path)
+        with patch.dict("os.environ", {"PORT": "8000"}):
+            with pytest.raises(RuntimeError, match="reserved"):
+                await mgr.launch(
+                    command="npm run dev --port 8000",
+                    description="steals server port",
+                    working_dir=str(tmp_path),
+                    started_by="emp001",
+                )
+
+    @pytest.mark.asyncio
+    async def test_launch_allows_different_port(self, tmp_path):
+        """Non-server ports should be allowed."""
+        from onemancompany.core.background_tasks import BackgroundTaskManager
+
+        mgr = BackgroundTaskManager(data_dir=tmp_path)
+        with patch.dict("os.environ", {"PORT": "8000"}):
+            task = await mgr.launch(
+                command="echo ok --port 3000",
+                description="different port",
+                working_dir=str(tmp_path),
+                started_by="emp001",
+            )
+            assert task.port == 3000
+
+
 class TestTerminateTask:
     """BackgroundTaskManager.terminate() — integration tests using real subprocesses."""
 
