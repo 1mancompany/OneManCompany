@@ -574,7 +574,7 @@ body.resize-dragging {
   border: 2px solid var(--border);
   border-top: none;
   border-radius: 0 0 2px 2px;
-  padding: 4px 2px 4px 4px;
+  padding: 4px 4px 4px 4px;
   flex: 1;
   overflow: hidden;  /* xterm.js handles its own scrolling */
   min-height: 0;
