@@ -198,7 +198,7 @@ def _create_standalone_ceo_request(
 
 @tool
 def dispatch_child(
-    employee_id: str,
+    target_employee_id: str,
     description: str,
     acceptance_criteria: list[str],
     title: str = "",
@@ -222,7 +222,7 @@ def dispatch_child(
     but not scheduled.
 
     Args:
-        employee_id: Target employee ID
+        target_employee_id: Target employee ID (who to assign the task to)
         description: The task description — preserve the original wording from upstream
         title: Short task name (e.g. "Build login page") — shown in task tree view. Always provide a brief, descriptive title.
         acceptance_criteria: List of measurable criteria the result must meet
@@ -242,7 +242,7 @@ def dispatch_child(
 
     if not project_dir or not tree_path_str:
         # --- Standalone CEO request (no tree context, e.g. system/adhoc tasks) ---
-        if employee_id == CEO_ID:
+        if target_employee_id == CEO_ID:
             return _create_standalone_ceo_request(
                 description=description,
                 requester_task_id=task_id,
@@ -250,14 +250,14 @@ def dispatch_child(
             )
         return {"status": "error", "message": "No project directory in current task context."}
 
-    # Validate employee_id format and existence
+    # Validate target_employee_id format and existence
     from onemancompany.agents.common_tools import _validate_employee_id
-    id_err = _validate_employee_id(employee_id)
+    id_err = _validate_employee_id(target_employee_id)
     if id_err:
         return id_err
     from onemancompany.core.store import load_employee
-    if not load_employee(employee_id):
-        return {"status": "error", "message": f"Employee {employee_id} not found. Use list_colleagues() to find valid IDs."}
+    if not load_employee(target_employee_id):
+        return {"status": "error", "message": f"Employee {target_employee_id} not found. Use list_colleagues() to find valid IDs."}
 
     from onemancompany.core.task_tree import get_tree_lock
     tree_lock = get_tree_lock(tree_path_str)
@@ -272,7 +272,7 @@ def dispatch_child(
         from onemancompany.core.config import EA_ID, HR_ID, COO_ID, CSO_ID
         if current_node.employee_id == EA_ID:
             # Self-dispatch guard — always blocked
-            if employee_id == EA_ID:
+            if target_employee_id == EA_ID:
                 return {
                     "status": "error",
                     "message": "EA cannot dispatch tasks to itself. Please dispatch to an appropriate team member.",
@@ -280,15 +280,15 @@ def dispatch_child(
             # O-level restriction — only in standard mode
             if tree.mode != "simple":
                 allowed_targets = {HR_ID, COO_ID, CSO_ID}
-                if employee_id not in allowed_targets:
+                if target_employee_id not in allowed_targets:
                     suggestion = f"COO({COO_ID})"
                     return {
                         "status": "error",
                         "message": (
-                            f"EA cannot directly dispatch tasks to {employee_id}. "
+                            f"EA cannot directly dispatch tasks to {target_employee_id}. "
                             f"Please dispatch_child to the corresponding O-level executive instead: HR({HR_ID}), COO({COO_ID}), CSO({CSO_ID}). "
                             f"Hint: for development/design/operations tasks, dispatch to {suggestion} to organize team execution. "
-                            f"Please immediately re-call dispatch_child with the correct employee_id."
+                            f"Please immediately re-call dispatch_child with the correct target_employee_id."
                         ),
                     }
 
@@ -327,7 +327,7 @@ def dispatch_child(
                 }
 
         # --- CEO request interception (idempotency check BEFORE creating child) ---
-        if employee_id == CEO_ID:
+        if target_employee_id == CEO_ID:
             from onemancompany.core.task_lifecycle import TaskPhase as _TP
             existing = [
                 c for c in tree.get_children(task_id)
@@ -339,7 +339,7 @@ def dispatch_child(
                 return {
                     "status": "already_dispatched",
                     "node_id": dup.id,
-                    "employee_id": employee_id,
+                    "employee_id": target_employee_id,
                     "description": dup.description,
                     "node_type": NodeType.CEO_REQUEST,
                     "ceo_request": True,
@@ -353,7 +353,7 @@ def dispatch_child(
         # Add child node
         child = tree.add_child(
             parent_id=task_id,
-            employee_id=employee_id,
+            employee_id=target_employee_id,
             description=description,
             acceptance_criteria=acceptance_criteria,
             timeout_seconds=timeout_seconds,
@@ -375,9 +375,9 @@ def dispatch_child(
             })
 
         # Auto-register dispatched employee in project team for project history
-        _add_to_project_team(project_dir, employee_id)
+        _add_to_project_team(project_dir, target_employee_id)
 
-        if employee_id == CEO_ID:
+        if target_employee_id == CEO_ID:
             child.node_type = NodeType.CEO_REQUEST
             # Signal vessel to auto-HOLD parent after execution
             current_node.hold_reason = f"ceo_request={child.id},no_watchdog=1"
@@ -387,7 +387,7 @@ def dispatch_child(
         # When dispatching to a DIFFERENT employee, the parent should HOLD
         # until child tasks complete — otherwise it gets marked COMPLETED
         # immediately and never has a chance to review/accept children.
-        if employee_id != current_node.employee_id and not current_node.hold_reason:
+        if target_employee_id != current_node.employee_id and not current_node.hold_reason:
             current_node.hold_reason = f"awaiting_children,no_watchdog=1"
 
         # Check if dependencies are already satisfied
@@ -397,11 +397,11 @@ def dispatch_child(
             _save_tree(project_dir, tree)
             # Persist task index entry for taskboard even though not yet scheduled
             from onemancompany.core.store import append_task_index_entry
-            append_task_index_entry(employee_id, child.id, tree_path_str)
+            append_task_index_entry(target_employee_id, child.id, tree_path_str)
             return {
                 "status": "dispatched_waiting",
                 "node_id": child.id,
-                "employee_id": employee_id,
+                "employee_id": target_employee_id,
                 "description": description,
                 "dependency_status": "waiting",
             }
@@ -409,13 +409,13 @@ def dispatch_child(
         # Save tree and schedule via employee_manager
         from onemancompany.core.vessel import employee_manager
         _save_tree(project_dir, tree)
-        employee_manager.schedule_node(employee_id, child.id, tree_path_str)
-        employee_manager._schedule_next(employee_id)
+        employee_manager.schedule_node(target_employee_id, child.id, tree_path_str)
+        employee_manager._schedule_next(target_employee_id)
 
         return {
             "status": "dispatched",
             "node_id": child.id,
-            "employee_id": employee_id,
+            "employee_id": target_employee_id,
             "description": description,
             "dependency_status": "resolved",
         }

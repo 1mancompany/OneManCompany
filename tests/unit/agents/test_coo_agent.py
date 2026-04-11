@@ -316,7 +316,7 @@ class TestToolAccess:
         monkeypatch.setattr(coo_mod, "TOOLS_DIR", tmp_path / "tools")
 
         result = coo_mod.grant_tool_access.invoke({
-            "tool_id": "t1", "employee_id": "00010",
+            "tool_id": "t1", "target_employee_id": "00010",
         })
 
         assert result["status"] == "success"
@@ -334,7 +334,7 @@ class TestToolAccess:
         monkeypatch.setattr(coo_mod, "TOOLS_DIR", tmp_path / "tools")
 
         result = coo_mod.grant_tool_access.invoke({
-            "tool_id": "t1", "employee_id": "00010",
+            "tool_id": "t1", "target_employee_id": "00010",
         })
         assert result["status"] == "success"
         assert tool.allowed_users.count("00010") == 1
@@ -348,7 +348,7 @@ class TestToolAccess:
         monkeypatch.setattr(coo_mod, "company_state", cs)
 
         result = coo_mod.grant_tool_access.invoke({
-            "tool_id": "bad", "employee_id": "00010",
+            "tool_id": "bad", "target_employee_id": "00010",
         })
         assert result["status"] == "error"
 
@@ -364,7 +364,7 @@ class TestToolAccess:
         monkeypatch.setattr(coo_mod, "TOOLS_DIR", tmp_path / "tools")
 
         result = coo_mod.revoke_tool_access.invoke({
-            "tool_id": "t1", "employee_id": "00010",
+            "tool_id": "t1", "target_employee_id": "00010",
         })
 
         assert result["status"] == "success"
@@ -383,7 +383,7 @@ class TestToolAccess:
         monkeypatch.setattr(coo_mod, "TOOLS_DIR", tmp_path / "tools")
 
         result = coo_mod.revoke_tool_access.invoke({
-            "tool_id": "t1", "employee_id": "00010",
+            "tool_id": "t1", "target_employee_id": "00010",
         })
 
         assert result["access"] == "open"
@@ -423,7 +423,7 @@ class TestBookMeetingRoom:
         monkeypatch.setattr(coo_mod, "company_state", cs)
 
         result = coo_mod.book_meeting_room.invoke({
-            "employee_id": "00010",
+            "target_employee_id": "00010",
             "participants": ["00020"],
             "purpose": "Sync up",
         })
@@ -444,7 +444,7 @@ class TestBookMeetingRoom:
         monkeypatch.setattr(coo_mod, "company_state", cs)
 
         result = coo_mod.book_meeting_room.invoke({
-            "employee_id": "00010",
+            "target_employee_id": "00010",
             "participants": ["00020"],
         })
         assert result["status"] == "denied"
@@ -459,7 +459,7 @@ class TestBookMeetingRoom:
         monkeypatch.setattr(coo_mod, "company_state", cs)
 
         result = coo_mod.book_meeting_room.invoke({
-            "employee_id": "00010",
+            "target_employee_id": "00010",
             "participants": [],  # solo
         })
         assert result["status"] == "denied"
@@ -474,7 +474,7 @@ class TestBookMeetingRoom:
         monkeypatch.setattr(coo_mod, "company_state", cs)
 
         result = coo_mod.book_meeting_room.invoke({
-            "employee_id": "00010",
+            "target_employee_id": "00010",
             "participants": ["00020", "00030"],  # 3 total > capacity 2
         })
         assert result["status"] == "denied"
@@ -907,7 +907,7 @@ class TestRevokeToolAccessNonexistent:
 
         result = coo_mod.revoke_tool_access.invoke({
             "tool_id": "nonexistent",
-            "employee_id": "00010",
+            "target_employee_id": "00010",
         })
         assert result["status"] == "error"
         assert "not found" in result["message"]

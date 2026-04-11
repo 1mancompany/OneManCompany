@@ -277,7 +277,7 @@ class TestUseTool:
 
         result = ct_mod.use_tool.invoke({
             "tool_name_or_id": "t1",
-            "employee_id": "00010",
+            "target_employee_id": "00010",
         })
         assert result["status"] == "ok"
         assert result["name"] == "Open Tool"
@@ -300,7 +300,7 @@ class TestUseTool:
 
         result = ct_mod.use_tool.invoke({
             "tool_name_or_id": "t1",
-            "employee_id": "00010",
+            "target_employee_id": "00010",
         })
         assert result["status"] == "denied"
 
@@ -322,7 +322,7 @@ class TestUseTool:
 
         result = ct_mod.use_tool.invoke({
             "tool_name_or_id": "my tool",
-            "employee_id": "00010",
+            "target_employee_id": "00010",
         })
         assert result["status"] == "ok"
         assert result["name"] == "My Tool"
@@ -338,7 +338,7 @@ class TestUseTool:
 
         result = ct_mod.use_tool.invoke({
             "tool_name_or_id": "nonexistent",
-            "employee_id": "00010",
+            "target_employee_id": "00010",
         })
         assert result["status"] == "error"
 
@@ -459,7 +459,7 @@ class TestManageToolAccess:
         )
 
         result = ct_mod.manage_tool_access.invoke({
-            "employee_id": "00010",
+            "target_employee_id": "00010",
             "tool_name": "read_file",
             "action": "grant",
             "manager_id": COO_ID,
@@ -485,7 +485,7 @@ class TestManageToolAccess:
         )
 
         result = ct_mod.manage_tool_access.invoke({
-            "employee_id": "00010",
+            "target_employee_id": "00010",
             "tool_name": "read_file",
             "action": "revoke",
             "manager_id": COO_ID,
@@ -505,7 +505,7 @@ class TestManageToolAccess:
         _mock_store(monkeypatch, cs)
 
         result = ct_mod.manage_tool_access.invoke({
-            "employee_id": "00010",
+            "target_employee_id": "00010",
             "tool_name": "read_file",
             "action": "grant",
             "manager_id": "00099",
@@ -525,7 +525,7 @@ class TestManageToolAccess:
         _mock_store(monkeypatch, cs)
 
         result = ct_mod.manage_tool_access.invoke({
-            "employee_id": "00010",
+            "target_employee_id": "00010",
             "tool_name": "read_file",
             "action": "delete",
             "manager_id": COO_ID,
@@ -1002,7 +1002,7 @@ class TestUseToolAdditional:
 
         result = ct_mod.use_tool.invoke({
             "tool_name_or_id": "special_folder",
-            "employee_id": "00010",
+            "target_employee_id": "00010",
         })
         assert result["status"] == "ok"
         assert result["name"] == "Special Tool"
@@ -1043,7 +1043,7 @@ class TestUseToolAdditional:
 
         result = ct_mod.use_tool.invoke({
             "tool_name_or_id": "t2",
-            "employee_id": "00010",
+            "target_employee_id": "00010",
         })
         assert result["status"] == "ok"
         assert "binary file" in result["files"]["image.png"]
@@ -1073,7 +1073,7 @@ class TestUseToolAdditional:
 
         result = ct_mod.use_tool.invoke({
             "tool_name_or_id": "t3",
-            "employee_id": "00010",
+            "target_employee_id": "00010",
         })
         assert result["status"] == "ok"
         assert "ghost.txt" not in result["files"]
@@ -1101,7 +1101,7 @@ class TestManageToolAccessAdditional:
         )
 
         result = ct_mod.manage_tool_access.invoke({
-            "employee_id": "00010",
+            "target_employee_id": "00010",
             "tool_name": "read_file",
             "action": "grant",
             "manager_id": COO_ID,
@@ -1120,7 +1120,7 @@ class TestManageToolAccessAdditional:
         _mock_store(monkeypatch, cs)
 
         result = ct_mod.manage_tool_access.invoke({
-            "employee_id": "99999",
+            "target_employee_id": "99999",
             "tool_name": "read_file",
             "action": "grant",
             "manager_id": COO_ID,

@@ -245,20 +245,31 @@ class ToolRegistry:
         for tool in direct_tools:
             tool_name = tool.name
 
-            # Inject employee_id at system level — LLM should never fill this
-            async def _proxy(emp_id=employee_id, tname=tool_name, **kwargs):
-                kwargs["employee_id"] = emp_id
-                return await execute_tool(emp_id, tname, kwargs)
-
-            # Strip employee_id from schema so LLM never sees it
+            # Check if employee_id is a business parameter (required, no default)
+            # vs a caller-identity parameter (optional, has default).
+            # Business params (e.g. dispatch_child target) must NOT be overwritten.
             schema = getattr(tool, "args_schema", None)
+            _is_identity_param = False
             if schema and "employee_id" in schema.model_fields:
+                field = schema.model_fields["employee_id"]
+                _is_identity_param = not field.is_required()
+
+            if _is_identity_param:
+                # Caller-identity param: inject at system level, strip from schema
+                async def _proxy(emp_id=employee_id, tname=tool_name, **kwargs):
+                    kwargs["employee_id"] = emp_id
+                    return await execute_tool(emp_id, tname, kwargs)
+
                 fields = {
                     k: (v.annotation, v)
                     for k, v in schema.model_fields.items()
                     if k != "employee_id"
                 }
                 schema = create_model(schema.__name__, **fields)
+            else:
+                # No employee_id or it's a business param: pass through as-is
+                async def _proxy(emp_id=employee_id, tname=tool_name, **kwargs):
+                    return await execute_tool(emp_id, tname, kwargs)
 
             wrapper = StructuredTool.from_function(
                 coroutine=_proxy,

@@ -11,7 +11,7 @@ def test_append_node_log(tmp_path):
         project_dir,
         "node123",
         "tool_call",
-        'dispatch_child({"employee_id": "00006", "description": "full content here"})',
+        'dispatch_child({"target_employee_id": "00006", "description": "full content here"})',
     )
     log_path = tmp_path / "nodes" / "node123" / "execution.log"
     assert log_path.exists()
