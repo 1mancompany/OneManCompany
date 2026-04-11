@@ -3684,8 +3684,11 @@ async def list_project_dir(project_id: str, path: str = "") -> dict:
 
     Returns files and subdirectories (one level only) for lazy tree rendering.
     """
+    from urllib.parse import unquote
     from onemancompany.core.project_archive import get_project_dir
 
+    # Defense: decode any residual URL-encoding (e.g. Chinese chars in project slugs)
+    project_id = unquote(project_id)
     project_dir = get_project_dir(project_id)
     if not project_dir or not Path(project_dir).exists():
         raise HTTPException(status_code=404, detail="Project not found")
