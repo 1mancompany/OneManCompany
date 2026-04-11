@@ -670,6 +670,7 @@ def list_project_files(project_id: str) -> list[str]:
 
     files = []
     skip_dirs = _INTERNAL_DIR_NAMES | _SKIP_DIR_NAMES
+    max_files = 5000  # hard cap to prevent CPU hang on any large directory
     for dirpath, dirnames, filenames in os.walk(project_dir):
         # Prune heavy directories in-place (prevents os.walk from descending)
         dirnames[:] = [d for d in dirnames if d not in skip_dirs]
@@ -678,6 +679,13 @@ def list_project_files(project_id: str) -> list[str]:
                 continue
             rel = Path(dirpath, fname).relative_to(project_dir)
             files.append(str(rel))
+            if len(files) >= max_files:
+                logger.warning(
+                    "[list_project_files] hit {} file cap for project_id={}, truncating",
+                    max_files, project_id,
+                )
+                files.sort()
+                return files
     files.sort()
     logger.debug("[list_project_files] found {} files", len(files))
     return files
