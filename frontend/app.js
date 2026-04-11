@@ -4785,7 +4785,7 @@ class AppController {
         // Documents — lazy tree (click to expand directories)
         html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">Documents:</div>`;
         html += `<div class="lazy-file-tree" data-project-id="${this._escHtml(projectId)}" data-path="" style="font-size:6px;">
-          <div style="color:var(--text-dim);">Click to load files...</div>
+          <div style="color:var(--text-dim);">Loading files...</div>
         </div>`;
 
         contentEl.innerHTML = html;
@@ -7054,13 +7054,8 @@ class AppController {
     trees.forEach(tree => {
       if (tree.dataset.initialized) return;
       tree.dataset.initialized = '1';
-      tree.style.cursor = 'pointer';
-      tree.addEventListener('click', (e) => {
-        if (!tree.dataset.loaded) {
-          this._loadLazyDir(tree, tree.dataset.projectId, '');
-          tree.dataset.loaded = '1';
-        }
-      }, { once: true });
+      // Auto-load first level immediately — subdirectories are lazy
+      this._loadLazyDir(tree, tree.dataset.projectId, '');
     });
   }
 
@@ -7578,7 +7573,7 @@ class AppController {
           <a href="${downloadUrl}" style="font-size:5px;color:var(--pixel-green);text-decoration:none;border:1px solid var(--border);padding:1px 6px;cursor:pointer;">Download ZIP</a>
         </div>`;
         detailHtml += `<div class="lazy-file-tree" data-project-id="${this._escHtml(qualifiedPath)}" data-path="" style="font-size:6px;">
-          <div style="color:var(--text-dim);">Click to load files...</div>
+          <div style="color:var(--text-dim);">Loading files...</div>
         </div>`;
 
         // CEO Report (stored when project completion report is submitted)

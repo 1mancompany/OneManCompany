@@ -67,7 +67,7 @@ HEARTBEAT_SCRIPT = "heartbeat.sh"
 
 # Default skills injected for every new employee
 _DEFAULT_SKILLS_DIR = Path(__file__).resolve().parent.parent / "default_skills"
-_DEFAULT_SKILL_NAMES = ["ontology", "proactive-agent", "self-improving-agent", "task_lifecycle"]
+_DEFAULT_SKILL_NAMES = ["task_lifecycle"]
 
 
 # ---------------------------------------------------------------------------
@@ -1034,7 +1034,7 @@ async def execute_hire(
                 f"---\nname: {skill_name}\ndescription: \"{name}'s {skill_name} skill.\"\n---\n\n"
                 f"# {skill_name}\n\n(Auto-created by HR during hiring.)\n")
 
-    # Inject default skills (ontology, proactive-agent, self-improving-agent)
+    # Inject default skills (task_lifecycle)
     _inject_default_skills(skills_dir)
 
     # Create initial SOUL.md in workspace
