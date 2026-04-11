@@ -11,6 +11,9 @@
 - use_tool: Access company equipment/tools registered by COO.
 - request_tool_access: Apply for access to tools you don't have permission to use.
 - request_api_key: Request an API key from the CEO. The key is stored securely as an environment variable. Fails if CEO is in Do Not Disturb mode — use alternatives in that case.
+- set_cron: Schedule a recurring task that runs automatically at a fixed interval. The task is dispatched to YOU each interval. Use for monitoring, periodic reports, status checks, or any repeating work. Example: `set_cron(cron_name="check_progress", interval="5m", task_description="Check project status and report any blockers")`. When working in a project context, the cron task is automatically linked to the current project. Use `list_automations()` first to avoid duplicates. Use `stop_cron_job()` to cancel.
+- stop_cron_job: Stop a recurring cron job by name. Use `list_automations()` first to see active crons.
+- list_automations: List all your active cron jobs and webhooks.
 
 ## Modifying Company-Level Knowledge
 When your task involves updating **company direction, culture, workflows, SOPs, or shared guidance**, you do NOT have direct write access to these resources. Instead:
