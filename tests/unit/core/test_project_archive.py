@@ -294,6 +294,38 @@ class TestProjectFiles:
         result = pa.save_project_file(slug, "../../etc/passwd", "evil")
         assert result["status"] == "error"
 
+    def test_list_excludes_node_modules(self, tmp_path):
+        """Bug regression: node_modules must be skipped to prevent CPU hang."""
+        slug = pa.create_named_project("NodeModules")
+        pa.create_iteration(slug, "task", "COO")
+        pa.save_project_file(slug, "index.js", "console.log('hi')")
+        # Simulate node_modules with a few files
+        iter_dir = pa._resolve_project_path(slug)
+        nm = iter_dir / "node_modules" / "some-pkg"
+        nm.mkdir(parents=True)
+        (nm / "index.js").write_text("module.exports = {}")
+        (nm / "package.json").write_text('{"name":"some-pkg"}')
+        # No .gitignore — rg must still skip via --glob exclusions
+        files = pa.list_project_files(slug)
+        assert "index.js" in files
+        assert not any("node_modules" in f for f in files)
+
+    def test_list_falls_back_to_walk(self, tmp_path):
+        """When ripgrep is unavailable, os.walk fallback should work."""
+        slug = pa.create_named_project("Fallback")
+        pa.create_iteration(slug, "task", "COO")
+        pa.save_project_file(slug, "app.py", "print('hi')")
+        iter_dir = pa._resolve_project_path(slug)
+        # Create node_modules that walk should skip
+        nm = iter_dir / "node_modules" / "pkg"
+        nm.mkdir(parents=True)
+        (nm / "index.js").write_text("x")
+
+        with patch("onemancompany.core.project_archive._list_files_ripgrep", return_value=None):
+            files = pa.list_project_files(slug)
+        assert "app.py" in files
+        assert not any("node_modules" in f for f in files)
+
     def test_list_empty_project(self, tmp_path):
         slug = pa.create_named_project("Empty")
         pa.create_iteration(slug, "task", "COO")

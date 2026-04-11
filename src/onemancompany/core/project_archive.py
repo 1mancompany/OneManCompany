@@ -10,7 +10,9 @@ Employees can save artifacts to their project workspace via save_project_file().
 """
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from loguru import logger
 import shutil
 import threading
@@ -49,6 +51,12 @@ PA_TOKEN_USAGE = "token_usage"
 # Internal infrastructure files excluded from user-facing document listing
 _INTERNAL_FILE_NAMES = frozenset({PROJECT_YAML_FILENAME, TASK_TREE_FILENAME})
 _INTERNAL_DIR_NAMES = frozenset({NODES_DIR_NAME})
+# Heavy dependency/build directories to skip during file listing (prevents CPU hang)
+_SKIP_DIR_NAMES = frozenset({
+    "node_modules", ".git", "__pycache__", ".venv", "venv",
+    ".next", ".nuxt", "dist", "build", ".cache", ".parcel-cache",
+    ".turbo", ".svelte-kit", "coverage", ".pytest_cache",
+})
 
 # Project / iteration status strings (NOT TaskPhase — project-level lifecycle)
 PROJECT_STATUS_ACTIVE = "active"
@@ -649,8 +657,15 @@ def _is_internal_file(name: str) -> bool:
     return False
 
 
-def list_project_files(project_id: str) -> list[str]:
-    """List user-facing files in a project workspace.
+_LIST_FILES_LIMIT = 5000
+
+
+def list_project_files(project_id: str, limit: int = _LIST_FILES_LIMIT) -> list[str]:
+    """List user-facing files in a project workspace using ripgrep.
+
+    Uses `rg --files` which respects .gitignore automatically, skipping
+    node_modules and other heavy directories without manual exclusion lists.
+    Falls back to os.walk if ripgrep is not available.
 
     Excludes internal infrastructure files (project.yaml, task trees, node content).
     """
@@ -661,17 +676,56 @@ def list_project_files(project_id: str) -> list[str]:
         logger.debug("[list_project_files] workspace does not exist")
         return []
 
+    files = _list_files_ripgrep(project_dir, limit)
+    if files is None:
+        files = _list_files_walk(project_dir, limit, project_id)
+
+    # Filter internal files
+    result = [f for f in files if not _is_internal_file(Path(f).name)
+              and not any(part in _INTERNAL_DIR_NAMES for part in Path(f).parts)]
+    result.sort()
+    logger.debug("[list_project_files] found {} files", len(result))
+    return result
+
+
+def _list_files_ripgrep(project_dir: Path, limit: int) -> list[str] | None:
+    """List files using ripgrep (respects .gitignore). Returns None if rg unavailable."""
+    try:
+        cmd = ["rg", "--files", "--sort=modified", "--hidden"]
+        # Explicitly exclude heavy dirs regardless of .gitignore presence
+        for d in _SKIP_DIR_NAMES:
+            cmd.extend(["--glob", f"!{d}/"])
+        logger.debug("[list_project_files] using ripgrep")
+        result = subprocess.run(
+            cmd,
+            cwd=str(project_dir),
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode not in (0, 1):  # 1 = no files found
+            return None
+        lines = [l for l in result.stdout.splitlines() if l.strip()]
+        if len(lines) > limit:
+            logger.warning("[list_project_files] rg returned {} files, truncating to {}", len(lines), limit)
+            lines = lines[:limit]
+        return lines
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        logger.debug("[list_project_files] ripgrep unavailable or timed out: {}", e)
+        return None
+
+
+def _list_files_walk(project_dir: Path, limit: int, project_id: str) -> list[str]:
+    """Fallback: list files using os.walk with directory pruning."""
+    logger.debug("[list_project_files] falling back to os.walk")
     files = []
-    for p in sorted(project_dir.rglob("*")):
-        if not p.is_file():
-            continue
-        if _is_internal_file(p.name):
-            continue
-        rel = p.relative_to(project_dir)
-        if rel.parts and rel.parts[0] in _INTERNAL_DIR_NAMES:
-            continue
-        files.append(str(rel))
-    logger.debug("[list_project_files] found {} files", len(files))
+    skip_dirs = _INTERNAL_DIR_NAMES | _SKIP_DIR_NAMES
+    for dirpath, dirnames, filenames in os.walk(project_dir):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for fname in filenames:
+            rel = Path(dirpath, fname).relative_to(project_dir)
+            files.append(str(rel))
+            if len(files) >= limit:
+                logger.warning("[list_project_files] hit {} file cap for {}, truncating", limit, project_id)
+                return files
     return files
 
 
