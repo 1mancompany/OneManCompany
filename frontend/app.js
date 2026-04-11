@@ -4782,31 +4782,14 @@ class AppController {
           html += `<div style="font-size:6px;color:var(--pixel-white);background:var(--bg-dark);padding:6px;border:1px solid var(--border);">${doc.output}</div>`;
         }
 
-        // Documents
-        const files = doc.files || [];
-        if (files.length > 0) {
-          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">Documents (${files.length}):</div>`;
-          for (const f of files) {
-            const url = `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(f)}`;
-            const safeUrl = this._escHtml(url);
-            const safeFile = this._escHtml(f);
-            const encodedUrl = encodeURIComponent(url);
-            const encodedFile = encodeURIComponent(f);
-            html += `<div style="font-size:6px;margin:2px 0;">`;
-            html += `<a href="${safeUrl}" class="project-doc-link" data-url="${encodedUrl}" data-file="${encodedFile}" style="color:var(--pixel-green);text-decoration:underline;cursor:pointer;">${safeFile}</a>`;
-            html += `</div>`;
-          }
-        }
+        // Documents — lazy tree (click to expand directories)
+        html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">Documents:</div>`;
+        html += `<div class="lazy-file-tree" data-project-id="${this._escHtml(projectId)}" data-path="" style="font-size:6px;">
+          <div style="color:var(--text-dim);">Click to load files...</div>
+        </div>`;
 
         contentEl.innerHTML = html;
-        contentEl.querySelectorAll('.project-doc-link').forEach((link) => {
-          link.addEventListener('click', (e) => {
-            e.preventDefault();
-            const rawUrl = decodeURIComponent(link.dataset.url || '');
-            const rawFile = decodeURIComponent(link.dataset.file || '');
-            window._ceoViewFile(rawUrl, rawFile);
-          });
-        });
+        this._initLazyFileTrees(contentEl);
       })
       .catch(err => {
         contentEl.innerHTML = `<div style="color:var(--pixel-red);">Load failed: ${this._escHtml(err.message)}</div>`;
@@ -7105,6 +7088,99 @@ class AppController {
     return renderNode(root, 0);
   }
 
+  /**
+   * Initialize lazy file trees — click to load top-level, click dirs to expand.
+   * Call after DOM insertion of elements with class="lazy-file-tree".
+   */
+  _initLazyFileTrees(container) {
+    const trees = container.querySelectorAll('.lazy-file-tree');
+    trees.forEach(tree => {
+      if (tree.dataset.initialized) return;
+      tree.dataset.initialized = '1';
+      tree.style.cursor = 'pointer';
+      tree.addEventListener('click', (e) => {
+        if (!tree.dataset.loaded) {
+          this._loadLazyDir(tree, tree.dataset.projectId, '');
+          tree.dataset.loaded = '1';
+        }
+      }, { once: true });
+    });
+  }
+
+  async _loadLazyDir(container, projectId, dirPath) {
+    container.innerHTML = '<div style="color:var(--text-dim);">Loading...</div>';
+    try {
+      const url = `/api/projects/${encodeURIComponent(projectId)}/ls?path=${encodeURIComponent(dirPath)}`;
+      const resp = await fetch(url);
+      if (!resp.ok) { container.innerHTML = '<div style="color:var(--pixel-red);">Failed to load</div>'; return; }
+      const data = await resp.json();
+      const entries = data.entries || [];
+      if (entries.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-dim);">Empty</div>';
+        return;
+      }
+      let html = '';
+      const esc = s => this._escHtml(s);
+      const iconFor = ext => ({png:'\uD83D\uDDBC',jpg:'\uD83D\uDDBC',jpeg:'\uD83D\uDDBC',gif:'\uD83D\uDDBC',svg:'\uD83D\uDDBC',pdf:'\uD83D\uDCC3'})[ext] || '\uD83D\uDCC4';
+      for (const entry of entries) {
+        const childPath = dirPath ? `${dirPath}/${entry.name}` : entry.name;
+        if (entry.type === 'dir') {
+          html += `<div class="lazy-dir-entry" style="padding:2px 0;cursor:pointer;color:var(--pixel-yellow);" data-dir-path="${esc(childPath)}" data-project-id="${esc(projectId)}">`;
+          html += `<span class="lazy-dir-arrow">\u25B6</span> ${esc(entry.name)}/`;
+          html += `</div>`;
+          html += `<div class="lazy-dir-children hidden" style="padding-left:12px;"></div>`;
+        } else {
+          const ext = entry.name.split('.').pop().toLowerCase();
+          const fileUrl = `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(childPath)}`;
+          html += `<div class="project-file-item" data-file="${esc(childPath)}" data-url="${esc(fileUrl)}" data-ext="${ext}" style="padding:2px 0;color:var(--pixel-green);cursor:pointer;">`;
+          html += `${iconFor(ext)} ${esc(entry.name)}`;
+          html += `</div>`;
+        }
+      }
+      container.innerHTML = html;
+      // Wire directory click handlers
+      container.querySelectorAll('.lazy-dir-entry').forEach(dir => {
+        dir.addEventListener('click', () => {
+          const childrenEl = dir.nextElementSibling;
+          if (childrenEl.dataset.loaded) {
+            childrenEl.classList.toggle('hidden');
+            dir.querySelector('.lazy-dir-arrow').textContent = childrenEl.classList.contains('hidden') ? '\u25B6' : '\u25BE';
+          } else {
+            childrenEl.dataset.loaded = '1';
+            childrenEl.classList.remove('hidden');
+            dir.querySelector('.lazy-dir-arrow').textContent = '\u25BE';
+            this._loadLazyDir(childrenEl, dir.dataset.projectId, dir.dataset.dirPath);
+          }
+        });
+      });
+      // Wire file click handlers
+      this._wireFileItemClicks(container, projectId);
+    } catch (err) {
+      container.innerHTML = `<div style="color:var(--pixel-red);">Error: ${this._escHtml(err.message)}</div>`;
+    }
+  }
+
+  _wireFileItemClicks(container, projectId) {
+    container.querySelectorAll('.project-file-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const fileUrl = item.dataset.url;
+        const ext = item.dataset.ext;
+        const file = item.dataset.file;
+        if (['png','jpg','jpeg','gif','svg','webp'].includes(ext)) {
+          window.open(fileUrl, '_blank');
+        } else {
+          fetch(fileUrl).then(r => r.text()).then(text => {
+            const pre = document.createElement('pre');
+            pre.style.cssText = 'font-size:5px;background:var(--bg-dark);padding:6px;border:1px solid var(--border);max-height:200px;overflow:auto;white-space:pre-wrap;color:var(--pixel-white);';
+            pre.textContent = text.substring(0, 10000);
+            item.parentElement.insertBefore(pre, item.nextSibling);
+            item.style.pointerEvents = 'none';
+          }).catch(() => {});
+        }
+      });
+    });
+  }
+
   _renderMarkdown(md) {
     if (!md) return '';
     let html = this._escapeHtml(md);
@@ -7552,18 +7628,14 @@ class AppController {
           </div>
         </div>`;
 
-        const files = doc.files || [];
-        const fileBaseUrl = `/api/projects/${qualifiedPath}/files/`;
         const downloadUrl = `/api/projects/${qualifiedPath}/download`;
         detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;display:flex;justify-content:space-between;align-items:center;">
-          <span>Documents (${files.length})</span>
-          ${files.length > 0 ? `<a href="${downloadUrl}" style="font-size:5px;color:var(--pixel-green);text-decoration:none;border:1px solid var(--border);padding:1px 6px;cursor:pointer;">Download ZIP</a>` : ''}
+          <span>Documents</span>
+          <a href="${downloadUrl}" style="font-size:5px;color:var(--pixel-green);text-decoration:none;border:1px solid var(--border);padding:1px 6px;cursor:pointer;">Download ZIP</a>
         </div>`;
-        if (files.length > 0) {
-          detailHtml += this._renderFileTree(files, fileBaseUrl);
-        } else {
-          detailHtml += `<div style="font-size:5px;color:var(--text-dim);">No output documents yet</div>`;
-        }
+        detailHtml += `<div class="lazy-file-tree" data-project-id="${this._escHtml(qualifiedPath)}" data-path="" style="font-size:6px;">
+          <div style="color:var(--text-dim);">Click to load files...</div>
+        </div>`;
 
         // CEO Report (stored when project completion report is submitted)
         if (doc.ceo_report) {
@@ -7690,12 +7762,8 @@ class AppController {
           });
         });
 
-        // Bind file click handlers
-        panel.querySelectorAll('.project-file-item').forEach(item => {
-          item.addEventListener('click', () => {
-            this._openProjectFile(item.dataset.file, item.dataset.url, item.dataset.ext);
-          });
-        });
+        // Initialize lazy file trees (click to expand)
+        this._initLazyFileTrees(panel);
 
         // Bind team member click → open employee detail
         panel.querySelectorAll('.project-team-member').forEach(el => {
