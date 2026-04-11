@@ -117,11 +117,13 @@ def _rebase_project_dir(stored_path: str) -> Path:
 
 
 
-def _slugify(name: str) -> str:
-    """Convert a project name to a filesystem-safe slug."""
+def _slugify(name: str, max_len: int = 60) -> str:
+    """Convert a project name to a filesystem-safe slug (capped at max_len chars)."""
     slug = re.sub(r"[^\w\s-]", "", name.lower().strip())
     slug = re.sub(r"[\s_]+", "-", slug)
     slug = slug.strip("-")
+    if len(slug) > max_len:
+        slug = slug[:max_len].rstrip("-")
     return slug or f"project-{uuid.uuid4().hex[:6]}"
 
 
