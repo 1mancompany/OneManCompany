@@ -26,7 +26,11 @@ const STATUS_STYLES = {
     blocked:    { color: '#f97316', label: '\u2298 Blocked' },
 };
 
-const CARD_W = 220, CARD_H = 90;
+const CARD_W = 240;
+const CARD_MIN_H = 72;       // minimum card height (no description)
+const DESC_LINE_H = 14;      // height per description line
+const DESC_MAX_LINES = 6;    // cap description lines
+const DESC_CHARS_PER_LINE = 34;
 const CHILDREN_PAGE_SIZE = 5;
 
 /* ─────────────────── Word-wrap helper (shared with old code) ────── */
@@ -59,12 +63,20 @@ function _wrapText(desc, maxChars, maxLines) {
 G6.registerNode('org-card', {
     draw(cfg, group) {
         const w = CARD_W;
-        const h = CARD_H;
         const dept = cfg.dept || 'Default';
         const deptColor = DEPT_COLORS[dept] || DEPT_COLORS.Default;
         const statusStyle = STATUS_STYLES[cfg.status] || STATUS_STYLES.pending;
         const hasChildren = cfg.children && cfg.children.length > 0;
         const collapsed = cfg.collapsed;
+
+        // --- Compute dynamic height based on description ---
+        const descLines = cfg._isShowMore ? [] : _wrapText(cfg.desc || '', DESC_CHARS_PER_LINE, DESC_MAX_LINES);
+        const descAreaH = descLines.length * DESC_LINE_H;
+        const headerH = 48; // name row (16) + subtitle row (14) + divider gap (18)
+        const h = Math.max(CARD_MIN_H, headerH + descAreaH + 10);
+
+        // Store computed height for layout
+        cfg._computedH = h;
 
         // --- Shadow ---
         group.addShape('rect', {
@@ -100,8 +112,8 @@ G6.registerNode('org-card', {
 
         // --- Right-side avatar ---
         const avatarX = w - 28;
-        const avatarY = 24;
-        const avatarR = 16;
+        const avatarY = 20;
+        const avatarR = 14;
         group.addShape('circle', {
             attrs: {
                 x: avatarX, y: avatarY, r: avatarR,
@@ -109,7 +121,6 @@ G6.registerNode('org-card', {
             },
             name: 'avatar-bg',
         });
-        // Use avatar image if available, fallback to initials text
         if (cfg.avatarUrl) {
             group.addShape('image', {
                 attrs: {
@@ -119,7 +130,6 @@ G6.registerNode('org-card', {
                 },
                 name: 'avatar-img',
             });
-            // Clip circle over image
             group.addShape('circle', {
                 attrs: {
                     x: avatarX, y: avatarY, r: avatarR,
@@ -132,7 +142,7 @@ G6.registerNode('org-card', {
                 attrs: {
                     x: avatarX, y: avatarY,
                     text: cfg.avatar || '?',
-                    fontSize: 12, fontWeight: 'bold',
+                    fontSize: 11, fontWeight: 'bold',
                     fill: deptColor.text,
                     textAlign: 'center', textBaseline: 'middle',
                 },
@@ -166,12 +176,12 @@ G6.registerNode('org-card', {
             return cardBody;
         }
 
-        // --- Top row: Name + Dept Badge + Status (all on one line) ---
-        const maxTopW = w - 50; // leave room for avatar
+        // --- Row 1: Name + Status indicator (no overlap) ---
+        const maxNameW = w - 80; // room for avatar + status
         group.addShape('text', {
             attrs: {
-                x: 14, y: 16,
-                text: _truncate(cfg.name || '', 10),
+                x: 14, y: 14,
+                text: _truncate(cfg.name || '', 14),
                 fontSize: 12, fontWeight: 'bold',
                 fill: '#f7f8f8',
                 textAlign: 'left', textBaseline: 'middle',
@@ -180,13 +190,31 @@ G6.registerNode('org-card', {
             name: 'name-text',
         });
 
-        // Department badge (right of name)
-        const nameW = Math.min((cfg.name || '').length, 10) * 7 + 14;
+        // Status dot + label (right-aligned, before avatar)
+        const statusX = w - 72;
+        group.addShape('circle', {
+            attrs: {
+                x: statusX, y: 14,
+                r: 3, fill: statusStyle.color,
+            },
+            name: 'status-dot',
+        });
+        group.addShape('text', {
+            attrs: {
+                x: statusX + 6, y: 14,
+                text: _truncate(statusStyle.label, 8),
+                fontSize: 8, fill: statusStyle.color,
+                textAlign: 'left', textBaseline: 'middle',
+            },
+            name: 'status-label',
+        });
+
+        // --- Row 2: Dept badge + Role (subtitle) ---
         const badgeText = dept;
         const badgeW = badgeText.length * 6 + 10;
         group.addShape('rect', {
             attrs: {
-                x: nameW, y: 8,
+                x: 14, y: 24,
                 width: badgeW, height: 14,
                 radius: 6,
                 fill: deptColor.badge, opacity: 0.2,
@@ -195,7 +223,7 @@ G6.registerNode('org-card', {
         });
         group.addShape('text', {
             attrs: {
-                x: nameW + badgeW / 2, y: 15,
+                x: 14 + badgeW / 2, y: 31,
                 text: badgeText,
                 fontSize: 8, fontWeight: 'bold',
                 fill: deptColor.badge,
@@ -204,40 +232,33 @@ G6.registerNode('org-card', {
             name: 'dept-badge-text',
         });
 
-        // Status indicator (right of dept badge, clamped before avatar)
-        const statusX = Math.min(nameW + badgeW + 6, maxTopW - 50);
-        group.addShape('circle', {
-            attrs: {
-                x: statusX, y: 15,
-                r: 3, fill: statusStyle.color,
-            },
-            name: 'status-dot',
-        });
-        group.addShape('text', {
-            attrs: {
-                x: statusX + 6, y: 15,
-                text: _truncate(statusStyle.label, 8),
-                fontSize: 8, fill: statusStyle.color,
-                textAlign: 'left', textBaseline: 'middle',
-            },
-            name: 'status-label',
-        });
+        // Role text (right of badge)
+        if (cfg.role) {
+            group.addShape('text', {
+                attrs: {
+                    x: 14 + badgeW + 6, y: 31,
+                    text: _truncate(cfg.role, 20),
+                    fontSize: 9, fill: '#62666d',
+                    textAlign: 'left', textBaseline: 'middle',
+                },
+                name: 'role-text',
+            });
+        }
 
         // --- Divider line ---
         group.addShape('line', {
             attrs: {
-                x1: 10, y1: 28, x2: w - 10, y2: 28,
+                x1: 10, y1: 42, x2: w - 10, y2: 42,
                 stroke: 'rgba(255,255,255,0.05)', lineWidth: 1,
             },
             name: 'divider',
         });
 
-        // --- Bottom area: full task description (3 lines) ---
-        const descLines = _wrapText(cfg.desc || '', 32, 3);
+        // --- Description area (dynamic lines) ---
         descLines.forEach((line, i) => {
             group.addShape('text', {
                 attrs: {
-                    x: 14, y: 40 + i * 13,
+                    x: 14, y: 54 + i * DESC_LINE_H,
                     text: line,
                     fontSize: 10, fill: '#8a8f98',
                     textAlign: 'left', textBaseline: 'middle',
@@ -347,13 +368,13 @@ class TaskTreeRenderer {
             modes: {
                 default: [
                     'drag-canvas',
-                    'zoom-canvas',
+                    { type: 'zoom-canvas', sensitivity: 1.5 },
                     'drag-node',
                 ],
             },
             defaultNode: {
                 type: 'org-card',
-                size: [CARD_W, CARD_H],
+                size: [CARD_W, CARD_MIN_H],
             },
             defaultEdge: {
                 type: 'polyline',
@@ -370,7 +391,13 @@ class TaskTreeRenderer {
                 direction: 'TB',
                 getId: (d) => d.id,
                 getWidth: () => CARD_W,
-                getHeight: () => CARD_H + 16,  // extra space for collapse button
+                getHeight: (d) => {
+                    // Dynamic height: compute from description lines
+                    const lines = _wrapText(d.desc || '', DESC_CHARS_PER_LINE, DESC_MAX_LINES);
+                    const headerH = 48;
+                    const h = Math.max(CARD_MIN_H, headerH + lines.length * DESC_LINE_H + 10);
+                    return h + 16; // extra space for collapse button
+                },
                 getVGap: () => 40,
                 getHGap: () => 30,
             },

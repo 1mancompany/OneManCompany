@@ -6646,14 +6646,21 @@ async def send_conversation_message(conv_id: str, body: dict) -> dict:
     text = body.get("text", "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="text is required and must be non-empty")
+    service = _get_conv_svc()
     try:
-        msg = await _get_conv_svc().send_message(
+        msg = await service.send_message(
             conv_id, sender="ceo", role="CEO", text=text,
             attachments=body.get("attachments"),
         )
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    # Dispatch to adapter in background (don't await — async reply via WebSocket)
+
+    # Try to resolve pending interaction first (e.g. CEO confirm/reply)
+    result = await service.resolve_interaction(conv_id, text)
+    if result["type"] == "resolved":
+        return {"status": "resolved", "result": result}
+
+    # No pending interaction — dispatch to adapter in background
     task = asyncio.create_task(_dispatch_conversation_to_adapter(conv_id, msg))
     _active_adapter_tasks.add(task)
     _active_adapter_by_conv[conv_id] = task
