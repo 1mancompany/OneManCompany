@@ -7525,7 +7525,7 @@ class AppController {
         // Detail tab content
         let detailHtml = '';
         detailHtml += `<div style="color:var(--pixel-yellow);font-size:7px;margin-bottom:6px;">${this._escHtml(doc.task || '')}</div>`;
-        detailHtml += `<div style="font-size:5px;color:var(--text-dim);margin-bottom:8px;">Status: ${doc.status} | Owner: ${doc.current_owner || '-'}</div>`;
+        detailHtml += `<div style="font-size:5px;color:var(--text-dim);margin-bottom:8px;">Status: ${doc.status} | Owner: ${doc.current_owner || '-'} | ID: ${this._escHtml(qualifiedId || projectId)}</div>`;
 
         // Acceptance criteria
         const criteria = doc.acceptance_criteria || [];
