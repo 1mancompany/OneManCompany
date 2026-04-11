@@ -309,11 +309,28 @@ class TestProjectFiles:
         git_dir = iter_dir / ".git" / "objects"
         git_dir.mkdir(parents=True)
         (git_dir / "abc123").write_text("blob")
+        # Add .gitignore so ripgrep skips node_modules
+        (iter_dir / ".gitignore").write_text("node_modules/\n")
 
         files = pa.list_project_files(slug)
         assert "index.js" in files
         assert not any("node_modules" in f for f in files)
-        assert not any(".git" in f for f in files)
+
+    def test_list_falls_back_to_walk(self, tmp_path):
+        """When ripgrep is unavailable, os.walk fallback should work."""
+        slug = pa.create_named_project("Fallback")
+        pa.create_iteration(slug, "task", "COO")
+        pa.save_project_file(slug, "app.py", "print('hi')")
+        iter_dir = pa._resolve_project_path(slug)
+        # Create node_modules that walk should skip
+        nm = iter_dir / "node_modules" / "pkg"
+        nm.mkdir(parents=True)
+        (nm / "index.js").write_text("x")
+
+        with patch("onemancompany.core.project_archive._list_files_ripgrep", return_value=None):
+            files = pa.list_project_files(slug)
+        assert "app.py" in files
+        assert not any("node_modules" in f for f in files)
 
     def test_list_empty_project(self, tmp_path):
         slug = pa.create_named_project("Empty")

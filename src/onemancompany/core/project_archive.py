@@ -656,8 +656,15 @@ def _is_internal_file(name: str) -> bool:
     return False
 
 
-def list_project_files(project_id: str) -> list[str]:
-    """List user-facing files in a project workspace.
+_LIST_FILES_LIMIT = 5000
+
+
+def list_project_files(project_id: str, limit: int = _LIST_FILES_LIMIT) -> list[str]:
+    """List user-facing files in a project workspace using ripgrep.
+
+    Uses `rg --files` which respects .gitignore automatically, skipping
+    node_modules and other heavy directories without manual exclusion lists.
+    Falls back to os.walk if ripgrep is not available.
 
     Excludes internal infrastructure files (project.yaml, task trees, node content).
     """
@@ -668,26 +675,51 @@ def list_project_files(project_id: str) -> list[str]:
         logger.debug("[list_project_files] workspace does not exist")
         return []
 
+    files = _list_files_ripgrep(project_dir, limit)
+    if files is None:
+        files = _list_files_walk(project_dir, limit, project_id)
+
+    # Filter internal files
+    result = [f for f in files if not _is_internal_file(Path(f).name)
+              and not any(part in _INTERNAL_DIR_NAMES for part in Path(f).parts)]
+    result.sort()
+    logger.debug("[list_project_files] found {} files", len(result))
+    return result
+
+
+def _list_files_ripgrep(project_dir: Path, limit: int) -> list[str] | None:
+    """List files using ripgrep (respects .gitignore). Returns None if rg unavailable."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["rg", "--files", "--sort=modified", "--hidden"],
+            cwd=str(project_dir),
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode not in (0, 1):  # 1 = no files found
+            return None
+        lines = [l for l in result.stdout.splitlines() if l.strip()]
+        if len(lines) > limit:
+            logger.warning("[list_project_files] rg returned {} files, truncating to {}", len(lines), limit)
+            lines = lines[:limit]
+        return lines
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        logger.debug("[list_project_files] ripgrep unavailable or timed out: {}", e)
+        return None
+
+
+def _list_files_walk(project_dir: Path, limit: int, project_id: str) -> list[str]:
+    """Fallback: list files using os.walk with directory pruning."""
     files = []
     skip_dirs = _INTERNAL_DIR_NAMES | _SKIP_DIR_NAMES
-    max_files = 5000  # hard cap to prevent CPU hang on any large directory
     for dirpath, dirnames, filenames in os.walk(project_dir):
-        # Prune heavy directories in-place (prevents os.walk from descending)
         dirnames[:] = [d for d in dirnames if d not in skip_dirs]
         for fname in filenames:
-            if _is_internal_file(fname):
-                continue
             rel = Path(dirpath, fname).relative_to(project_dir)
             files.append(str(rel))
-            if len(files) >= max_files:
-                logger.warning(
-                    "[list_project_files] hit {} file cap for project_id={}, truncating",
-                    max_files, project_id,
-                )
-                files.sort()
+            if len(files) >= limit:
+                logger.warning("[list_project_files] hit {} file cap for {}, truncating", limit, project_id)
                 return files
-    files.sort()
-    logger.debug("[list_project_files] found {} files", len(files))
     return files
 
 
