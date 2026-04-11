@@ -5,7 +5,7 @@
 - edit: Exact string replacement in files — specify `old_string` and `new_string`. Use `replace_all=True` for multiple replacements. Prefer this over write() for modifying existing files.
 - glob_files: Search for files by pattern (e.g. `**/*.py`, `*.yaml`). Use this instead of `bash('find ...')`.
 - grep_search: Search file contents by regex pattern. Use this instead of `bash('grep ...')`.
-- bash: Run shell commands (build, test, deploy, etc.). Prefer dedicated tools (read, ls, edit, grep_search, glob_files) over shell equivalents.
+- bash: Run shell commands (build, test, deploy, etc.). Prefer dedicated tools (read, ls, edit, grep_search, glob_files) over shell equivalents. **NEVER bind to the company server port (default 8000, or $PORT). Use other ports (3000, 3001, 5173, etc.) for dev servers.**
 - dispatch_child: Delegate sub-work to colleagues if needed.
 - pull_meeting: ONLY for multi-person communication/discussion (2+ colleagues). Never call a meeting with yourself alone — if you need to think, just think internally.
 - use_tool: Access company equipment/tools registered by COO.

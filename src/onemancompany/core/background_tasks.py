@@ -221,6 +221,17 @@ class BackgroundTaskManager:
                 f"Stop a running task first."
             )
 
+        # Block commands that would bind to our server port
+        cmd_port = self._detect_port_from_command(command)
+        if cmd_port is not None:
+            from onemancompany.core.config import ENV_KEY_PORT
+            server_port = int(os.environ.get(ENV_KEY_PORT, "8000"))
+            if cmd_port == server_port:
+                raise RuntimeError(
+                    f"Port {cmd_port} is reserved for the OneManCompany server. "
+                    f"Please use a different port."
+                )
+
         task_id = uuid.uuid4().hex[:8]
         task = BackgroundTask(
             id=task_id,
