@@ -7062,7 +7062,9 @@ class AppController {
   async _loadLazyDir(container, projectId, dirPath) {
     container.innerHTML = '<div style="color:var(--text-dim);">Loading...</div>';
     try {
-      const url = `/api/projects/${encodeURIComponent(projectId)}/ls?path=${encodeURIComponent(dirPath)}`;
+      // Encode each path segment individually to preserve '/' separators (e.g. slug/iter_001)
+      const encodedId = projectId.split('/').map(encodeURIComponent).join('/');
+      const url = `/api/projects/${encodedId}/ls?path=${encodeURIComponent(dirPath)}`;
       const resp = await fetch(url);
       if (!resp.ok) { container.innerHTML = '<div style="color:var(--pixel-red);">Failed to load</div>'; return; }
       const data = await resp.json();
@@ -7083,7 +7085,8 @@ class AppController {
           html += `<div class="lazy-dir-children hidden" style="padding-left:12px;"></div>`;
         } else {
           const ext = entry.name.split('.').pop().toLowerCase();
-          const fileUrl = `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(childPath)}`;
+          const encodedPid = projectId.split('/').map(encodeURIComponent).join('/');
+          const fileUrl = `/api/projects/${encodedPid}/files/${encodeURIComponent(childPath)}`;
           html += `<div class="project-file-item" data-file="${esc(childPath)}" data-url="${esc(fileUrl)}" data-ext="${ext}" style="padding:2px 0;color:var(--pixel-green);cursor:pointer;">`;
           html += `${iconFor(ext)} ${esc(entry.name)}`;
           html += `</div>`;
@@ -7522,7 +7525,7 @@ class AppController {
         // Detail tab content
         let detailHtml = '';
         detailHtml += `<div style="color:var(--pixel-yellow);font-size:7px;margin-bottom:6px;">${this._escHtml(doc.task || '')}</div>`;
-        detailHtml += `<div style="font-size:5px;color:var(--text-dim);margin-bottom:8px;">Status: ${doc.status} | Owner: ${doc.current_owner || '-'}</div>`;
+        detailHtml += `<div style="font-size:5px;color:var(--text-dim);margin-bottom:8px;">Status: ${doc.status} | Owner: ${doc.current_owner || '-'} | ID: ${this._escHtml(qualifiedId || projectId)}</div>`;
 
         // Acceptance criteria
         const criteria = doc.acceptance_criteria || [];

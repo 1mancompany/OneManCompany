@@ -117,11 +117,13 @@ def _rebase_project_dir(stored_path: str) -> Path:
 
 
 
-def _slugify(name: str) -> str:
-    """Convert a project name to a filesystem-safe slug."""
+def _slugify(name: str, max_len: int = 60) -> str:
+    """Convert a project name to a filesystem-safe slug (capped at max_len chars)."""
     slug = re.sub(r"[^\w\s-]", "", name.lower().strip())
     slug = re.sub(r"[\s_]+", "-", slug)
     slug = slug.strip("-")
+    if len(slug) > max_len:
+        slug = slug[:max_len].rstrip("-")
     return slug or f"project-{uuid.uuid4().hex[:6]}"
 
 
@@ -322,16 +324,12 @@ def create_project_from_task(task: str, routed_to: str = "pending",
 
 
 def create_named_project(name: str) -> str:
-    """Create a persistent named project. Returns the project_id (slug-timestamp)."""
-    base_slug = _slugify(name)
-    short_id = uuid.uuid4().hex[:6]
-    # Append compact timestamp to guarantee uniqueness and prevent overwrites
-    ts = datetime.now().strftime("%m%d%H%M%S")
-    slug = f"{short_id}_{base_slug}_{ts}"
+    """Create a persistent named project. Returns the project_id (UUID-based)."""
+    slug = uuid.uuid4().hex[:12]
     # Extremely unlikely collision — append counter
     counter = 1
     while (PROJECTS_DIR / slug).exists():
-        slug = f"{short_id}_{base_slug}_{ts}_{counter}"
+        slug = f"{uuid.uuid4().hex[:12]}_{counter}"
         counter += 1
 
     proj_dir = PROJECTS_DIR / slug
@@ -596,6 +594,8 @@ def get_project_dir(project_id: str) -> str:
 
     All files (task_tree.yaml, nodes/, user documents) live here.
     """
+    from urllib.parse import unquote
+    project_id = unquote(project_id)
     if _is_iteration(project_id):
         slug = _find_project_for_iteration(project_id)
         _, bare_id = _split_qualified_iter(project_id)
