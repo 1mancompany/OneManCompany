@@ -770,7 +770,7 @@ async def assign_department(target_employee_id: str, department: str, role: str 
             "QA Engineer"). Required for new hires.
 
     Returns:
-        dict with status, target_employee_id, department, role, desk_position.
+        dict with status, employee_id, department, role, desk_position.
     """
     from onemancompany.core import store as _store
     from onemancompany.core.config import (

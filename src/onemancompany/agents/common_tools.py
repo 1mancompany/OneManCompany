@@ -1188,7 +1188,7 @@ def request_tool_access(tool_name: str, reason: str, employee_id: str = "") -> d
         f"Tool access request: Employee {emp_name} (ID: {employee_id}, {emp_dept}/{emp_role}, Lv.{emp_level}) "
         f"requests access to tool '{tool_name}'. Reason: {reason}. "
         f"Evaluate whether this is appropriate for their role and department. "
-        f"If approved, call manage_tool_access(employee_id='{employee_id}', tool_name='{tool_name}', action='grant')."
+        f"If approved, call manage_tool_access(target_employee_id='{employee_id}', tool_name='{tool_name}', action='grant')."
     )
     loop.push_task(task_desc)
     return {"status": "requested", "message": f"Access request for '{tool_name}' sent to COO for review."}
