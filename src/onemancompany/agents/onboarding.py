@@ -67,7 +67,7 @@ HEARTBEAT_SCRIPT = "heartbeat.sh"
 
 # Default skills injected for every new employee
 _DEFAULT_SKILLS_DIR = Path(__file__).resolve().parent.parent / "default_skills"
-_DEFAULT_SKILL_NAMES = ["task_lifecycle"]
+_DEFAULT_SKILL_NAMES = ["task_lifecycle", "project-brainstorming"]
 
 
 # ---------------------------------------------------------------------------
