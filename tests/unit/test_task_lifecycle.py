@@ -128,3 +128,39 @@ class TestNewPhases:
     def test_transition_completed_to_processing_invalid(self):
         with pytest.raises(TaskTransitionError):
             transition("t1", TaskPhase.COMPLETED, TaskPhase.PROCESSING)
+
+
+class TestTaskNodeProductId:
+    """Verify TaskNode carries product_id through serialization round-trips."""
+
+    def test_default_product_id_empty(self):
+        from onemancompany.core.task_tree import TaskNode
+        node = TaskNode()
+        assert node.product_id == ""
+
+    def test_product_id_set(self):
+        from onemancompany.core.task_tree import TaskNode
+        node = TaskNode(product_id="prod_abc12345")
+        assert node.product_id == "prod_abc12345"
+
+    def test_product_id_serializes(self):
+        from onemancompany.core.task_tree import TaskNode
+        node = TaskNode(product_id="prod_abc12345")
+        d = node.to_dict()
+        assert d["product_id"] == "prod_abc12345"
+
+    def test_product_id_deserializes(self):
+        from onemancompany.core.task_tree import TaskNode
+        node = TaskNode(product_id="prod_abc12345")
+        d = node.to_dict()
+        # from_dict needs description for old-format path
+        d["description"] = "test"
+        restored = TaskNode.from_dict(d)
+        assert restored.product_id == "prod_abc12345"
+
+    def test_product_id_missing_in_dict_defaults_empty(self):
+        """Backward compat: old dicts without product_id should default to ''."""
+        from onemancompany.core.task_tree import TaskNode
+        d = {"id": "abc123", "description": "old task"}
+        node = TaskNode.from_dict(d)
+        assert node.product_id == ""

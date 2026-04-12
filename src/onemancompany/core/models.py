@@ -47,6 +47,7 @@ class ConversationType(str, Enum):
     ONE_ON_ONE = "oneonone"
     EA_CHAT = "ea_chat"
     PROJECT = "project"
+    PRODUCT = "product"
 
 
 class ConversationPhase(str, Enum):
