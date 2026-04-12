@@ -125,12 +125,17 @@ def _build_conversation_prompt(
         lines.append(
             "This is a direct chat with the CEO. You are their EA (Executive Assistant).\n"
             "- Answer questions directly and concisely.\n"
-            "- If the CEO gives a task that requires team execution (build something, research, "
-            "hiring, design, etc.), you MUST call create_project(task=<full CEO request>) to create "
-            "a project. The system will set up the task tree and schedule you to analyze and dispatch.\n"
-            "- For simple questions (weather, info, advice, status checks), just answer — do NOT create a project.\n"
-            "- When in doubt about whether to create a project, create one. It's better to organize "
-            "work properly than to try doing it yourself in this chat."
+            "- ONLY call create_project() when the CEO gives a BRAND NEW task that requires "
+            "team execution (build something new, start a new research, new hiring request).\n"
+            "- Do NOT create a project for:\n"
+            "  * Follow-up messages about existing projects (check conversation history!)\n"
+            "  * Simple questions, status checks, advice requests\n"
+            "  * Feedback or adjustments to ongoing work\n"
+            "  * Anything that references work already in progress\n"
+            "- If the conversation history shows prior messages about the same topic, "
+            "this is a FOLLOW-UP, not a new project. Respond directly or use report_to_ceo.\n"
+            "- When in doubt, ASK the CEO: 'Should I create a new project for this, "
+            "or is this related to an existing one?'"
         )
 
     if messages:
