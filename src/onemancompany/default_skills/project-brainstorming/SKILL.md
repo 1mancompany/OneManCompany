@@ -1,7 +1,7 @@
 # Project Brainstorming — Requirements Discovery Before Execution
 
-Turn vague ideas into clear specs with acceptance criteria through ONE structured
-interaction with the CEO. Understand what to build before building it.
+Turn vague ideas into clear specs with acceptance criteria through collaborative
+dialogue with the CEO. Understand what to build before building it.
 
 <HARD-GATE>
 Do NOT dispatch any project work to the team until the CEO has approved your
@@ -24,73 +24,107 @@ proposed plan. This applies to EVERY project regardless of perceived simplicity.
 
 ---
 
-## The Process (Single CEO Interaction)
-
-IMPORTANT: The entire brainstorming happens in ONE dispatch_child to CEO.
-Do NOT send multiple separate questions as separate dispatch_child calls.
-Each dispatch_child creates a new task cycle — keep it to ONE round.
-
-### Step 1: Analyze Silently (no CEO interaction)
+## Phase 1: Understand Context (no CEO interaction)
 
 Before asking the CEO anything:
 1. Read existing project files if this is a follow-up
 2. Check what team members are available (use list_colleagues)
 3. Form your own understanding of the task
 
-### Step 2: Send ONE Structured Proposal to CEO
+---
 
-Combine your questions AND a draft plan into a SINGLE dispatch_child:
+## Phase 2: Ask Clarifying Questions (ONE AT A TIME)
+
+Ask the CEO questions via `dispatch_child(target_employee_id="00001", ...)`.
+The system preserves your conversation history — when CEO replies, you will
+see ALL prior CEO replies in your task context under [CEO REPLY] sections.
+
+### Rules:
+- **One question per dispatch.** Do NOT bundle multiple questions.
+- **Prefer multiple choice** when possible — easier for CEO to answer.
+- **Max 3-4 questions** — respect CEO's time. Stop when you have enough context.
+- **Check your [CEO REPLY] sections** — do NOT re-ask questions CEO already answered.
+
+### What to ask about:
+1. **Purpose & Users**: Who is this for? What problem does it solve?
+2. **Scope**: What's the minimum viable version? What can wait for later?
+3. **Constraints**: Tech stack, timeline, budget, hosting preferences?
+4. **Success criteria**: How will the CEO know this is done and successful?
+5. **Priority**: Speed vs. quality? MVP vs. polished?
+
+### Good question examples:
+- "What's the primary goal? (A) Generate revenue (B) Attract users (C) Internal tool (D) Research/learning"
+- "Who is the target user? (A) End consumers (B) Businesses (C) Internal team (D) Developers"
+- "What's the priority? (A) Ship fast with basic quality (B) Take time for polish"
+
+---
+
+## Phase 3: Challenge Premises
+
+Before proposing solutions, question your own assumptions:
+
+- **Is the stated problem the real problem?**
+- **Does this need to be built at all?** Is there a simpler approach?
+- **Is the scope right?** If too large, propose breaking into phases.
+
+If you identify a premise worth challenging, raise it with the CEO via
+dispatch_child(target_employee_id="00001").
+
+---
+
+## Phase 4: Propose 2-3 Approaches (MANDATORY)
+
+You MUST present at least 2 approaches with trade-offs:
 
 ```
 dispatch_child(
     target_employee_id="00001",
     description="""
-I've analyzed your request. Before I dispatch the team, I'd like to confirm a few things:
+Based on our discussion, here are the approaches I see:
 
-**My understanding**: [1-2 sentences of what you think CEO wants]
+## Approach A: [Name] (Recommended)
+**What**: [2-3 sentences]
+**Pros**: [bullet points]
+**Cons**: [bullet points]
+**Team**: [who does what]
 
-**Quick questions** (answer inline or skip any that are obvious):
-1. [Most important clarification — prefer A/B/C multiple choice]
-2. [Second question if needed]
-3. [Third question if needed — max 3]
+## Approach B: [Name]
+**What**: [2-3 sentences]
+**Pros**: [bullet points]
+**Cons**: [bullet points]
+**Team**: [who does what]
 
-**My proposed plan**:
+**My recommendation**: Approach [X] because [one-line reason].
 
-Approach A (Recommended): [2-3 sentences]
-- Team: [who does what]
-- Pros: [why this is better]
+**Proposed Acceptance Criteria**:
+1. [measurable, verifiable criterion]
+2. [measurable, verifiable criterion]
+3. [measurable, verifiable criterion]
 
-Approach B: [2-3 sentences]
-- Team: [who does what]
-- Pros: [alternative advantage]
-
-**Proposed acceptance criteria**:
-1. [measurable criterion]
-2. [measurable criterion]
-3. [measurable criterion]
-
-Please confirm the approach and criteria, adjust anything, or just say "go" to proceed with my recommendation.
+Please choose an approach and confirm/adjust the acceptance criteria.
 """,
-    acceptance_criteria=["CEO confirms or adjusts the project plan"]
+    acceptance_criteria=["CEO selects approach and approves acceptance criteria"]
 )
 ```
 
-### Step 3: Execute After CEO Confirms
+---
 
-After CEO responds:
+## Phase 5: Execute After CEO Confirms
+
+After CEO approves:
 1. Call `set_project_name()` with a concise 2-6 word name
-2. Incorporate any CEO feedback into the final plan
+2. Incorporate CEO feedback into the final plan
 3. Dispatch to O-level executives with the confirmed acceptance criteria
-4. Save a brief `design.md` to the project workspace if the project is medium/large scope
+4. Save a brief `design.md` to the project workspace for medium/large projects
 
 ---
 
 ## Key Principles
 
-- **ONE interaction with CEO, not a multi-round Q&A.** Combine questions + proposal into a single message. CEO responds once, you execute.
+- **CEO's time is the scarcest resource.** Keep questions focused and minimal.
 - **Never assume scope.** "Build a website" could mean a landing page or a full platform.
-- **Always present 2+ approaches** with trade-offs, even if one is clearly better.
+- **Always present 2+ approaches** with trade-offs.
 - **Acceptance criteria are a contract.** Once CEO confirms, deliver against them.
-- **Challenge premises when warranted.** "Is X the real goal?" can save weeks of wasted work.
-- **If CEO says "just do it"** — respect that and dispatch immediately with your best judgment.
-- **Scope decomposition.** If a project is too large, propose breaking it into phases.
+- **Check [CEO REPLY] sections** before each turn — don't lose context or re-ask.
+- **If CEO says "just do it"** — respect that and dispatch immediately.
+- **Scope decomposition.** If too large, propose phases. Each phase gets its own cycle.

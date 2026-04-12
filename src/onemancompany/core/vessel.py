@@ -300,6 +300,12 @@ def _build_tree_context(tree, node, project_dir: str) -> str:
     if children:
         parts.append("=== Child Tasks ===")
         for child in children:
+            # Include CEO_REQUEST results (CEO replies) — critical for multi-turn context
+            if child.is_ceo_node and child.is_done_executing:
+                child.load_content(project_dir)
+                if child.result:
+                    parts.append(f"  [CEO REPLY] {child.id}: {child.result}")
+                continue
             if child.is_ceo_node:
                 continue
             if child.status == TaskPhase.ACCEPTED:
