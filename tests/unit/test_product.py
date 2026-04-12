@@ -96,8 +96,8 @@ class TestKeyResults:
 
     def test_update_kr_not_found(self):
         p = prod.create_product(name="KR Miss", owner_id="00010")
-        result = prod.update_kr_progress(p["slug"], "kr_nonexist", current=10.0)
-        assert result is None
+        with pytest.raises(ValueError, match="KR 'kr_nonexist' not found"):
+            prod.update_kr_progress(p["slug"], "kr_nonexist", current=10.0)
 
 
 # ---------------------------------------------------------------------------

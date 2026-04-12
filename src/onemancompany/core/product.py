@@ -172,7 +172,7 @@ def update_product(slug: str, **fields) -> dict | None:
 # Key Results
 # ---------------------------------------------------------------------------
 
-def add_key_result(slug: str, *, title: str, target: float) -> dict:
+def add_key_result(slug: str, *, title: str, target: float, unit: str = "") -> dict:
     """Add a key result to a product. Returns the KR dict."""
     kr_id = _gen_id("kr_")
     kr = {
@@ -180,6 +180,7 @@ def add_key_result(slug: str, *, title: str, target: float) -> dict:
         "title": title,
         "target": target,
         "current": 0.0,
+        "unit": unit,
         "created_at": datetime.now().isoformat(),
     }
 
@@ -198,14 +199,16 @@ def add_key_result(slug: str, *, title: str, target: float) -> dict:
     return kr
 
 
-def update_kr_progress(slug: str, kr_id: str, *, current: float) -> dict | None:
-    """Update a key result's current progress. Returns updated KR or None."""
+def update_kr_progress(slug: str, kr_id: str, *, current: float) -> dict:
+    """Update a key result's current progress. Returns updated KR dict.
+
+    Raises ValueError if product or KR not found.
+    """
     with _get_slug_lock(slug):
         path = _product_yaml_path(slug)
         data = _read_yaml(path)
         if not data:
-            logger.warning("update_kr_progress: product slug={} not found", slug)
-            return None
+            raise ValueError(f"Product '{slug}' not found")
         for kr in data.get("key_results", []):
             if kr["id"] == kr_id:
                 kr["current"] = current
@@ -214,8 +217,7 @@ def update_kr_progress(slug: str, kr_id: str, *, current: float) -> dict | None:
                 mark_dirty(DirtyCategory.PRODUCTS)
                 return kr
 
-    logger.warning("update_kr_progress: kr_id={} not found in {}", kr_id, slug)
-    return None
+    raise ValueError(f"KR '{kr_id}' not found in product '{slug}'")
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +367,18 @@ def reopen_issue(slug: str, issue_id: str) -> dict | None:
 
 def _versions_dir(slug: str) -> Path:
     return _product_dir(slug) / VERSIONS_DIR_NAME
+
+
+def list_versions(slug: str) -> list[dict]:
+    """List all versions for a product, newest first."""
+    vdir = _versions_dir(slug)
+    if not vdir.exists():
+        return []
+    versions = []
+    for f in sorted(vdir.iterdir(), reverse=True):
+        if f.name.endswith(".yaml"):
+            versions.append(_read_yaml(f))
+    return versions
 
 
 def _bump_version(current: str, bump: str = "patch") -> str:

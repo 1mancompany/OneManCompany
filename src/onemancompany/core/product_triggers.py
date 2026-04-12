@@ -190,11 +190,13 @@ async def check_kr_progress(product_slug: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def register_product_triggers() -> None:
+def register_product_triggers() -> "asyncio.Task":
     """Subscribe product trigger handlers to the event bus.
 
     This is a convenience registration that dispatches events from a
     single subscriber queue to the appropriate handler based on EventType.
+
+    Returns the asyncio.Task so the caller can cancel it on shutdown.
     """
     import asyncio
 
@@ -215,5 +217,6 @@ def register_product_triggers() -> None:
                     "[PRODUCT_TRIGGER] Error handling event {}", event.type
                 )
 
-    asyncio.ensure_future(_dispatch_loop())
+    task = asyncio.ensure_future(_dispatch_loop())
     logger.info("[PRODUCT_TRIGGER] Product triggers registered")
+    return task
