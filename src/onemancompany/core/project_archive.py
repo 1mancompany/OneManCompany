@@ -261,6 +261,7 @@ async def async_create_project_from_task(
     task: str,
     routed_to: str = "pending",
     participants: list[str] | None = None,
+    product_id: str = "",
 ) -> tuple[str, str]:
     """Create a named project + first iteration, non-blocking.
 
@@ -272,7 +273,7 @@ async def async_create_project_from_task(
     """
     # Immediate: create project with fallback name so it appears instantly
     fallback_name = _auto_project_name(task)
-    project_id = create_named_project(fallback_name)
+    project_id = create_named_project(fallback_name, product_id=product_id)
     iter_id = create_iteration(project_id, task, routed_to)
 
     # Background: generate LLM name and update when ready
@@ -312,18 +313,19 @@ def update_project_name(project_id: str, new_name: str) -> None:
 
 
 def create_project_from_task(task: str, routed_to: str = "pending",
-                             participants: list[str] | None = None) -> tuple[str, str]:
+                             participants: list[str] | None = None,
+                             product_id: str = "") -> tuple[str, str]:
     """Sync fallback: create project with truncation-based name.
 
     Returns (project_id, iteration_id).
     """
     name = _auto_project_name(task)
-    project_id = create_named_project(name)
+    project_id = create_named_project(name, product_id=product_id)
     iter_id = create_iteration(project_id, task, routed_to)
     return project_id, iter_id
 
 
-def create_named_project(name: str) -> str:
+def create_named_project(name: str, *, product_id: str = "") -> str:
     """Create a persistent named project. Returns the project_id (UUID-based)."""
     slug = uuid.uuid4().hex[:12]
     # Extremely unlikely collision — append counter
@@ -339,6 +341,7 @@ def create_named_project(name: str) -> str:
     doc = {
         "project_id": slug,
         "name": name,
+        "product_id": product_id,
         "status": PROJECT_STATUS_ACTIVE,
         "created_at": datetime.now().isoformat(),
         "archived_at": None,
@@ -791,6 +794,7 @@ def list_projects() -> list[dict]:
             "name": doc.get("name", d.name),
             "iteration_count": len(iterations),
             "cost_usd": round(total_cost, 4),
+            "product_id": doc.get("product_id", ""),
         })
     return projects
 

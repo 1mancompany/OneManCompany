@@ -601,6 +601,12 @@ async def lifespan(app: FastAPI):
             archive_project(_slug)
             print(f"[startup] Auto-confirmed and archived pending project: {_pid}")
 
+    # Bootstrap products directory and register product event triggers
+    from onemancompany.core.config import PRODUCTS_DIR
+    PRODUCTS_DIR.mkdir(parents=True, exist_ok=True)
+    from onemancompany.core.product_triggers import register_product_triggers
+    _product_trigger_task = register_product_triggers()
+
     # Start background WebSocket event broadcaster
     broadcaster_task = asyncio.create_task(ws_manager.event_broadcaster())
 

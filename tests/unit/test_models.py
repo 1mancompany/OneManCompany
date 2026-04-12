@@ -152,3 +152,47 @@ class TestResolutionModels:
         )
         assert len(res.edits) == 2
         assert res.status == DecisionStatus.PENDING
+
+
+class TestProductEnums:
+    def test_product_status_values(self):
+        from onemancompany.core.models import ProductStatus
+        assert ProductStatus.PLANNING.value == "planning"
+        assert ProductStatus.ACTIVE.value == "active"
+        assert ProductStatus.ARCHIVED.value == "archived"
+
+    def test_issue_priority_values(self):
+        from onemancompany.core.models import IssuePriority
+        assert IssuePriority.P0.value == "P0"
+        assert IssuePriority.P1.value == "P1"
+        assert IssuePriority.P2.value == "P2"
+        assert IssuePriority.P3.value == "P3"
+
+    def test_issue_status_values(self):
+        from onemancompany.core.models import IssueStatus
+        assert IssueStatus.OPEN.value == "open"
+        assert IssueStatus.IN_PROGRESS.value == "in_progress"
+        assert IssueStatus.CLOSED.value == "closed"
+
+    def test_issue_resolution_values(self):
+        from onemancompany.core.models import IssueResolution
+        assert IssueResolution.FIXED.value == "fixed"
+        assert IssueResolution.WONTFIX.value == "wontfix"
+        assert IssueResolution.DUPLICATE.value == "duplicate"
+        assert IssueResolution.BY_DESIGN.value == "by_design"
+
+    def test_event_type_product_events(self):
+        from onemancompany.core.models import EventType
+        assert EventType.PRODUCT_CREATED.value == "product_created"
+        assert EventType.ISSUE_CREATED.value == "issue_created"
+        assert EventType.ISSUE_CLOSED.value == "issue_closed"
+        assert EventType.KR_UPDATED.value == "kr_updated"
+        assert EventType.VERSION_RELEASED.value == "version_released"
+
+    def test_product_enums_are_str(self):
+        from onemancompany.core.models import ProductStatus, IssuePriority, IssueStatus, IssueResolution
+        # All should be str enums for YAML serialization
+        assert isinstance(ProductStatus.ACTIVE, str)
+        assert isinstance(IssuePriority.P0, str)
+        assert isinstance(IssueStatus.OPEN, str)
+        assert isinstance(IssueResolution.FIXED, str)

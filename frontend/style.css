@@ -2856,6 +2856,152 @@ body.resize-dragging {
 }
 .proj-trace-btn:hover { border-color: #4af; }
 
+/* ===== Product Groups ===== */
+.product-group {
+  margin-bottom: 2px;
+}
+
+.product-group.collapsed .product-group-body {
+  display: none;
+}
+
+.product-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--bg-dark);
+  border-left: 3px solid var(--pixel-cyan);
+  cursor: pointer;
+  font-size: calc(7px + var(--font-boost));
+  color: var(--pixel-white);
+  transition: background 0.15s;
+}
+
+.product-group-header:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.orphan-header {
+  border-left-color: var(--text-dim);
+  color: var(--text-dim);
+}
+
+.product-expand-arrow {
+  font-size: calc(6px + var(--font-boost));
+  color: var(--pixel-cyan);
+  width: 10px;
+}
+
+.product-status-dot {
+  font-size: calc(5px + var(--font-boost));
+}
+
+.product-status-dot.status-active { color: var(--pixel-green); }
+.product-status-dot.status-planning { color: var(--pixel-yellow); }
+.product-status-dot.status-archived { color: var(--text-dim); }
+
+.product-group-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-group-body {
+  padding-left: 12px;
+}
+
+/* Subsections (OKR, Issues, Projects) */
+.product-subsection {
+  margin-top: 2px;
+}
+
+.product-subsection.collapsed .product-subsection-body {
+  display: none;
+}
+
+.product-subsection-header {
+  padding: 3px 8px;
+  font-size: calc(6px + var(--font-boost));
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.product-subsection-header:hover {
+  color: var(--pixel-white);
+}
+
+.subsection-arrow {
+  font-size: calc(5px + var(--font-boost));
+  color: var(--pixel-cyan);
+  margin-right: 2px;
+}
+
+.product-subsection-body {
+  padding-left: 8px;
+}
+
+/* KR Items */
+.product-kr-item {
+  padding: 2px 8px;
+  font-size: calc(5.5px + var(--font-boost));
+}
+
+.kr-title {
+  color: var(--pixel-white);
+  margin-bottom: 2px;
+}
+
+.kr-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kr-progress-track {
+  flex: 1;
+  max-width: 80px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.kr-progress-bar {
+  height: 100%;
+  background: var(--pixel-green);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.kr-progress-text {
+  color: var(--text-dim);
+  font-size: calc(5px + var(--font-boost));
+}
+
+/* Issue Items */
+.product-issue-item {
+  padding: 2px 8px;
+  font-size: calc(5.5px + var(--font-boost));
+  color: var(--pixel-white);
+}
+
+.issue-priority {
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+.priority-p0 .issue-priority { color: #ff4444; }
+.priority-p1 .issue-priority { color: #ff8800; }
+.priority-p2 .issue-priority { color: var(--pixel-yellow); }
+.priority-p3 .issue-priority { color: var(--text-dim); }
+
+.issue-title {
+  color: var(--pixel-white);
+}
+
 /* ===== CEO Project Selector ===== */
 .ceo-project-selector {
   margin-bottom: 6px;
@@ -5551,3 +5697,26 @@ body.resize-dragging {
   user-select: none;
 }
 .ceo-msg-toggle:hover { text-decoration: underline; }
+
+/* CEO Product Selector */
+#ceo-product-row {
+  padding: 2px 8px;
+}
+
+#ceo-product-select {
+  width: 100%;
+  background: var(--bg-dark);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  font-family: var(--font-pixel);
+  font-size: calc(5.5px + var(--font-boost));
+  padding: 3px 6px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+#ceo-product-select:focus {
+  border-color: var(--pixel-cyan);
+  color: var(--pixel-white);
+  outline: none;
+}

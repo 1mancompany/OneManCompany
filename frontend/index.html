@@ -12,16 +12,15 @@
 </head>
 <body>
   <div id="app">
-    <!-- Left top: Projects -->
+    <!-- Left top: Products & Projects -->
     <div id="left-top-panel">
       <div class="collapsible-header" data-target="projects-panel-body">
         <span class="collapse-arrow">&#9660;</span>
-        <h3 class="pixel-title">PROJECTS</h3>
+        <h3 class="pixel-title">PRODUCTS</h3>
       </div>
       <div id="projects-panel-body" class="collapsible-body">
         <div id="projects-panel-list"></div>
       </div>
-
     </div>
 
     <!-- Left bottom: Activity Log -->
@@ -106,6 +105,11 @@
           <div id="ceo-conv-panel">
             <div id="ceo-conv-messages"></div>
             <div id="ceo-conv-input-area">
+              <div id="ceo-product-row">
+                <select id="ceo-product-select" title="Link task to product">
+                  <option value="">No Product</option>
+                </select>
+              </div>
               <div id="ceo-conv-input-row">
                 <textarea id="ceo-conv-input" placeholder="$ Type message, / for commands (Enter to send)" rows="1"></textarea>
                 <input type="file" id="ceo-file-input" multiple hidden />

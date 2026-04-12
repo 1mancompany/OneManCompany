@@ -98,6 +98,7 @@ class AppController {
       this.updateRoster(employees);
       this.updateOneononeDropdown(employees);
       this.updateProjectsPanel();
+      this._refreshProductSelector();
       if (window.officeRenderer) {
         window.officeRenderer.updateState({
           employees, meeting_rooms: rooms, tools, office_layout,
@@ -241,7 +242,10 @@ class AppController {
       if (c.includes('culture') && !document.getElementById('company-culture-modal').classList.contains('hidden')) {
         this._renderCompanyCulture();
       }
-      if (c.includes('projects'))      this.updateProjectsPanel();
+      if (c.includes('products') || c.includes('projects')) {
+        this.updateProjectsPanel();
+        this._refreshProductSelector();
+      }
       if (c.includes('overhead') && !document.getElementById('dashboard-modal').classList.contains('hidden')) {
         clearTimeout(this._dashboardCostTimer);
         this._dashboardCostTimer = setTimeout(() => this._renderDashboard(), 2000);
@@ -2274,6 +2278,8 @@ class AppController {
           formData.append('task', text);
           formData.append('project_id', pid.split('/')[0]);
           formData.append('mode', 'standard');
+          const productId = document.getElementById('ceo-product-select')?.value || '';
+          if (productId) formData.append('product_id', productId);
           await fetch('/api/ceo/task', { method: 'POST', body: formData });
           await this._refreshCeoProjectList();
           this._ceoTerm?.appendMessage({ role: 'system', text: 'New iteration created.', source: 'system' });
@@ -2340,6 +2346,8 @@ class AppController {
           const formData = new FormData();
           formData.append('task', text);
           formData.append('mode', mode);
+          const productId2 = document.getElementById('ceo-product-select')?.value || '';
+          if (productId2) formData.append('product_id', productId2);
           await fetch('/api/ceo/task', { method: 'POST', body: formData });
           await this._refreshCeoProjectList();
         } catch (e) { console.error('Failed to submit task:', e); }
@@ -7179,6 +7187,8 @@ class AppController {
     formData.append('task', task);
     if (projectId) formData.append('project_id', projectId);
     if (mode !== 'standard') formData.append('mode', mode);
+    const productId = document.getElementById('ceo-product-select')?.value || '';
+    if (productId) formData.append('product_id', productId);
     for (const f of this._taskPendingFiles) {
       formData.append('files', f.file);
     }
@@ -7199,6 +7209,26 @@ class AppController {
       });
   }
 
+  // ===== Product Selector =====
+  async _refreshProductSelector() {
+    try {
+      const data = await fetch('/api/products').then(r => r.json());
+      const sel = document.getElementById('ceo-product-select');
+      if (!sel) return;
+      const current = sel.value || '';
+      sel.innerHTML = '<option value="">No Product</option>';
+      for (const p of data) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        sel.appendChild(opt);
+      }
+      sel.value = current;  // preserve selection
+    } catch (e) {
+      console.debug('[_refreshProductSelector] failed:', e);
+    }
+  }
+
   // ===== Projects Panel =====
   _projectsPanelTimer = null;
 
@@ -7208,7 +7238,235 @@ class AppController {
     this._projectsPanelTimer = setTimeout(() => this._doUpdateProjectsPanel(), 300);
   }
 
+  _renderProjectCard(p) {
+    const card = document.createElement('div');
+    const iterStatus = p.latest_iter_status || '';
+    let statusClass = 'running';
+    if (iterStatus === 'completed') {
+      statusClass = 'completed';
+    } else if (iterStatus === 'pending_confirmation' || iterStatus === 'pending' || iterStatus === 'holding') {
+      statusClass = 'pending';
+    } else if (p.status === 'archived') {
+      statusClass = 'completed';
+    }
+    card.className = `project-panel-card status-${statusClass}`;
+    card.dataset.projectId = p.project_id;
+    const displayName = p.name || p.task || p.project_id;
+    const meta = p.iteration_count != null
+      ? `${p.iteration_count} iteration${p.iteration_count !== 1 ? 's' : ''} · ${p.status}`
+      : p.status;
+    card.innerHTML = `
+      <div class="project-panel-name">${this._escHtml(displayName)}</div>
+      <div class="project-panel-meta">${meta}</div>
+    `;
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', () => {
+      this._openProjectDetail(p.project_id);
+      this._selectCeoProject(p.project_id);
+    });
+    return card;
+  }
+
   _doUpdateProjectsPanel() {
+    const panel = document.getElementById('projects-panel-list');
+    if (!panel) return;
+    fetch('/api/products/panel')
+      .then(r => r.json())
+      .then(data => {
+        const products = data.products || [];
+        const orphans = data.orphan_projects || [];
+
+        if (products.length === 0 && orphans.length === 0) {
+          panel.innerHTML = '<div class="task-empty">No products or projects</div>';
+          return;
+        }
+
+        // Save expand/collapse state before re-render
+        const expandState = {};
+        panel.querySelectorAll('.product-group').forEach(g => {
+          const id = g.dataset.productId;
+          if (id) {
+            expandState[id] = {
+              main: !g.classList.contains('collapsed'),
+              okr: !g.querySelector('.product-okr-section')?.classList.contains('collapsed'),
+              issues: !g.querySelector('.product-issues-section')?.classList.contains('collapsed'),
+              projects: !g.querySelector('.product-projects-section')?.classList.contains('collapsed'),
+            };
+          }
+        });
+
+        const frag = document.createDocumentFragment();
+
+        // Render each product group
+        for (const item of products) {
+          const prod = item.product;
+          const prodId = prod.id || prod.slug;
+          const state = expandState[prodId] || { main: true, okr: false, issues: true, projects: true };
+
+          const group = document.createElement('div');
+          group.className = `product-group${state.main ? '' : ' collapsed'}`;
+          group.dataset.productId = prodId;
+
+          // Product header
+          const header = document.createElement('div');
+          header.className = 'product-group-header';
+          const version = prod.current_version ? ` (v${this._escHtml(prod.current_version)})` : '';
+          const statusBadge = prod.status === 'active' ? '\u25CF' : prod.status === 'planning' ? '\u25CB' : '\u25C6';
+          header.innerHTML = `
+            <span class="product-expand-arrow">${state.main ? '\u25BE' : '\u25B8'}</span>
+            <span class="product-status-dot status-${this._escHtml(prod.status || 'active')}">${statusBadge}</span>
+            <span class="product-group-name">${this._escHtml(prod.name)}${version}</span>
+          `;
+          header.addEventListener('click', () => {
+            group.classList.toggle('collapsed');
+            const arrow = header.querySelector('.product-expand-arrow');
+            arrow.textContent = group.classList.contains('collapsed') ? '\u25B8' : '\u25BE';
+          });
+          group.appendChild(header);
+
+          // Product body (collapsible)
+          const body = document.createElement('div');
+          body.className = 'product-group-body';
+
+          // === OKR Section ===
+          const krs = prod.key_results || [];
+          if (krs.length > 0) {
+            const okrSection = document.createElement('div');
+            okrSection.className = `product-okr-section product-subsection${state.okr ? '' : ' collapsed'}`;
+            const okrHeader = document.createElement('div');
+            okrHeader.className = 'product-subsection-header';
+            okrHeader.innerHTML = `<span class="subsection-arrow">${state.okr ? '\u25BE' : '\u25B8'}</span> OKR Progress`;
+            okrHeader.addEventListener('click', (e) => {
+              e.stopPropagation();
+              okrSection.classList.toggle('collapsed');
+              okrHeader.querySelector('.subsection-arrow').textContent = okrSection.classList.contains('collapsed') ? '\u25B8' : '\u25BE';
+            });
+            okrSection.appendChild(okrHeader);
+
+            const okrBody = document.createElement('div');
+            okrBody.className = 'product-subsection-body';
+            for (const kr of krs) {
+              const target = kr.target || 0;
+              const current = kr.current || 0;
+              const pct = target > 0 ? Math.min(100, (current / target) * 100) : 0;
+              const unit = kr.unit ? ` ${this._escHtml(kr.unit)}` : '';
+              const krEl = document.createElement('div');
+              krEl.className = 'product-kr-item';
+              krEl.innerHTML = `
+                <div class="kr-title">${this._escHtml(kr.title)}</div>
+                <div class="kr-progress">
+                  <div class="kr-progress-track"><div class="kr-progress-bar" style="width:${pct}%"></div></div>
+                  <span class="kr-progress-text">${current}/${target}${unit} (${pct.toFixed(0)}%)</span>
+                </div>
+              `;
+              okrBody.appendChild(krEl);
+            }
+            okrSection.appendChild(okrBody);
+            body.appendChild(okrSection);
+          }
+
+          // === Issues Section ===
+          const issues = item.issues || [];
+          const issueCount = item.issue_count || issues.length;
+          if (issueCount > 0) {
+            const issueSection = document.createElement('div');
+            issueSection.className = `product-issues-section product-subsection${state.issues ? '' : ' collapsed'}`;
+            const issueHeader = document.createElement('div');
+            issueHeader.className = 'product-subsection-header';
+            issueHeader.innerHTML = `<span class="subsection-arrow">${state.issues ? '\u25BE' : '\u25B8'}</span> Issues (${issueCount} open)`;
+            issueHeader.addEventListener('click', (e) => {
+              e.stopPropagation();
+              issueSection.classList.toggle('collapsed');
+              issueHeader.querySelector('.subsection-arrow').textContent = issueSection.classList.contains('collapsed') ? '\u25B8' : '\u25BE';
+            });
+            issueSection.appendChild(issueHeader);
+
+            const issueBody = document.createElement('div');
+            issueBody.className = 'product-subsection-body';
+            for (const issue of issues) {
+              const issueEl = document.createElement('div');
+              const priClass = (issue.priority || 'P2').toLowerCase();
+              issueEl.className = `product-issue-item priority-${priClass}`;
+              issueEl.innerHTML = `
+                <span class="issue-priority">[${this._escHtml(issue.priority || 'P2')}]</span>
+                <span class="issue-title">${this._escHtml(issue.title)}</span>
+              `;
+              issueBody.appendChild(issueEl);
+            }
+            issueSection.appendChild(issueBody);
+            body.appendChild(issueSection);
+          }
+
+          // === Projects Section ===
+          const projects = this._sortProjectsNewestFirst(item.projects || []);
+          if (projects.length > 0) {
+            const projSection = document.createElement('div');
+            projSection.className = `product-projects-section product-subsection${state.projects ? '' : ' collapsed'}`;
+            const projHeader = document.createElement('div');
+            projHeader.className = 'product-subsection-header';
+            projHeader.innerHTML = `<span class="subsection-arrow">${state.projects ? '\u25BE' : '\u25B8'}</span> Projects (${projects.length})`;
+            projHeader.addEventListener('click', (e) => {
+              e.stopPropagation();
+              projSection.classList.toggle('collapsed');
+              projHeader.querySelector('.subsection-arrow').textContent = projSection.classList.contains('collapsed') ? '\u25B8' : '\u25BE';
+            });
+            projSection.appendChild(projHeader);
+
+            const projBody = document.createElement('div');
+            projBody.className = 'product-subsection-body';
+            for (const p of projects) {
+              projBody.appendChild(this._renderProjectCard(p));
+            }
+            projSection.appendChild(projBody);
+            body.appendChild(projSection);
+          }
+
+          group.appendChild(body);
+          frag.appendChild(group);
+        }
+
+        // === Orphan projects ===
+        if (orphans.length > 0) {
+          const orphanState = expandState['_orphan'] || { main: true };
+          const group = document.createElement('div');
+          group.className = `product-group orphan-group${orphanState.main ? '' : ' collapsed'}`;
+          group.dataset.productId = '_orphan';
+
+          const header = document.createElement('div');
+          header.className = 'product-group-header orphan-header';
+          header.innerHTML = `
+            <span class="product-expand-arrow">${orphanState.main ? '\u25BE' : '\u25B8'}</span>
+            <span class="product-group-name">\u672A\u5F52\u7C7B (${orphans.length})</span>
+          `;
+          header.addEventListener('click', () => {
+            group.classList.toggle('collapsed');
+            header.querySelector('.product-expand-arrow').textContent = group.classList.contains('collapsed') ? '\u25B8' : '\u25BE';
+          });
+          group.appendChild(header);
+
+          const body = document.createElement('div');
+          body.className = 'product-group-body';
+          const sorted = this._sortProjectsNewestFirst(orphans);
+          for (const p of sorted) {
+            body.appendChild(this._renderProjectCard(p));
+          }
+          group.appendChild(body);
+          frag.appendChild(group);
+        }
+
+        panel.innerHTML = '';
+        panel.appendChild(frag);
+        this._overlaySessionPendingBadges(panel);
+        this._overlayTaskProgress(panel);
+      })
+      .catch(err => {
+        console.error('[updateProjectsPanel] failed:', err);
+        // Fallback: try old endpoint
+        this._doUpdateProjectsPanelLegacy();
+      });
+  }
+
+  _doUpdateProjectsPanelLegacy() {
     const panel = document.getElementById('projects-panel-list');
     if (!panel) return;
     fetch('/api/projects/named')
@@ -7219,43 +7477,17 @@ class AppController {
           panel.innerHTML = '<div class="task-empty">No projects</div>';
           return;
         }
-        // Build new content in a fragment, then swap — no visible flicker
         const frag = document.createDocumentFragment();
         projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
         for (const p of projects) {
-          const card = document.createElement('div');
-          const iterStatus = p.latest_iter_status || '';
-          let statusClass = 'running';
-          if (iterStatus === 'completed') {
-            statusClass = 'completed';
-          } else if (iterStatus === 'pending_confirmation' || iterStatus === 'pending' || iterStatus === 'holding') {
-            statusClass = 'pending';
-          } else if (p.status === 'archived') {
-            statusClass = 'completed';
-          }
-          card.className = `project-panel-card status-${statusClass}`;
-          card.dataset.projectId = p.project_id;
-          const displayName = p.name || p.task || p.project_id;
-          const meta = p.iteration_count != null
-            ? `${p.iteration_count} iteration${p.iteration_count !== 1 ? 's' : ''} · ${p.status}`
-            : p.status;
-          card.innerHTML = `
-            <div class="project-panel-name">${this._escHtml(displayName)}</div>
-            <div class="project-panel-meta">${meta}</div>
-          `;
-          card.style.cursor = 'pointer';
-          card.addEventListener('click', () => {
-            this._openProjectDetail(p.project_id);
-            this._selectCeoProject(p.project_id);
-          });
-          frag.appendChild(card);
+          frag.appendChild(this._renderProjectCard(p));
         }
         panel.innerHTML = '';
         panel.appendChild(frag);
         this._overlaySessionPendingBadges(panel);
         this._overlayTaskProgress(panel);
       })
-      .catch(err => console.error('[updateProjectsPanel] failed:', err));
+      .catch(err => console.error('[updateProjectsPanelLegacy] failed:', err));
   }
 
   async _overlaySessionPendingBadges(container) {

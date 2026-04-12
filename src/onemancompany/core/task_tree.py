@@ -59,6 +59,7 @@ class TaskNode:
     acceptance_result: dict | None = None  # {passed: bool, notes: str}
 
     project_id: str = ""
+    product_id: str = ""              # linked product (empty = no product)
     created_at: str = ""
     completed_at: str = ""
     cost_usd: float = 0.0
@@ -198,6 +199,7 @@ class TaskNode:
             "status": self.status,
             "acceptance_result": self.acceptance_result,
             "project_id": self.project_id,
+            "product_id": self.product_id,
             "created_at": self.created_at,
             "completed_at": self.completed_at,
             "cost_usd": self.cost_usd,

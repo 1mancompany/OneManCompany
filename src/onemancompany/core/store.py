@@ -26,6 +26,7 @@ from onemancompany.core.config import (
     ENCODING_UTF8,
     PF_GUIDANCE_NOTES,
     PF_WORK_PRINCIPLES,
+    PRODUCTS_DIR,
     PROJECTS_DIR,  # noqa: F401 — re-exported, used by test fixtures
     DirtyCategory,
     EMPLOYEES_DIR,
@@ -177,12 +178,13 @@ def _build_path_dirty_registry() -> list[tuple[Path, DirtyCategory]]:
       OFFICE_LAYOUT — event-driven, no disk directory
     """
     from onemancompany.core.config import (
-        EMPLOYEES_DIR, EX_EMPLOYEES_DIR, ROOMS_DIR, TOOLS_DIR,
+        EMPLOYEES_DIR, EX_EMPLOYEES_DIR, PRODUCTS_DIR, ROOMS_DIR, TOOLS_DIR,
         DirtyCategory,
     )
     entries = [
         (EMPLOYEES_DIR, DirtyCategory.EMPLOYEES),
         (EX_EMPLOYEES_DIR, DirtyCategory.EX_EMPLOYEES),
+        (PRODUCTS_DIR, DirtyCategory.PRODUCTS),
         (ROOMS_DIR, DirtyCategory.ROOMS),
         (TOOLS_DIR, DirtyCategory.TOOLS),
         (CANDIDATES_DIR, DirtyCategory.CANDIDATES),
