@@ -5720,3 +5720,113 @@ body.resize-dragging {
   color: var(--pixel-white);
   outline: none;
 }
+
+/* Panel Add Button */
+.panel-add-btn {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--pixel-cyan);
+  font-size: calc(10px + var(--font-boost));
+  cursor: pointer;
+  padding: 0 6px;
+  line-height: 1.2;
+  border-radius: 2px;
+  font-family: var(--font-pixel);
+}
+
+.panel-add-btn:hover {
+  background: var(--pixel-cyan);
+  color: var(--bg-dark);
+}
+
+/* KR Form Rows */
+.kr-form-row {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+  align-items: center;
+}
+
+.kr-form-row .form-input {
+  flex: 1;
+}
+
+.kr-remove-btn {
+  background: transparent;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  font-size: calc(10px + var(--font-boost));
+  padding: 0 4px;
+}
+
+.kr-remove-btn:hover {
+  color: #ff4444;
+}
+
+.btn-small {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--font-pixel);
+  font-size: calc(5.5px + var(--font-boost));
+  padding: 3px 8px;
+  cursor: pointer;
+  border-radius: 2px;
+  margin-top: 4px;
+}
+
+.btn-small:hover {
+  border-color: var(--pixel-cyan);
+  color: var(--pixel-cyan);
+}
+
+.btn-primary {
+  background: var(--pixel-cyan);
+  color: var(--bg-dark);
+  border: none;
+  font-family: var(--font-pixel);
+  font-size: calc(6px + var(--font-boost));
+  padding: 6px 16px;
+  cursor: pointer;
+  border-radius: 2px;
+  margin-top: 8px;
+  width: 100%;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+.form-group {
+  margin-bottom: 8px;
+}
+
+.form-label {
+  display: block;
+  color: var(--text-dim);
+  font-size: calc(5.5px + var(--font-boost));
+  margin-bottom: 3px;
+}
+
+.form-input {
+  width: 100%;
+  background: var(--bg-dark);
+  color: var(--pixel-white);
+  border: 1px solid var(--border);
+  font-family: var(--font-pixel);
+  font-size: calc(6px + var(--font-boost));
+  padding: 4px 8px;
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+
+.form-input:focus {
+  border-color: var(--pixel-cyan);
+  outline: none;
+}
+
+.form-actions {
+  margin-top: 12px;
+}

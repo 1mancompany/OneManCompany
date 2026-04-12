@@ -787,6 +787,9 @@ class AppController {
     // DND toggle button
     this._initDndToggle();
 
+    // Create Product modal
+    this._initCreateProductModal();
+
     hrBtn?.addEventListener('click', () => {
       hrBtn.disabled = true;
       this.logEntry('CEO', '🔄 Triggering quarterly review...', 'ceo');
@@ -7226,6 +7229,125 @@ class AppController {
       sel.value = current;  // preserve selection
     } catch (e) {
       console.debug('[_refreshProductSelector] failed:', e);
+    }
+  }
+
+  // ===== Create Product Modal =====
+  _initCreateProductModal() {
+    const btn = document.getElementById('create-product-btn');
+    const modal = document.getElementById('create-product-modal');
+    if (!btn || !modal) return;
+
+    // Open modal
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      modal.classList.remove('hidden');
+      this._populateProductOwnerDropdown();
+      // Reset form
+      document.getElementById('create-product-name').value = '';
+      document.getElementById('create-product-desc').value = '';
+      document.getElementById('kr-list').innerHTML = '';
+    });
+
+    // Close modal
+    modal.querySelector('.modal-close')?.addEventListener('click', () => {
+      modal.classList.add('hidden');
+    });
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.classList.add('hidden');
+    });
+
+    // Add KR button
+    document.getElementById('add-kr-btn')?.addEventListener('click', () => {
+      this._addKrRow();
+    });
+
+    // Submit
+    document.getElementById('submit-create-product')?.addEventListener('click', () => {
+      this._submitCreateProduct();
+    });
+  }
+
+  _addKrRow() {
+    const list = document.getElementById('kr-list');
+    if (!list) return;
+    const row = document.createElement('div');
+    row.className = 'kr-form-row';
+    row.innerHTML = `
+      <input type="text" class="kr-title-input form-input" placeholder="KR title" />
+      <input type="number" class="kr-target-input form-input" placeholder="Target" style="width:70px" />
+      <input type="text" class="kr-unit-input form-input" placeholder="Unit" style="width:60px" />
+      <button class="kr-remove-btn" title="Remove">&times;</button>
+    `;
+    row.querySelector('.kr-remove-btn').addEventListener('click', () => row.remove());
+    list.appendChild(row);
+  }
+
+  async _populateProductOwnerDropdown() {
+    try {
+      const data = await fetch('/api/bootstrap').then(r => r.json());
+      const sel = document.getElementById('create-product-owner');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">Select owner...</option>';
+      for (const emp of (data.employees || [])) {
+        const opt = document.createElement('option');
+        opt.value = emp.id;
+        opt.textContent = `${emp.name || emp.id} (${emp.role || ''})`;
+        sel.appendChild(opt);
+      }
+    } catch (e) {
+      console.debug('Failed to populate owner dropdown:', e);
+    }
+  }
+
+  async _submitCreateProduct() {
+    const name = document.getElementById('create-product-name')?.value?.trim();
+    const desc = document.getElementById('create-product-desc')?.value?.trim();
+    const ownerId = document.getElementById('create-product-owner')?.value || '';
+
+    if (!name) {
+      alert('Product name is required');
+      return;
+    }
+
+    // Collect KRs
+    const krRows = document.querySelectorAll('#kr-list .kr-form-row');
+    const krs = [];
+    for (const row of krRows) {
+      const title = row.querySelector('.kr-title-input')?.value?.trim();
+      const target = parseFloat(row.querySelector('.kr-target-input')?.value) || 0;
+      const unit = row.querySelector('.kr-unit-input')?.value?.trim() || '';
+      if (title && target > 0) {
+        krs.push({ title, target, unit });
+      }
+    }
+
+    try {
+      // Create product
+      const res = await fetch('/api/product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description: desc, owner_id: ownerId }),
+      });
+      const product = await res.json();
+      const slug = product.slug;
+
+      // Add KRs
+      for (const kr of krs) {
+        await fetch(`/api/product/${slug}/kr`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(kr),
+        });
+      }
+
+      // Close modal and refresh
+      document.getElementById('create-product-modal')?.classList.add('hidden');
+      this.updateProjectsPanel();
+      this._refreshProductSelector();
+    } catch (e) {
+      console.error('Failed to create product:', e);
+      alert('Failed to create product');
     }
   }
 

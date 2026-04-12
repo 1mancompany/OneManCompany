@@ -40,6 +40,52 @@ def _resolve_caller_id() -> str:
 
 
 @tool
+async def create_product_tool(
+    name: str,
+    description: str,
+    key_results: str = "",
+    owner_id: str = "",
+) -> str:
+    """Create a new product with optional key results.
+
+    Args:
+        name: Product name (e.g. "OneManCompany官网")
+        description: Product objective/description
+        key_results: Semicolon-separated KRs, each as "title|target|unit" (e.g. "DAU达到1000|1000|users;页面加载<2s|2.0|seconds")
+        owner_id: Employee ID of the product owner (optional, defaults to caller)
+    """
+    caller = _resolve_caller_id()
+    oid = owner_id or caller
+
+    try:
+        product = prod.create_product(name=name, owner_id=oid, description=description)
+        slug = product["slug"]
+
+        # Parse and add key results
+        kr_count = 0
+        if key_results:
+            for kr_str in key_results.split(";"):
+                parts = kr_str.strip().split("|")
+                if len(parts) >= 2:
+                    title = parts[0].strip()
+                    try:
+                        target = float(parts[1].strip())
+                    except ValueError:
+                        logger.debug("Skipping KR with non-numeric target: {}", parts[1])
+                        continue
+                    unit = parts[2].strip() if len(parts) >= 3 else ""
+                    prod.add_key_result(slug, title=title, target=target, unit=unit)
+                    kr_count += 1
+
+        result = f"Created product '{name}' (slug: {slug})"
+        if kr_count:
+            result += f" with {kr_count} key results"
+        return result
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
 async def create_product_issue(
     product_slug: str,
     title: str,
@@ -257,6 +303,7 @@ async def update_kr_progress_tool(
 # ---------------------------------------------------------------------------
 
 PRODUCT_TOOLS = [
+    create_product_tool,
     create_product_issue,
     update_product_issue,
     close_product_issue,
