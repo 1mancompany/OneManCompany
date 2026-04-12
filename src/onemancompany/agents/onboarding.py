@@ -67,7 +67,9 @@ HEARTBEAT_SCRIPT = "heartbeat.sh"
 
 # Default skills injected for every new employee
 _DEFAULT_SKILLS_DIR = Path(__file__).resolve().parent.parent / "default_skills"
-_DEFAULT_SKILL_NAMES = ["task_lifecycle", "project-brainstorming"]
+_DEFAULT_SKILL_NAMES = ["task_lifecycle"]
+# EA-only skills injected during founding team setup
+_EA_SKILL_NAMES = ["project-brainstorming"]
 
 
 # ---------------------------------------------------------------------------
@@ -622,14 +624,18 @@ async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
     return resolved if resolved.exists() else _TALENTS_CLONE_DIR
 
 
-def _inject_default_skills(skills_dir: Path) -> None:
+def _inject_default_skills(skills_dir: Path, employee_id: str = "") -> None:
     """Copy/update default skills into the employee's skills folder.
 
     Always overwrites SKILL.md from the source to pick up frontmatter
     changes (e.g. autoload flag). Preserves employee-specific files
     in the skill directory that don't exist in the source.
     """
-    for name in _DEFAULT_SKILL_NAMES:
+    from onemancompany.core.config import EA_ID
+    names = list(_DEFAULT_SKILL_NAMES)
+    if employee_id == EA_ID:
+        names.extend(_EA_SKILL_NAMES)
+    for name in names:
         src = _DEFAULT_SKILLS_DIR / name
         if not src.exists():
             continue
@@ -1034,8 +1040,8 @@ async def execute_hire(
                 f"---\nname: {skill_name}\ndescription: \"{name}'s {skill_name} skill.\"\n---\n\n"
                 f"# {skill_name}\n\n(Auto-created by HR during hiring.)\n")
 
-    # Inject default skills (task_lifecycle)
-    _inject_default_skills(skills_dir)
+    # Inject default skills (task_lifecycle; EA also gets project-brainstorming)
+    _inject_default_skills(skills_dir, employee_id=emp_num)
 
     # Create initial SOUL.md in workspace
     workspace_dir = emp_dir / WORKSPACE_DIR_NAME

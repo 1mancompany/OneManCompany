@@ -151,10 +151,12 @@ Please choose an approach (or mix elements), and confirm/adjust the acceptance c
 
 ## Phase 5: Write Design Summary
 
-After CEO approves, save a brief design doc to the project workspace:
+After CEO approves, save a brief design doc to the project workspace.
+Use `ls` to find your project workspace path first (check task context for
+`[Project workspace: ...]`), then write the design doc there:
 
 ```
-write(file_path="[project_workspace]/design.md", content="""
+write(file_path="<your project workspace path>/design.md", content="""
 # [Project Name] — Design Summary
 
 ## Problem
