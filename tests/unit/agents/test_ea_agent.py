@@ -222,7 +222,7 @@ class TestEAAgentRun:
 
         agent_invoked = False
 
-        async def spy_ainvoke(messages):
+        async def spy_ainvoke(messages, **kwargs):
             nonlocal agent_invoked
             agent_invoked = True
             return {"messages": [MagicMock(content="done")]}
