@@ -154,6 +154,43 @@ class EventType(str, Enum):
     RECURRING_ACTION_ITEMS = "recurring_action_items"
     DISPATCH_STATUS_CHANGE = "dispatch_status_change"
 
+    # Product management events
+    PRODUCT_CREATED = "product_created"
+    ISSUE_CREATED = "issue_created"
+    ISSUE_CLOSED = "issue_closed"
+    KR_UPDATED = "kr_updated"
+    VERSION_RELEASED = "version_released"
+
+
+class ProductStatus(str, Enum):
+    """Product lifecycle status."""
+    PLANNING = "planning"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class IssuePriority(str, Enum):
+    """Issue urgency level. P0 = critical, P3 = low."""
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+
+
+class IssueStatus(str, Enum):
+    """Issue lifecycle status."""
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    CLOSED = "closed"
+
+
+class IssueResolution(str, Enum):
+    """How an issue was resolved when closed."""
+    FIXED = "fixed"
+    WONTFIX = "wontfix"
+    DUPLICATE = "duplicate"
+    BY_DESIGN = "by_design"
+
 
 # ---------------------------------------------------------------------------
 # Performance
