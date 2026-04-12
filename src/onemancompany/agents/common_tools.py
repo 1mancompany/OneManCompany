@@ -1892,6 +1892,11 @@ def _register_all_internal_tools() -> None:
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))
 
+    # Product management tools — available to all employees
+    from onemancompany.agents.product_tools import PRODUCT_TOOLS as _product_tools
+    for t in _product_tools:
+        tool_registry.register(t, ToolMeta(name=t.name, category="base"))
+
     # Tree tools self-register on import
     from onemancompany.agents import tree_tools as _tt  # noqa: F401
 
