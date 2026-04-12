@@ -47,7 +47,8 @@ class EAAgent(BaseAgentRunner):
             {"messages": [
                 SystemMessage(content=self._build_full_prompt()),
                 HumanMessage(content=task),
-            ]}
+            ]},
+            config={"recursion_limit": 80},
         )
 
         self._extract_and_record_usage(result)
