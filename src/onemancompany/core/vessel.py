@@ -1407,6 +1407,19 @@ class EmployeeManager:
                     if identity:
                         task_with_ctx = f"{identity}\n\n{task_with_ctx}"
 
+                # Product context — inject if project is linked to a product
+                if project_id:
+                    from onemancompany.core.project_archive import load_project as _load_proj
+                    _proj_doc = _load_proj(project_id)
+                    _product_id = _proj_doc.get("product_id", "") if _proj_doc else ""
+                    if _product_id:
+                        from onemancompany.core.product import build_product_context, find_slug_by_product_id
+                        _product_slug = find_slug_by_product_id(_product_id)
+                        if _product_slug:
+                            _prod_ctx = build_product_context(_product_slug)
+                            if _prod_ctx:
+                                task_with_ctx = f"{_prod_ctx}\n\n{task_with_ctx}"
+
                 if _effective_dir:
                     task_with_ctx += f"\n\n[Project workspace: {_effective_dir} — save all outputs here]"
 

@@ -231,3 +231,34 @@ class TestProductVersion:
         p, issue_ids = self._make_product_with_issues()
         ver = prod.release_version(p["slug"], issue_ids, bump="major")
         assert ver["version"] == "1.0.0"
+
+
+# ---------------------------------------------------------------------------
+# Product Context
+# ---------------------------------------------------------------------------
+
+
+class TestProductContext:
+    def test_build_product_context(self):
+        p = prod.create_product(name="CtxTest", owner_id="00004", description="Build the best product")
+        prod.add_key_result(p["slug"], title="Users", target=1000)
+        prod.create_issue(slug=p["slug"], title="Bug A", description="desc", priority=IssuePriority.P0, created_by="ceo")
+        prod.create_issue(slug=p["slug"], title="Bug B", description="desc", priority=IssuePriority.P2, created_by="ceo")
+        ctx = prod.build_product_context(p["slug"])
+        assert "Build the best product" in ctx
+        assert "Users" in ctx
+        assert "1000" in ctx
+        assert "Bug A" in ctx
+        assert "0.1.0" in ctx
+
+    def test_build_product_context_missing_product(self):
+        ctx = prod.build_product_context("nonexistent")
+        assert ctx == ""
+
+    def test_find_slug_by_product_id(self):
+        p = prod.create_product(name="FindTest", owner_id="00004", description="obj")
+        slug = prod.find_slug_by_product_id(p["id"])
+        assert slug == p["slug"]
+
+    def test_find_slug_by_product_id_not_found(self):
+        assert prod.find_slug_by_product_id("prod_nonexist") is None

@@ -422,3 +422,47 @@ def release_version(
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.info("[VERSION] Released {} for product '{}'", new_version, product_slug)
     return version_record
+
+
+# ---------------------------------------------------------------------------
+# Product Context Injection
+# ---------------------------------------------------------------------------
+
+def build_product_context(product_slug: str) -> str:
+    """Build product context string for agent prompt injection."""
+    product = load_product(product_slug)
+    if not product:
+        return ""
+    parts: list[str] = []
+    parts.append(f"=== Product: {product['name']} (v{product['current_version']}) ===")
+    desc = product.get("description") or product.get("objective", "")
+    if desc:
+        parts.append(f"Objective: {desc}")
+    krs = product.get("key_results", [])
+    if krs:
+        parts.append("\nKey Results:")
+        for kr in krs:
+            target = kr.get("target", 0)
+            current = kr.get("current", 0)
+            pct = (current / target * 100) if target else 0
+            unit = kr.get("unit", "")
+            suffix = f" {unit}" if unit else ""
+            parts.append(f"  - {kr['title']}: {current}/{target}{suffix} ({pct:.0f}%)")
+    issues = list_issues(product_slug, status=IssueStatus.OPEN)
+    issues.sort(key=lambda i: i.get("priority", "P3"))
+    if issues:
+        parts.append(f"\nActive Issues ({len(issues)}):")
+        for issue in issues[:10]:
+            parts.append(f"  - [{issue['priority']}] {issue['title']} ({issue['id']})")
+        if len(issues) > 10:
+            parts.append(f"  ... and {len(issues) - 10} more")
+    parts.append("=== End Product Context ===")
+    return "\n".join(parts)
+
+
+def find_slug_by_product_id(product_id: str) -> str | None:
+    """Find product slug by product ID."""
+    for p in list_products():
+        if p.get("id") == product_id:
+            return p.get("slug")
+    return None
