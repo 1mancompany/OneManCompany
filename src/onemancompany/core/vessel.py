@@ -125,6 +125,40 @@ def _save_project_tree(project_dir: str, tree):
         save_tree_async(path)
 
 
+# ---------------------------------------------------------------------------
+# Stall detection — detect unfulfilled action promises in agent output
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+# Patterns that indicate the agent is promising future actions it hasn't taken.
+# These are checked ONLY when the task completes WITHOUT dispatching children.
+_PROMISE_PATTERNS = _re.compile(
+    r"(?:"
+    # Chinese future-action phrases
+    r"我将|接下来|下一步|现在开始|马上开始|即将开始|准备开始"
+    r"|我会(?:立即|马上|开始)"
+    r"|下面我(?:来|将|要)"
+    # English future-action phrases
+    r"|I will (?:now |start |begin )|I'll (?:now |start |begin )"
+    r"|Let me (?:start|begin|proceed)"
+    r"|Next,? I'?(?:ll| will)"
+    r"|I'?m going to (?:start|begin)"
+    r")",
+    _re.IGNORECASE,
+)
+
+
+def detect_unfulfilled_promises(output: str | None) -> bool:
+    """Check if agent output contains unfulfilled action promises.
+
+    Returns True if the output contains phrases indicating the agent
+    plans to take action (but hasn't, since this is checked at completion).
+    """
+    if not output:
+        return False
+    return bool(_PROMISE_PATTERNS.search(output))
+
 
 # ---------------------------------------------------------------------------
 # Dependency context builder
@@ -1676,6 +1710,22 @@ class EmployeeManager:
                     node.set_status(TaskPhase.FINISHED)
                     logger.debug("[TASK LIFECYCLE] employee={} node={} → auto FINISHED (system node)",
                                  employee_id, entry.node_id)
+
+                # Stall detection: agent said "I will do X" but dispatched no children
+                if (node.node_type not in SYSTEM_NODE_TYPES
+                        and not node.children_ids
+                        and detect_unfulfilled_promises(node.result)):
+                    logger.warning(
+                        "[STALL] employee={} node={}: output contains action promises "
+                        "but no subtasks were dispatched. Agent may have stalled.",
+                        employee_id, entry.node_id,
+                    )
+                    self._push_to_conversation(
+                        node,
+                        "⚠️ Agent声称将执行后续工作但未实际创建任务，可能已stall。"
+                        "请检查并手动重新下达指令。",
+                    )
+
                 save_tree_async(entry.tree_path)
 
         if node.status != TaskPhase.HOLDING.value:
