@@ -5697,3 +5697,26 @@ body.resize-dragging {
   user-select: none;
 }
 .ceo-msg-toggle:hover { text-decoration: underline; }
+
+/* CEO Product Selector */
+#ceo-product-row {
+  padding: 2px 8px;
+}
+
+#ceo-product-select {
+  width: 100%;
+  background: var(--bg-dark);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  font-family: var(--font-pixel);
+  font-size: calc(5.5px + var(--font-boost));
+  padding: 3px 6px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+#ceo-product-select:focus {
+  border-color: var(--pixel-cyan);
+  color: var(--pixel-white);
+  outline: none;
+}

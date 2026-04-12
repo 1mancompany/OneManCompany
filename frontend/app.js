@@ -98,6 +98,7 @@ class AppController {
       this.updateRoster(employees);
       this.updateOneononeDropdown(employees);
       this.updateProjectsPanel();
+      this._refreshProductSelector();
       if (window.officeRenderer) {
         window.officeRenderer.updateState({
           employees, meeting_rooms: rooms, tools, office_layout,
@@ -241,7 +242,10 @@ class AppController {
       if (c.includes('culture') && !document.getElementById('company-culture-modal').classList.contains('hidden')) {
         this._renderCompanyCulture();
       }
-      if (c.includes('products') || c.includes('projects')) this.updateProjectsPanel();
+      if (c.includes('products') || c.includes('projects')) {
+        this.updateProjectsPanel();
+        this._refreshProductSelector();
+      }
       if (c.includes('overhead') && !document.getElementById('dashboard-modal').classList.contains('hidden')) {
         clearTimeout(this._dashboardCostTimer);
         this._dashboardCostTimer = setTimeout(() => this._renderDashboard(), 2000);
@@ -2274,6 +2278,8 @@ class AppController {
           formData.append('task', text);
           formData.append('project_id', pid.split('/')[0]);
           formData.append('mode', 'standard');
+          const productId = document.getElementById('ceo-product-select')?.value || '';
+          if (productId) formData.append('product_id', productId);
           await fetch('/api/ceo/task', { method: 'POST', body: formData });
           await this._refreshCeoProjectList();
           this._ceoTerm?.appendMessage({ role: 'system', text: 'New iteration created.', source: 'system' });
@@ -2340,6 +2346,8 @@ class AppController {
           const formData = new FormData();
           formData.append('task', text);
           formData.append('mode', mode);
+          const productId2 = document.getElementById('ceo-product-select')?.value || '';
+          if (productId2) formData.append('product_id', productId2);
           await fetch('/api/ceo/task', { method: 'POST', body: formData });
           await this._refreshCeoProjectList();
         } catch (e) { console.error('Failed to submit task:', e); }
@@ -7179,6 +7187,8 @@ class AppController {
     formData.append('task', task);
     if (projectId) formData.append('project_id', projectId);
     if (mode !== 'standard') formData.append('mode', mode);
+    const productId = document.getElementById('ceo-product-select')?.value || '';
+    if (productId) formData.append('product_id', productId);
     for (const f of this._taskPendingFiles) {
       formData.append('files', f.file);
     }
@@ -7197,6 +7207,26 @@ class AppController {
       .catch(err => {
         this.logEntry('SYSTEM', `Submit failed: ${err.message}`, 'system');
       });
+  }
+
+  // ===== Product Selector =====
+  async _refreshProductSelector() {
+    try {
+      const data = await fetch('/api/products').then(r => r.json());
+      const sel = document.getElementById('ceo-product-select');
+      if (!sel) return;
+      const current = sel.value || '';
+      sel.innerHTML = '<option value="">No Product</option>';
+      for (const p of data) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        sel.appendChild(opt);
+      }
+      sel.value = current;  // preserve selection
+    } catch (e) {
+      console.debug('[_refreshProductSelector] failed:', e);
+    }
   }
 
   // ===== Projects Panel =====

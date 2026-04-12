@@ -512,6 +512,7 @@ async def ceo_submit_task(
     task: str = Form(""),
     project_id: str = Form(""),
     project_name: str = Form(""),
+    product_id: str = Form(""),
     mode: str = Form("standard"),
     files: list[UploadFile] = File(default=[]),
 ) -> dict:
@@ -538,10 +539,10 @@ async def ceo_submit_task(
         iter_id = create_iteration(project_id, task, "pending")
         pid = project_id
     elif project_name:
-        pid = create_named_project(project_name)
+        pid = create_named_project(project_name, product_id=product_id)
         iter_id = create_iteration(pid, task, "pending")
     else:
-        pid, iter_id = await async_create_project_from_task(task, "pending")
+        pid, iter_id = await async_create_project_from_task(task, "pending", product_id=product_id)
 
     pdir = get_project_dir(pid)
 
