@@ -205,8 +205,9 @@ class TestProductTools:
     async def test_product_tools_list(self):
         from onemancompany.agents.product_tools import PRODUCT_TOOLS
 
-        assert len(PRODUCT_TOOLS) == 6
+        assert len(PRODUCT_TOOLS) == 7
         names = {t.name for t in PRODUCT_TOOLS}
+        assert "create_product_tool" in names
         assert "create_product_issue" in names
         assert "update_product_issue" in names
         assert "close_product_issue" in names
