@@ -605,7 +605,7 @@ async def lifespan(app: FastAPI):
     from onemancompany.core.config import PRODUCTS_DIR
     PRODUCTS_DIR.mkdir(parents=True, exist_ok=True)
     from onemancompany.core.product_triggers import register_product_triggers
-    register_product_triggers()
+    _product_trigger_task = register_product_triggers()
 
     # Start background WebSocket event broadcaster
     broadcaster_task = asyncio.create_task(ws_manager.event_broadcaster())

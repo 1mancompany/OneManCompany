@@ -310,15 +310,16 @@ def list_issues(
 
 def update_issue(slug: str, issue_id: str, **fields) -> dict | None:
     """Update issue fields. Returns updated dict or None if not found."""
-    path = _issues_dir(slug) / f"{issue_id}.yaml"
-    data = _read_yaml(path)
-    if not data:
-        logger.warning("update_issue: issue {} not found in {}", issue_id, slug)
-        return None
-    for key, value in fields.items():
-        if value is not None:
-            data[key] = value
-    _write_yaml(path, data)
+    with _get_slug_lock(slug):
+        path = _issues_dir(slug) / f"{issue_id}.yaml"
+        data = _read_yaml(path)
+        if not data:
+            logger.warning("update_issue: issue {} not found in {}", issue_id, slug)
+            return None
+        for key, value in fields.items():
+            if value is not None:
+                data[key] = value
+        _write_yaml(path, data)
     mark_dirty(DirtyCategory.PRODUCTS)
     return data
 
@@ -330,15 +331,16 @@ def close_issue(
     resolution: IssueResolution = IssueResolution.FIXED,
 ) -> dict | None:
     """Close an issue with a resolution. Returns updated dict or None."""
-    path = _issues_dir(slug) / f"{issue_id}.yaml"
-    data = _read_yaml(path)
-    if not data:
-        logger.warning("close_issue: issue {} not found in {}", issue_id, slug)
-        return None
-    data["status"] = IssueStatus.CLOSED.value
-    data["resolution"] = resolution.value
-    data["closed_at"] = datetime.now().isoformat()
-    _write_yaml(path, data)
+    with _get_slug_lock(slug):
+        path = _issues_dir(slug) / f"{issue_id}.yaml"
+        data = _read_yaml(path)
+        if not data:
+            logger.warning("close_issue: issue {} not found in {}", issue_id, slug)
+            return None
+        data["status"] = IssueStatus.CLOSED.value
+        data["resolution"] = resolution.value
+        data["closed_at"] = datetime.now().isoformat()
+        _write_yaml(path, data)
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.debug("Closed issue {} with resolution {}", issue_id, resolution.value)
     return data
@@ -346,16 +348,17 @@ def close_issue(
 
 def reopen_issue(slug: str, issue_id: str) -> dict | None:
     """Reopen a closed issue. Increments reopened_count. Returns updated dict or None."""
-    path = _issues_dir(slug) / f"{issue_id}.yaml"
-    data = _read_yaml(path)
-    if not data:
-        logger.warning("reopen_issue: issue {} not found in {}", issue_id, slug)
-        return None
-    data["status"] = IssueStatus.OPEN.value
-    data["closed_at"] = None
-    data["resolution"] = None
-    data["reopened_count"] = data.get("reopened_count", 0) + 1
-    _write_yaml(path, data)
+    with _get_slug_lock(slug):
+        path = _issues_dir(slug) / f"{issue_id}.yaml"
+        data = _read_yaml(path)
+        if not data:
+            logger.warning("reopen_issue: issue {} not found in {}", issue_id, slug)
+            return None
+        data["status"] = IssueStatus.OPEN.value
+        data["closed_at"] = None
+        data["resolution"] = None
+        data["reopened_count"] = data.get("reopened_count", 0) + 1
+        _write_yaml(path, data)
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.debug("Reopened issue {} (reopened_count={})", issue_id, data["reopened_count"])
     return data
