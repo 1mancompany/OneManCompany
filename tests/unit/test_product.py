@@ -178,3 +178,56 @@ class TestIssueCRUD:
         updated = prod.update_issue(p["slug"], issue["id"], assignee_id="00020", labels=["urgent"])
         assert updated["assignee_id"] == "00020"
         assert updated["labels"] == ["urgent"]
+
+
+# ---------------------------------------------------------------------------
+# Product Versioning
+# ---------------------------------------------------------------------------
+
+
+class TestProductVersion:
+    def _make_product_with_issues(self):
+        """Helper: create a product with 2 closed issues."""
+        p = prod.create_product(name="Versioned App", owner_id="00010")
+        i1 = prod.create_issue(slug=p["slug"], title="Fix login", priority=IssuePriority.P1, created_by="x")
+        i2 = prod.create_issue(slug=p["slug"], title="Add search", priority=IssuePriority.P2, created_by="x")
+        prod.close_issue(p["slug"], i1["id"], resolution=IssueResolution.FIXED)
+        prod.close_issue(p["slug"], i2["id"], resolution=IssueResolution.FIXED)
+        return p, [i1["id"], i2["id"]]
+
+    def test_release_version(self):
+        p, issue_ids = self._make_product_with_issues()
+        ver = prod.release_version(p["slug"], issue_ids)
+        assert ver["version"] == "0.1.1"
+        assert "Fix login" in ver["changelog"]
+        assert "Add search" in ver["changelog"]
+        assert ver["resolved_issue_ids"] == issue_ids
+
+    def test_release_version_updates_product(self):
+        p, issue_ids = self._make_product_with_issues()
+        prod.release_version(p["slug"], issue_ids)
+        loaded = prod.load_product(p["slug"])
+        assert loaded["current_version"] == "0.1.1"
+
+    def test_release_version_file_created(self, tmp_path):
+        p, issue_ids = self._make_product_with_issues()
+        prod.release_version(p["slug"], issue_ids)
+        ver_file = tmp_path / p["slug"] / "versions" / "0.1.1.yaml"
+        assert ver_file.exists()
+
+    def test_sequential_releases(self):
+        p, issue_ids = self._make_product_with_issues()
+        v1 = prod.release_version(p["slug"], issue_ids[:1])
+        assert v1["version"] == "0.1.1"
+        v2 = prod.release_version(p["slug"], issue_ids[1:])
+        assert v2["version"] == "0.1.2"
+
+    def test_bump_minor(self):
+        p, issue_ids = self._make_product_with_issues()
+        ver = prod.release_version(p["slug"], issue_ids, bump="minor")
+        assert ver["version"] == "0.2.0"
+
+    def test_bump_major(self):
+        p, issue_ids = self._make_product_with_issues()
+        ver = prod.release_version(p["slug"], issue_ids, bump="major")
+        assert ver["version"] == "1.0.0"

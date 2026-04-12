@@ -20,6 +20,7 @@ from onemancompany.core.config import (
     ISSUES_DIR_NAME,
     PRODUCT_YAML_FILENAME,
     PRODUCTS_DIR,
+    VERSIONS_DIR_NAME,
     DirtyCategory,
 )
 from onemancompany.core.models import (
@@ -356,3 +357,68 @@ def reopen_issue(slug: str, issue_id: str) -> dict | None:
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.debug("Reopened issue {} (reopened_count={})", issue_id, data["reopened_count"])
     return data
+
+
+# ---------------------------------------------------------------------------
+# Product Versioning
+# ---------------------------------------------------------------------------
+
+def _versions_dir(slug: str) -> Path:
+    return _product_dir(slug) / VERSIONS_DIR_NAME
+
+
+def _bump_version(current: str, bump: str = "patch") -> str:
+    """Bump a semver string. bump = 'patch' | 'minor' | 'major'."""
+    parts = current.split(".")
+    major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
+    if bump == "major":
+        return f"{major + 1}.0.0"
+    elif bump == "minor":
+        return f"{major}.{minor + 1}.0"
+    else:
+        return f"{major}.{minor}.{patch + 1}"
+
+
+def _generate_changelog(product_slug: str, resolved_issue_ids: list[str]) -> str:
+    """Generate changelog text from resolved issue titles."""
+    lines = []
+    for issue_id in resolved_issue_ids:
+        issue = load_issue(product_slug, issue_id)
+        if issue:
+            lines.append(f"- {issue['title']} (#{issue_id})")
+    return "\n".join(lines) if lines else "- No issues resolved"
+
+
+def release_version(
+    product_slug: str,
+    resolved_issue_ids: list[str],
+    project_ids: list[str] | None = None,
+    bump: str = "patch",
+) -> dict:
+    """Release a new product version. Returns the version dict."""
+    with _get_slug_lock(product_slug):
+        product = _read_yaml(_product_yaml_path(product_slug))
+        if not product:
+            raise ValueError(f"Product '{product_slug}' not found")
+
+        new_version = _bump_version(product["current_version"], bump)
+        changelog = _generate_changelog(product_slug, resolved_issue_ids)
+
+        version_record = {
+            "version": new_version,
+            "released_at": datetime.now().isoformat(),
+            "changelog": changelog,
+            "resolved_issue_ids": resolved_issue_ids,
+            "project_ids": project_ids or [],
+        }
+
+        versions_dir = _versions_dir(product_slug)
+        versions_dir.mkdir(parents=True, exist_ok=True)
+        _write_yaml(versions_dir / f"{new_version}.yaml", version_record)
+
+        product["current_version"] = new_version
+        _write_yaml(_product_yaml_path(product_slug), product)
+
+    mark_dirty(DirtyCategory.PRODUCTS)
+    logger.info("[VERSION] Released {} for product '{}'", new_version, product_slug)
+    return version_record
