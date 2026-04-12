@@ -1,0 +1,266 @@
+"""Product management tools for LangChain agents.
+
+Six @tool functions wrapping product.py CRUD operations.
+Agents use these to create/update issues, track KR progress,
+and inspect product context.
+"""
+
+from __future__ import annotations
+
+from langchain_core.tools import tool
+from loguru import logger
+
+from onemancompany.core import product as prod
+from onemancompany.core.models import IssueResolution, IssuePriority, IssueStatus
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_RESOLUTION_MAP = {r.value: r for r in IssueResolution}
+_PRIORITY_MAP = {p.value: p for p in IssuePriority}
+_STATUS_MAP = {s.value: s for s in IssueStatus}
+
+
+def _resolve_caller_id() -> str:
+    """Best-effort extraction of current employee ID from vessel context."""
+    try:
+        from onemancompany.core.vessel import _current_vessel
+
+        vessel = _current_vessel.get()
+        return vessel.employee_id if vessel else "agent"
+    except Exception:
+        return "agent"
+
+
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+
+
+@tool
+async def create_product_issue(
+    product_slug: str,
+    title: str,
+    description: str,
+    priority: str,
+    labels: str = "",
+) -> str:
+    """Create a new issue for a product.
+
+    Args:
+        product_slug: The product slug (e.g. "omc-website")
+        title: Issue title
+        description: Detailed description
+        priority: P0 (critical), P1 (high), P2 (medium), P3 (low)
+        labels: Comma-separated labels (e.g. "performance,frontend")
+    """
+    created_by = _resolve_caller_id()
+    label_list = [l.strip() for l in labels.split(",") if l.strip()] if labels else []
+
+    # Validate priority
+    pri = _PRIORITY_MAP.get(priority)
+    if pri is None:
+        return f"Error: invalid priority '{priority}'. Must be one of: {', '.join(_PRIORITY_MAP)}"
+
+    try:
+        issue = prod.create_issue(
+            slug=product_slug,
+            title=title,
+            description=description,
+            priority=pri,
+            labels=label_list,
+            created_by=created_by,
+        )
+        logger.debug("create_product_issue: created {} for {}", issue["id"], product_slug)
+        return f"Created issue {issue['id']}: {title} [{priority}]"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
+async def update_product_issue(
+    product_slug: str,
+    issue_id: str,
+    status: str = "",
+    priority: str = "",
+    assignee_id: str = "",
+    labels: str = "",
+) -> str:
+    """Update an existing issue's fields.
+
+    Args:
+        product_slug: The product slug
+        issue_id: The issue ID (e.g. "issue_abc12345")
+        status: New status (open, in_progress, closed)
+        priority: New priority (P0, P1, P2, P3)
+        assignee_id: Employee ID to assign
+        labels: Comma-separated labels (replaces existing)
+    """
+    updates: dict = {}
+    if status:
+        updates["status"] = status
+    if priority:
+        updates["priority"] = priority
+    if assignee_id:
+        updates["assignee_id"] = assignee_id
+    if labels:
+        updates["labels"] = [l.strip() for l in labels.split(",") if l.strip()]
+
+    if not updates:
+        return "Error: no fields to update"
+
+    try:
+        issue = prod.update_issue(product_slug, issue_id, **updates)
+        if issue is None:
+            return f"Error: issue {issue_id} not found in product {product_slug}"
+        logger.debug("update_product_issue: updated {} — {}", issue_id, updates)
+        return f"Updated {issue_id}: {updates}"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
+async def close_product_issue(
+    product_slug: str,
+    issue_id: str,
+    resolution: str,
+) -> str:
+    """Close an issue with a resolution.
+
+    Args:
+        product_slug: The product slug
+        issue_id: The issue ID
+        resolution: fixed, wontfix, duplicate, or by_design
+    """
+    res = _RESOLUTION_MAP.get(resolution)
+    if res is None:
+        return f"Error: invalid resolution '{resolution}'. Must be one of: {', '.join(_RESOLUTION_MAP)}"
+
+    try:
+        issue = prod.close_issue(product_slug, issue_id, resolution=res)
+        if issue is None:
+            return f"Error: issue {issue_id} not found in product {product_slug}"
+        logger.debug("close_product_issue: closed {} as {}", issue_id, resolution)
+        return f"Closed {issue_id} as {resolution}"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
+async def get_product_context_tool(product_slug: str) -> str:
+    """Get current product context: objective, KR progress, active issues.
+
+    Args:
+        product_slug: The product slug
+    """
+    product = prod.load_product(product_slug)
+    if not product:
+        return f"Product '{product_slug}' not found"
+
+    lines = [
+        f"# {product['name']}",
+        f"Status: {product.get('status', 'unknown')}",
+        f"Version: {product.get('current_version', '?')}",
+    ]
+
+    if product.get("description"):
+        lines.append(f"Description: {product['description']}")
+
+    # Key Results
+    krs = product.get("key_results", [])
+    if krs:
+        lines.append("\n## Key Results")
+        for kr in krs:
+            target = kr.get("target", 0)
+            current = kr.get("current", 0)
+            pct = (current / target * 100) if target else 0
+            lines.append(f"- {kr['title']}: {current}/{target} ({pct:.0f}%)")
+
+    # Active issues
+    issues = prod.list_issues(product_slug)
+    open_issues = [i for i in issues if i.get("status") != IssueStatus.CLOSED.value]
+    if open_issues:
+        lines.append(f"\n## Open Issues ({len(open_issues)})")
+        for issue in open_issues:
+            lines.append(
+                f"- [{issue.get('priority', '?')}] {issue['title']} "
+                f"({issue['id']}) [{issue.get('status', '?')}]"
+            )
+
+    return "\n".join(lines)
+
+
+@tool
+async def list_product_issues_tool(
+    product_slug: str,
+    status: str = "",
+    priority: str = "",
+) -> str:
+    """List issues for a product, optionally filtered.
+
+    Args:
+        product_slug: The product slug
+        status: Filter by status (open, in_progress, closed)
+        priority: Filter by priority (P0, P1, P2, P3)
+    """
+    kwargs: dict = {}
+    if status:
+        s = _STATUS_MAP.get(status)
+        if s:
+            kwargs["status"] = s
+    if priority:
+        p = _PRIORITY_MAP.get(priority)
+        if p:
+            kwargs["priority"] = p
+
+    issues = prod.list_issues(product_slug, **kwargs)
+    if not issues:
+        return "No issues found"
+
+    lines = [
+        f"- [{i.get('priority', '?')}] {i['title']} ({i['id']}) [{i.get('status', '?')}]"
+        for i in issues
+    ]
+    return "\n".join(lines)
+
+
+@tool
+async def update_kr_progress_tool(
+    product_slug: str,
+    kr_id: str,
+    current_value: float,
+) -> str:
+    """Update a Key Result's current progress value.
+
+    Args:
+        product_slug: The product slug
+        kr_id: The key result ID (e.g. "kr_abc12345")
+        current_value: New current value
+    """
+    try:
+        kr = prod.update_kr_progress(product_slug, kr_id, current=current_value)
+        if kr is None:
+            return f"Error: KR {kr_id} not found in product {product_slug}"
+        target = kr.get("target", 0)
+        current = kr.get("current", 0)
+        pct = (current / target * 100) if target else 0
+        logger.debug("update_kr_progress_tool: {} → {}/{}", kr_id, current, target)
+        return f"Updated {kr['title']}: {current}/{target} ({pct:.0f}%)"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+PRODUCT_TOOLS = [
+    create_product_issue,
+    update_product_issue,
+    close_product_issue,
+    get_product_context_tool,
+    list_product_issues_tool,
+    update_kr_progress_tool,
+]
