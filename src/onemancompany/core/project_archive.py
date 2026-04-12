@@ -794,6 +794,7 @@ def list_projects() -> list[dict]:
             "name": doc.get("name", d.name),
             "iteration_count": len(iterations),
             "cost_usd": round(total_cost, 4),
+            "product_id": doc.get("product_id", ""),
         })
     return projects
 

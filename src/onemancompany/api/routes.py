@@ -6974,6 +6974,44 @@ async def api_list_products() -> list[dict]:
     return prod.list_products()
 
 
+@router.get("/api/products/panel")
+async def api_products_panel() -> dict:
+    """Products panel data — products with KRs, issues, and linked projects."""
+    from onemancompany.core import product as prod
+    from onemancompany.core.project_archive import list_projects
+
+    products = prod.list_products()
+    all_projects = list_projects()
+
+    # Group projects by product_id
+    product_project_map: dict[str, list] = {}
+    orphan_projects: list = []
+    for p in all_projects:
+        pid = p.get("product_id", "")
+        if pid:
+            product_project_map.setdefault(pid, []).append(p)
+        else:
+            orphan_projects.append(p)
+
+    result = []
+    for prod_data in products:
+        prod_id = prod_data.get("id", "")
+        slug = prod_data.get("slug", "")
+        issues = prod.list_issues(slug)
+        open_issues = [i for i in issues if i.get("status") != "closed"]
+        result.append({
+            "product": prod_data,
+            "issues": open_issues[:20],  # cap for panel display
+            "issue_count": len(open_issues),
+            "projects": product_project_map.get(prod_id, []),
+        })
+
+    return {
+        "products": result,
+        "orphan_projects": orphan_projects,
+    }
+
+
 @router.get("/api/product/{slug}")
 async def api_get_product(slug: str) -> dict:
     """Get a product by slug."""
