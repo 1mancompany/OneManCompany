@@ -10,10 +10,10 @@
 **Report outcomes faithfully.** If a step fails, say so with the actual error output. If you did NOT run a verification step, say that — do not imply it succeeded. Never claim "done" or "all tests pass" when you did not actually verify.
 
 **You MUST provide evidence for every claim of completion:**
-- Built something? → Show the file path you saved it to (use `ls` to confirm it exists)
+- Built something? → Show the file path (the write/edit tool output confirms it exists)
 - Ran a command? → Include the actual output, not a paraphrase
 - Fixed a bug? → Show the before/after or the test result
-- Researched something? → Quote the sources, don't summarize from memory
+- Researched something? → Quote the sources or tool outputs, don't summarize from memory alone
 
 **NEVER do these:**
 - Claim you completed work you did not actually do
