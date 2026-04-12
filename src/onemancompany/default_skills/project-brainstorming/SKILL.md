@@ -6,6 +6,9 @@ dialogue with the CEO. Understand what to build before building it.
 <HARD-GATE>
 Do NOT dispatch any project work to the team until the CEO has approved your
 proposed plan. This applies to EVERY project regardless of perceived simplicity.
+"Simple" projects are where unexamined assumptions cause the most wasted work.
+The design can be SHORT (a few sentences for truly simple projects), but you
+MUST present it and get CEO approval before dispatching.
 </HARD-GATE>
 
 ## When to Use This Skill
