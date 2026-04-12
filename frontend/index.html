@@ -17,6 +17,7 @@
       <div class="collapsible-header" data-target="projects-panel-body">
         <span class="collapse-arrow">&#9660;</span>
         <h3 class="pixel-title">PRODUCTS</h3>
+        <button id="create-product-btn" class="panel-add-btn" title="New Product">+</button>
       </div>
       <div id="projects-panel-body" class="collapsible-body">
         <div id="projects-panel-list"></div>
@@ -651,6 +652,40 @@
         <div id="bg-tasks-list" class="bg-tasks-list"></div>
         <div id="bg-tasks-detail" class="bg-tasks-detail">
           <div class="bg-tasks-detail-empty">Select a task</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Product Modal -->
+  <div id="create-product-modal" class="modal-overlay hidden">
+    <div class="modal-content" style="max-width: 420px;">
+      <div class="modal-header">
+        <h3 class="pixel-title">NEW PRODUCT</h3>
+        <button class="modal-close" data-modal="create-product-modal">&times;</button>
+      </div>
+      <div class="modal-body" style="flex-direction:column;padding:12px;">
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input type="text" id="create-product-name" class="form-input" placeholder="e.g. OneManCompany官网" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Objective</label>
+          <textarea id="create-product-desc" class="form-input" rows="2" placeholder="Product goal / objective"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Owner</label>
+          <select id="create-product-owner" class="form-input">
+            <option value="">Select owner...</option>
+          </select>
+        </div>
+        <div id="create-product-krs">
+          <label class="form-label">Key Results</label>
+          <div id="kr-list"></div>
+          <button id="add-kr-btn" class="btn-small">+ Add KR</button>
+        </div>
+        <div class="form-actions">
+          <button id="submit-create-product" class="btn-primary">Create</button>
         </div>
       </div>
     </div>
