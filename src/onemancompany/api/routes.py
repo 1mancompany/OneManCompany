@@ -6933,3 +6933,231 @@ async def get_announcements(since: str = "") -> dict:
     from onemancompany.core.announcements import fetch_announcements
     items = await fetch_announcements(since=since)
     return {"announcements": items}
+
+
+# ── Product Management ──────────────────────────────────────────────────────
+
+
+@router.post("/api/product")
+async def api_create_product(request: Request) -> dict:
+    """Create a new product."""
+    from onemancompany.core import product as prod
+    from onemancompany.core.models import ProductStatus
+
+    body = await request.json()
+    name = body.get("name")
+    if not name:
+        raise HTTPException(status_code=400, detail="Missing required field: name")
+    status_str = body.get("status", "planning")
+    result = prod.create_product(
+        name=name,
+        owner_id=body.get("owner_id", ""),
+        description=body.get("description", ""),
+        status=ProductStatus(status_str),
+        current_version=body.get("current_version", "0.1.0"),
+    )
+    await event_bus.publish(
+        CompanyEvent(type=EventType.PRODUCT_CREATED, payload=result, agent=SYSTEM_AGENT)
+    )
+    return result
+
+
+@router.get("/api/products")
+async def api_list_products() -> list[dict]:
+    """List all products."""
+    from onemancompany.core import product as prod
+
+    return prod.list_products()
+
+
+@router.get("/api/product/{slug}")
+async def api_get_product(slug: str) -> dict:
+    """Get a product by slug."""
+    from onemancompany.core import product as prod
+
+    data = prod.load_product(slug)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Product '{slug}' not found")
+    return data
+
+
+@router.put("/api/product/{slug}")
+async def api_update_product(slug: str, request: Request) -> dict:
+    """Update product fields."""
+    from onemancompany.core import product as prod
+
+    body = await request.json()
+    result = prod.update_product(slug, **body)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Product '{slug}' not found")
+    return result
+
+
+# ── Key Results ─────────────────────────────────────────────────────────────
+
+
+@router.post("/api/product/{slug}/kr")
+async def api_add_key_result(slug: str, request: Request) -> dict:
+    """Add a key result to a product."""
+    from onemancompany.core import product as prod
+
+    body = await request.json()
+    title = body.get("title")
+    target = body.get("target")
+    if not title or target is None:
+        raise HTTPException(status_code=400, detail="Missing required fields: title, target")
+    try:
+        result = prod.add_key_result(slug, title=title, target=float(target))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return result
+
+
+@router.put("/api/product/{slug}/kr/{kr_id}")
+async def api_update_kr(slug: str, kr_id: str, request: Request) -> dict:
+    """Update KR progress."""
+    from onemancompany.core import product as prod
+
+    body = await request.json()
+    current = body.get("current")
+    if current is None:
+        raise HTTPException(status_code=400, detail="Missing required field: current")
+    result = prod.update_kr_progress(slug, kr_id, current=float(current))
+    if not result:
+        raise HTTPException(status_code=404, detail=f"KR '{kr_id}' not found in product '{slug}'")
+    await event_bus.publish(
+        CompanyEvent(type=EventType.KR_UPDATED, payload={"slug": slug, "kr": result}, agent=SYSTEM_AGENT)
+    )
+    return result
+
+
+# ── Issues ──────────────────────────────────────────────────────────────────
+
+
+@router.post("/api/product/{slug}/issue")
+async def api_create_issue(slug: str, request: Request) -> dict:
+    """Create an issue for a product."""
+    from onemancompany.core import product as prod
+
+    body = await request.json()
+    title = body.get("title")
+    if not title:
+        raise HTTPException(status_code=400, detail="Missing required field: title")
+    result = prod.create_issue(
+        slug=slug,
+        title=title,
+        created_by=body.get("created_by", ""),
+        description=body.get("description", ""),
+        priority=body.get("priority", "P2"),
+        labels=body.get("labels"),
+        assignee_id=body.get("assignee_id"),
+        milestone_version=body.get("milestone_version"),
+    )
+    await event_bus.publish(
+        CompanyEvent(type=EventType.ISSUE_CREATED, payload=result, agent=SYSTEM_AGENT)
+    )
+    return result
+
+
+@router.get("/api/product/{slug}/issues")
+async def api_list_issues(slug: str, status: str = "", priority: str = "") -> list[dict]:
+    """List issues for a product, optionally filtered by status and priority."""
+    from onemancompany.core import product as prod
+    from onemancompany.core.models import IssuePriority, IssueStatus
+
+    status_filter = IssueStatus(status) if status else None
+    priority_filter = IssuePriority(priority) if priority else None
+    return prod.list_issues(slug, status=status_filter, priority=priority_filter)
+
+
+@router.get("/api/product/{slug}/issue/{issue_id}")
+async def api_get_issue(slug: str, issue_id: str) -> dict:
+    """Get a single issue."""
+    from onemancompany.core import product as prod
+
+    data = prod.load_issue(slug, issue_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Issue '{issue_id}' not found")
+    return data
+
+
+@router.put("/api/product/{slug}/issue/{issue_id}")
+async def api_update_issue(slug: str, issue_id: str, request: Request) -> dict:
+    """Update issue fields."""
+    from onemancompany.core import product as prod
+
+    body = await request.json()
+    result = prod.update_issue(slug, issue_id, **body)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Issue '{issue_id}' not found")
+    return result
+
+
+@router.post("/api/product/{slug}/issue/{issue_id}/close")
+async def api_close_issue(slug: str, issue_id: str, request: Request) -> dict:
+    """Close an issue."""
+    from onemancompany.core import product as prod
+
+    from onemancompany.core.models import IssueResolution
+
+    body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+    resolution_str = body.get("resolution", "fixed")
+    result = prod.close_issue(slug, issue_id, resolution=IssueResolution(resolution_str))
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Issue '{issue_id}' not found")
+    await event_bus.publish(
+        CompanyEvent(type=EventType.ISSUE_CLOSED, payload=result, agent=SYSTEM_AGENT)
+    )
+    return result
+
+
+@router.post("/api/product/{slug}/issue/{issue_id}/reopen")
+async def api_reopen_issue(slug: str, issue_id: str) -> dict:
+    """Reopen a closed issue."""
+    from onemancompany.core import product as prod
+
+    result = prod.reopen_issue(slug, issue_id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Issue '{issue_id}' not found")
+    return result
+
+
+# ── Versions ────────────────────────────────────────────────────────────────
+
+
+@router.post("/api/product/{slug}/release")
+async def api_release_version(slug: str, request: Request) -> dict:
+    """Release a new product version."""
+    from onemancompany.core import product as prod
+
+    body = await request.json()
+    resolved_issue_ids = body.get("resolved_issue_ids", [])
+    project_ids = body.get("project_ids")
+    bump = body.get("bump", "patch")
+    try:
+        result = prod.release_version(slug, resolved_issue_ids, project_ids=project_ids, bump=bump)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    await event_bus.publish(
+        CompanyEvent(type=EventType.VERSION_RELEASED, payload={"slug": slug, **result}, agent=SYSTEM_AGENT)
+    )
+    return result
+
+
+@router.get("/api/product/{slug}/versions")
+async def api_list_versions(slug: str) -> list[dict]:
+    """List all versions for a product (newest first)."""
+    from onemancompany.core import product as prod
+    from onemancompany.core.store import _read_yaml
+
+    versions_dir = prod._versions_dir(slug)
+    if not versions_dir.exists():
+        return []
+    results = []
+    for f in sorted(versions_dir.iterdir(), reverse=True):
+        if f.suffix not in (".yaml", ".yml"):
+            continue
+        data = _read_yaml(f)
+        if data:
+            results.append(data)
+    return results
