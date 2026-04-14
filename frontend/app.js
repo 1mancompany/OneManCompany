@@ -828,6 +828,16 @@ class AppController {
       document.getElementById('code-update-banner').classList.add('hidden');
     });
 
+    // Product detail modal close
+    document.getElementById('product-close-btn')?.addEventListener('click', () => {
+      document.getElementById('product-modal').classList.add('hidden');
+    });
+    document.getElementById('product-modal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'product-modal') {
+        document.getElementById('product-modal').classList.add('hidden');
+      }
+    });
+
     // Roster filter bindings
     ['roster-filter-role', 'roster-filter-dept', 'roster-filter-level'].forEach(id => {
       const el = document.getElementById(id);
@@ -7389,6 +7399,675 @@ class AppController {
     return card;
   }
 
+  // ===== Product Detail Modal =====
+
+  _openProductDetail(slug) {
+    fetch(`/api/product/${encodeURIComponent(slug)}/detail`)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.product) return;
+        const modal = document.getElementById('product-modal');
+        const content = document.getElementById('product-detail-content');
+        modal.classList.remove('hidden');
+        this._renderProductDetail(data, content);
+      })
+      .catch(err => console.error('[_openProductDetail]', err));
+  }
+
+  _renderProductDetail(data, container) {
+    const { product, issues, versions, projects } = data;
+
+    container.innerHTML = '';
+
+    // Tab bar
+    const tabs = document.createElement('div');
+    tabs.className = 'project-tabs';
+    const tabDefs = [
+      { id: 'overview', label: 'Overview' },
+      { id: 'issues', label: `Issues (${issues.length})` },
+      { id: 'projects', label: `Projects (${projects.length})` },
+    ];
+    const tabContent = document.createElement('div');
+    tabContent.className = 'product-tab-content';
+
+    for (const t of tabDefs) {
+      const btn = document.createElement('button');
+      btn.className = `project-tab${t.id === 'overview' ? ' active' : ''}`;
+      btn.textContent = t.label;
+      btn.addEventListener('click', () => {
+        tabs.querySelectorAll('.project-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this._renderProductTab(t.id, data, tabContent);
+      });
+      tabs.appendChild(btn);
+    }
+
+    container.appendChild(tabs);
+    container.appendChild(tabContent);
+    this._renderProductTab('overview', data, tabContent);
+  }
+
+  _renderProductTab(tabId, data, container) {
+    const { product, issues, versions, projects } = data;
+    const slug = product.slug;
+    container.innerHTML = '';
+
+    if (tabId === 'overview') {
+      this._renderProductOverview(product, versions, slug, container);
+    } else if (tabId === 'issues') {
+      this._renderProductIssues(issues, slug, container, data);
+    } else if (tabId === 'projects') {
+      this._renderProductProjects(projects, container);
+    }
+  }
+
+  _renderProductOverview(product, versions, slug, container) {
+    // Header: name + version + status
+    const header = document.createElement('div');
+    header.className = 'product-detail-header';
+
+    const nameEl = document.createElement('h2');
+    nameEl.className = 'product-detail-name';
+    nameEl.textContent = product.name;
+    this._makeEditable(nameEl, 'name', slug);
+    header.appendChild(nameEl);
+
+    const meta = document.createElement('div');
+    meta.className = 'product-detail-meta';
+    meta.innerHTML = `v${this._escHtml(product.current_version || '0.1.0')} \u00B7 `;
+    const statusSel = document.createElement('select');
+    statusSel.className = 'form-input';
+    statusSel.style.width = 'auto';
+    statusSel.style.marginLeft = '8px';
+    statusSel.innerHTML = '<option value="planning">planning</option><option value="active">active</option><option value="archived">archived</option>';
+    statusSel.value = product.status || 'active';
+    statusSel.addEventListener('change', () => {
+      fetch(`/api/product/${encodeURIComponent(slug)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: statusSel.value }),
+      }).then(() => this._openProductDetail(slug));
+    });
+    meta.appendChild(statusSel);
+    header.appendChild(meta);
+    container.appendChild(header);
+
+    // Objective
+    const objLabel = document.createElement('div');
+    objLabel.className = 'product-section-label';
+    objLabel.textContent = 'Objective';
+    container.appendChild(objLabel);
+    const objEl = document.createElement('div');
+    objEl.className = 'product-detail-objective';
+    objEl.textContent = product.description || product.objective || '(no objective set)';
+    this._makeEditable(objEl, 'description', slug);
+    container.appendChild(objEl);
+
+    // Owner
+    const ownerLabel = document.createElement('div');
+    ownerLabel.className = 'product-section-label';
+    ownerLabel.textContent = 'Owner';
+    container.appendChild(ownerLabel);
+    const ownerEl = document.createElement('select');
+    ownerEl.className = 'form-input';
+    ownerEl.style.width = 'auto';
+    ownerEl.innerHTML = '<option value="">Unassigned</option>';
+    fetch('/api/bootstrap').then(r => r.json()).then(d => {
+      for (const emp of (d.employees || [])) {
+        const opt = document.createElement('option');
+        opt.value = emp.id;
+        opt.textContent = `${emp.name || emp.id}`;
+        ownerEl.appendChild(opt);
+      }
+      ownerEl.value = product.owner_id || '';
+    });
+    ownerEl.addEventListener('change', () => {
+      fetch(`/api/product/${encodeURIComponent(slug)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner_id: ownerEl.value }),
+      });
+    });
+    container.appendChild(ownerEl);
+
+    // KR Section
+    const krLabel = document.createElement('div');
+    krLabel.className = 'product-section-label';
+    krLabel.textContent = 'Key Results';
+    container.appendChild(krLabel);
+
+    const krList = document.createElement('div');
+    krList.className = 'product-kr-list';
+    for (const kr of (product.key_results || [])) {
+      const krRow = document.createElement('div');
+      krRow.className = 'product-kr-detail-row';
+      const target = kr.target || 0;
+      const current = kr.current || 0;
+      const pct = target > 0 ? Math.min(100, (current / target) * 100) : 0;
+      const unit = kr.unit ? ` ${this._escHtml(kr.unit)}` : '';
+
+      // Editable title
+      const titleEl = document.createElement('span');
+      titleEl.className = 'kr-detail-title';
+      titleEl.textContent = kr.title;
+      this._makeKrFieldEditable(titleEl, slug, kr.id, 'title');
+
+      // Editable current value
+      const currentEl = document.createElement('span');
+      currentEl.className = 'kr-detail-current';
+      currentEl.textContent = String(current);
+      this._makeKrCurrentEditable(currentEl, slug, kr.id);
+
+      // Progress bar
+      const progTrack = document.createElement('div');
+      progTrack.className = 'kr-progress-track kr-detail-track';
+      progTrack.innerHTML = `<div class="kr-progress-bar" style="width:${pct}%"></div>`;
+
+      const targetEl = document.createElement('span');
+      targetEl.className = 'kr-detail-target';
+      targetEl.textContent = String(target);
+      this._makeKrNumericEditable(targetEl, slug, kr.id, 'target');
+
+      const unitEl = document.createElement('span');
+      unitEl.className = 'kr-detail-unit';
+      unitEl.textContent = unit;
+      this._makeKrFieldEditable(unitEl, slug, kr.id, 'unit');
+
+      krRow.appendChild(titleEl);
+      krRow.appendChild(document.createTextNode(': '));
+      krRow.appendChild(currentEl);
+      krRow.appendChild(document.createTextNode('/'));
+      krRow.appendChild(targetEl);
+      krRow.appendChild(unitEl);
+      krRow.appendChild(document.createTextNode(` (${pct.toFixed(0)}%)`));
+      krRow.appendChild(progTrack);
+      krList.appendChild(krRow);
+    }
+
+    // Add KR button
+    const addKrBtn = document.createElement('button');
+    addKrBtn.className = 'btn-small';
+    addKrBtn.textContent = '+ Add KR';
+    addKrBtn.addEventListener('click', () => this._showAddKrInline(krList, slug));
+    krList.appendChild(addKrBtn);
+    container.appendChild(krList);
+
+    // Version History
+    if (versions.length > 0) {
+      const verLabel = document.createElement('div');
+      verLabel.className = 'product-section-label';
+      verLabel.textContent = 'Version History';
+      container.appendChild(verLabel);
+      const verList = document.createElement('div');
+      verList.className = 'product-version-list';
+      for (const v of versions) {
+        const verEl = document.createElement('div');
+        verEl.className = 'product-version-item';
+        const date = v.released_at ? new Date(v.released_at).toLocaleDateString() : '';
+        const resolvedCount = (v.resolved_issue_ids || []).length;
+        verEl.innerHTML = `<span class="ver-tag">v${this._escHtml(v.version)}</span> <span class="ver-date">${date}</span> <span class="ver-issues">${resolvedCount} issue${resolvedCount !== 1 ? 's' : ''} resolved</span>`;
+        if (v.changelog) {
+          const cl = document.createElement('div');
+          cl.className = 'ver-changelog';
+          cl.textContent = v.changelog;
+          verEl.appendChild(cl);
+        }
+        verList.appendChild(verEl);
+      }
+      container.appendChild(verList);
+    }
+  }
+
+  _makeEditable(el, fieldName, slug) {
+    el.style.cursor = 'pointer';
+    el.title = 'Click to edit';
+    el.addEventListener('click', () => {
+      if (el.querySelector('input, textarea')) return;
+      const current = el.textContent;
+      const isLong = current.length > 50;
+      const input = document.createElement(isLong ? 'textarea' : 'input');
+      input.className = 'inline-edit-input';
+      input.value = current;
+      if (isLong) input.rows = 3;
+      el.textContent = '';
+      el.appendChild(input);
+      input.focus();
+
+      const save = () => {
+        const val = input.value.trim();
+        el.textContent = val || current;
+        if (val && val !== current) {
+          fetch(`/api/product/${encodeURIComponent(slug)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ [fieldName]: val }),
+          }).catch(err => {
+            console.error('Save failed:', err);
+            el.textContent = current;
+          });
+        }
+      };
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !isLong) { e.preventDefault(); save(); }
+        if (e.key === 'Escape') { el.textContent = current; }
+      });
+    });
+  }
+
+  _makeKrCurrentEditable(el, slug, krId) {
+    el.style.cursor = 'pointer';
+    el.title = 'Click to edit current value';
+    el.addEventListener('click', () => {
+      if (el.querySelector('input')) return;
+      const current = el.textContent;
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'inline-edit-input inline-edit-small';
+      input.value = current;
+      input.style.width = '60px';
+      el.textContent = '';
+      el.appendChild(input);
+      input.focus();
+      const save = () => {
+        const val = parseFloat(input.value);
+        el.textContent = isNaN(val) ? current : String(val);
+        if (!isNaN(val) && String(val) !== current) {
+          fetch(`/api/product/${encodeURIComponent(slug)}/kr/${encodeURIComponent(krId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ current: val }),
+          }).catch(err => { console.error('KR save failed:', err); el.textContent = current; });
+        }
+      };
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') el.textContent = current; });
+    });
+  }
+
+  _makeKrNumericEditable(el, slug, krId, field) {
+    el.style.cursor = 'pointer';
+    el.title = 'Click to edit';
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (el.querySelector('input')) return;
+      const current = el.textContent;
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'inline-edit-input inline-edit-small';
+      input.value = current;
+      input.style.width = '60px';
+      el.textContent = '';
+      el.appendChild(input);
+      input.focus();
+      const save = () => {
+        const val = parseFloat(input.value);
+        el.textContent = isNaN(val) ? current : String(val);
+        if (!isNaN(val) && String(val) !== current) {
+          fetch(`/api/product/${encodeURIComponent(slug)}/kr/${encodeURIComponent(krId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ [field]: val }),
+          }).catch(err => { console.error('KR save failed:', err); el.textContent = current; });
+        }
+      };
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        if (e.key === 'Escape') el.textContent = current;
+      });
+    });
+  }
+
+  _makeKrFieldEditable(el, slug, krId, field) {
+    el.style.cursor = 'pointer';
+    el.title = 'Click to edit';
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (el.querySelector('input')) return;
+      const current = el.textContent;
+      const input = document.createElement('input');
+      input.className = 'inline-edit-input';
+      input.value = current;
+      el.textContent = '';
+      el.appendChild(input);
+      input.focus();
+      const save = () => {
+        const val = input.value.trim();
+        el.textContent = val || current;
+        if (val && val !== current) {
+          fetch(`/api/product/${encodeURIComponent(slug)}/kr/${encodeURIComponent(krId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ [field]: val }),
+          }).catch(err => { console.error('KR field save failed:', err); el.textContent = current; });
+        }
+      };
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        if (e.key === 'Escape') el.textContent = current;
+      });
+    });
+  }
+
+  _showAddKrInline(container, slug) {
+    if (container.querySelector('.kr-inline-add')) return;
+    const row = document.createElement('div');
+    row.className = 'kr-inline-add kr-form-row';
+    row.innerHTML = `
+      <input type="text" class="kr-title-input form-input" placeholder="KR title" />
+      <input type="number" class="kr-target-input form-input" placeholder="Target" style="width:70px" />
+      <input type="text" class="kr-unit-input form-input" placeholder="Unit" style="width:60px" />
+      <button class="btn-small kr-save-btn">Save</button>
+      <button class="kr-remove-btn">&times;</button>
+    `;
+    row.querySelector('.kr-remove-btn').addEventListener('click', () => row.remove());
+    row.querySelector('.kr-save-btn').addEventListener('click', async () => {
+      const title = row.querySelector('.kr-title-input').value.trim();
+      const target = parseFloat(row.querySelector('.kr-target-input').value);
+      const unit = row.querySelector('.kr-unit-input').value.trim();
+      if (!title || isNaN(target) || target <= 0) return;
+      try {
+        await fetch(`/api/product/${encodeURIComponent(slug)}/kr`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, target, unit }),
+        });
+        row.remove();
+        this._openProductDetail(slug);
+      } catch (e) { console.error('Add KR failed:', e); }
+    });
+    const addBtn = container.querySelector('.btn-small');
+    container.insertBefore(row, addBtn);
+    row.querySelector('.kr-title-input').focus();
+  }
+
+  _renderProductIssues(issues, slug, container, fullData) {
+    const toolbar = document.createElement('div');
+    toolbar.className = 'product-issues-toolbar';
+    const newBtn = document.createElement('button');
+    newBtn.className = 'btn-small';
+    newBtn.textContent = '+ New Issue';
+    toolbar.appendChild(newBtn);
+
+    // Status filter
+    const statusSel = document.createElement('select');
+    statusSel.className = 'form-input';
+    statusSel.style.width = 'auto';
+    statusSel.innerHTML = '<option value="">All</option><option value="backlog">Backlog</option><option value="planned">Planned</option><option value="in_progress">In Progress</option><option value="in_review">In Review</option><option value="done">Done</option><option value="released">Released</option>';
+    statusSel.addEventListener('change', () => renderFiltered());
+    toolbar.appendChild(statusSel);
+
+    // Priority filter
+    const priSel = document.createElement('select');
+    priSel.className = 'form-input';
+    priSel.style.width = 'auto';
+    priSel.innerHTML = '<option value="">All Priority</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option>';
+    priSel.addEventListener('change', () => renderFiltered());
+    toolbar.appendChild(priSel);
+
+    container.appendChild(toolbar);
+
+    const issueList = document.createElement('div');
+    issueList.className = 'product-issues-list';
+    container.appendChild(issueList);
+
+    newBtn.addEventListener('click', () => this._showNewIssueInline(issueList, slug, fullData));
+
+    const renderFiltered = () => {
+      const sf = statusSel.value;
+      const pf = priSel.value;
+      let filtered = issues;
+      if (sf) filtered = filtered.filter(i => i.status === sf);
+      if (pf) filtered = filtered.filter(i => i.priority === pf);
+      filtered.sort((a, b) => {
+        const aDone = a.status === 'done' || a.status === 'released';
+        const bDone = b.status === 'done' || b.status === 'released';
+        if (aDone && !bDone) return 1;
+        if (!aDone && bDone) return -1;
+        return (a.priority || 'P3').localeCompare(b.priority || 'P3');
+      });
+      issueList.innerHTML = '';
+      if (filtered.length === 0) {
+        issueList.innerHTML = '<div class="task-empty">No issues</div>';
+        return;
+      }
+      for (const issue of filtered) {
+        issueList.appendChild(this._renderIssueCard(issue, slug, fullData));
+      }
+    };
+    renderFiltered();
+  }
+
+  _renderIssueCard(issue, slug, fullData) {
+    const card = document.createElement('div');
+    const priClass = (issue.priority || 'P2').toLowerCase();
+    const isClosed = issue.status === 'done' || issue.status === 'released';
+    card.className = `product-issue-card priority-${priClass}${isClosed ? ' issue-closed' : ''}`;
+
+    // Header row
+    const header = document.createElement('div');
+    header.className = 'issue-card-header';
+
+    const priEl = document.createElement('select');
+    priEl.className = 'form-input issue-priority-select';
+    priEl.style.width = 'auto';
+    priEl.innerHTML = '<option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option>';
+    priEl.value = issue.priority || 'P2';
+    priEl.addEventListener('click', (e) => e.stopPropagation());
+    priEl.addEventListener('change', () => {
+      fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issue.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority: priEl.value }),
+      }).then(() => this._openProductDetail(slug));
+    });
+    header.appendChild(priEl);
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'issue-card-title';
+    titleEl.textContent = issue.title;
+    this._makeIssueFieldEditable(titleEl, slug, issue.id, 'title', fullData);
+    header.appendChild(titleEl);
+
+    const statusEl = document.createElement('span');
+    statusEl.className = `issue-card-status status-${issue.status}`;
+    statusEl.textContent = issue.status;
+    header.appendChild(statusEl);
+
+    if (issue.story_points) {
+      const spEl = document.createElement('span');
+      spEl.className = 'issue-story-points';
+      spEl.textContent = `${issue.story_points}pts`;
+      header.appendChild(spEl);
+    }
+
+    // Action button (close/reopen)
+    const actionBtn = document.createElement('button');
+    actionBtn.className = 'issue-action-btn';
+    if (isClosed) {
+      actionBtn.textContent = 'Reopen';
+      actionBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issue.id)}/reopen`, { method: 'POST' });
+        this._openProductDetail(slug);
+      });
+    } else {
+      actionBtn.textContent = 'Close';
+      actionBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issue.id)}/close`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resolution: 'fixed' }),
+        });
+        this._openProductDetail(slug);
+      });
+    }
+    header.appendChild(actionBtn);
+
+    card.appendChild(header);
+
+    // Expandable body
+    const body = document.createElement('div');
+    body.className = 'issue-card-body hidden';
+
+    const descEl = document.createElement('div');
+    descEl.className = 'issue-card-desc';
+    descEl.textContent = issue.description || '(no description)';
+    this._makeIssueFieldEditable(descEl, slug, issue.id, 'description', fullData);
+    body.appendChild(descEl);
+
+    const metaEl = document.createElement('div');
+    metaEl.className = 'issue-card-meta';
+    const labels = (issue.labels || []).map(l => `<span class="issue-label">${this._escHtml(l)}</span>`).join('');
+    metaEl.innerHTML = `
+      ${labels ? `<div>Labels: ${labels}</div>` : ''}
+      ${issue.created_by ? `<div>Created by: ${this._escHtml(issue.created_by)}</div>` : ''}
+      ${issue.resolution ? `<div>Resolution: ${this._escHtml(issue.resolution)}</div>` : ''}
+      ${issue.sprint ? `<div>Sprint: ${this._escHtml(issue.sprint)}</div>` : ''}
+    `;
+    body.appendChild(metaEl);
+
+    const assignRow = document.createElement('div');
+    assignRow.textContent = 'Assignee: ';
+    const assignSel = document.createElement('select');
+    assignSel.className = 'form-input';
+    assignSel.style.width = 'auto';
+    assignSel.style.display = 'inline';
+    assignSel.innerHTML = '<option value="">Unassigned</option>';
+    fetch('/api/bootstrap').then(r => r.json()).then(d => {
+      for (const emp of (d.employees || [])) {
+        const opt = document.createElement('option');
+        opt.value = emp.id;
+        opt.textContent = emp.name || emp.id;
+        assignSel.appendChild(opt);
+      }
+      assignSel.value = issue.assignee_id || '';
+    });
+    assignSel.addEventListener('click', (e) => e.stopPropagation());
+    assignSel.addEventListener('change', () => {
+      fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issue.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignee_id: assignSel.value }),
+      });
+    });
+    assignRow.appendChild(assignSel);
+    body.appendChild(assignRow);
+
+    const history = issue.history || [];
+    if (history.length > 0) {
+      const histEl = document.createElement('div');
+      histEl.className = 'issue-card-history';
+      histEl.innerHTML = '<div class="issue-history-label">History</div>';
+      const recent = history.slice(-5).reverse();
+      for (const h of recent) {
+        const hEntry = document.createElement('div');
+        hEntry.className = 'issue-history-entry';
+        const date = new Date(h.timestamp).toLocaleString();
+        hEntry.textContent = `${date}: ${h.field} ${h.old_value || '(none)'} \u2192 ${h.new_value} (${h.changed_by || 'system'})`;
+        histEl.appendChild(hEntry);
+      }
+      body.appendChild(histEl);
+    }
+
+    card.appendChild(body);
+
+    header.addEventListener('click', () => {
+      body.classList.toggle('hidden');
+    });
+
+    return card;
+  }
+
+  _makeIssueFieldEditable(el, slug, issueId, fieldName, fullData) {
+    el.style.cursor = 'pointer';
+    el.title = 'Click to edit';
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (el.querySelector('input, textarea')) return;
+      const current = el.textContent;
+      const isLong = fieldName === 'description';
+      const input = document.createElement(isLong ? 'textarea' : 'input');
+      input.className = 'inline-edit-input';
+      input.value = current === '(no description)' ? '' : current;
+      if (isLong) input.rows = 3;
+      el.textContent = '';
+      el.appendChild(input);
+      input.focus();
+      const save = () => {
+        const val = input.value.trim();
+        el.textContent = val || current;
+        if (val && val !== current) {
+          fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issueId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ [fieldName]: val }),
+          }).catch(err => { console.error('Issue save failed:', err); el.textContent = current; });
+        }
+      };
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !isLong) { e.preventDefault(); save(); }
+        if (e.key === 'Escape') el.textContent = current;
+      });
+    });
+  }
+
+  _showNewIssueInline(container, slug, fullData) {
+    if (container.querySelector('.issue-inline-add')) return;
+    const row = document.createElement('div');
+    row.className = 'issue-inline-add';
+    row.innerHTML = `
+      <input type="text" class="form-input issue-new-title" placeholder="Issue title" />
+      <textarea class="form-input issue-new-desc" rows="2" placeholder="Description (optional)"></textarea>
+      <div class="issue-new-row">
+        <select class="form-input issue-new-priority" style="width:auto">
+          <option value="P0">P0</option><option value="P1">P1</option>
+          <option value="P2" selected>P2</option><option value="P3">P3</option>
+        </select>
+        <input type="number" class="form-input issue-new-sp" placeholder="Story pts" style="width:60px" />
+        <input type="text" class="form-input issue-new-sprint" placeholder="Sprint" style="width:80px" />
+        <button class="btn-small issue-new-save">Create</button>
+        <button class="kr-remove-btn issue-new-cancel">&times;</button>
+      </div>
+    `;
+    row.querySelector('.issue-new-cancel').addEventListener('click', () => row.remove());
+    row.querySelector('.issue-new-save').addEventListener('click', async () => {
+      const title = row.querySelector('.issue-new-title').value.trim();
+      if (!title) return;
+      const desc = row.querySelector('.issue-new-desc').value.trim();
+      const priority = row.querySelector('.issue-new-priority').value;
+      const sp = parseInt(row.querySelector('.issue-new-sp')?.value) || null;
+      const sprint = row.querySelector('.issue-new-sprint')?.value?.trim() || null;
+      await fetch(`/api/product/${encodeURIComponent(slug)}/issue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description: desc, priority, created_by: 'ceo', story_points: sp, sprint }),
+      });
+      this._openProductDetail(slug);
+    });
+    container.insertBefore(row, container.firstChild);
+    row.querySelector('.issue-new-title').focus();
+  }
+
+  _renderProductProjects(projects, container) {
+    if (projects.length === 0) {
+      container.innerHTML = '<div class="task-empty">No projects linked to this product</div>';
+      return;
+    }
+    const sorted = this._sortProjectsNewestFirst(projects);
+    for (const p of sorted) {
+      const card = this._renderProjectCard(p);
+      card.addEventListener('click', () => {
+        document.getElementById('product-modal').classList.add('hidden');
+      });
+      container.appendChild(card);
+    }
+  }
+
   _doUpdateProjectsPanel() {
     const panel = document.getElementById('projects-panel-list');
     if (!panel) return;
@@ -7439,6 +8118,16 @@ class AppController {
             <span class="product-status-dot status-${this._escHtml(prod.status || 'active')}">${statusBadge}</span>
             <span class="product-group-name">${this._escHtml(prod.name)}${version}</span>
           `;
+          const detailBtn = document.createElement('button');
+          detailBtn.className = 'product-detail-btn';
+          detailBtn.textContent = '\u22EF';
+          detailBtn.title = 'Product detail';
+          detailBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._openProductDetail(prod.slug);
+          });
+          header.appendChild(detailBtn);
+
           header.addEventListener('click', () => {
             group.classList.toggle('collapsed');
             const arrow = header.querySelector('.product-expand-arrow');

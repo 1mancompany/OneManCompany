@@ -17,6 +17,7 @@ from onemancompany.core.models import (
     IssueStatus,
 )
 from onemancompany.core import product as prod
+from onemancompany.core.system_cron import system_cron
 
 # Priorities that auto-trigger project creation
 _AUTO_PROJECT_PRIORITIES = {IssuePriority.P0.value, IssuePriority.P1.value}
@@ -130,6 +131,17 @@ async def handle_project_complete(event: CompanyEvent) -> None:
     )
 
 
+def sync_issue_statuses(product_slug: str) -> list[dict]:
+    """Sync all issue statuses by deriving from linked TaskNode states.
+
+    Delegates to prod.sync_issue_statuses() which derives status from
+    linked project/task states.
+
+    Returns list of dicts with issue_id, old, and new status.
+    """
+    return prod.sync_issue_statuses(product_slug)
+
+
 async def check_kr_progress(product_slug: str) -> list[dict]:
     """Check KR progress and create P2 issues for any lagging behind (<50%).
 
@@ -141,7 +153,9 @@ async def check_kr_progress(product_slug: str) -> list[dict]:
         return []
 
     created_issues: list[dict] = []
-    existing_issues = prod.list_issues(product_slug, status=IssueStatus.OPEN)
+    # Check all non-terminal issues for dedup (KR tracking issues could be in any active status)
+    all_issues = prod.list_issues(product_slug)
+    existing_issues = [i for i in all_issues if i.get("status") not in (IssueStatus.DONE.value, IssueStatus.RELEASED.value)]
 
     for kr in product.get("key_results", []):
         target = kr.get("target", 0)
@@ -185,6 +199,59 @@ async def check_kr_progress(product_slug: str) -> list[dict]:
     return created_issues
 
 
+@system_cron("product_health_check", interval="30m", description="Periodic product issue/KR health check")
+async def product_health_check() -> list | None:
+    """Check all products for stale issues and lagging KRs."""
+    products = prod.list_products()
+    events = []
+    for p in products:
+        slug = p.get("slug", "")
+        if not slug:
+            continue
+        # Sync issue statuses from linked TaskNode states
+        status_changes = sync_issue_statuses(slug)
+        kr_issues = await check_kr_progress(slug)
+        if status_changes or kr_issues:
+            events.append(CompanyEvent(
+                type=EventType.ACTIVITY,
+                payload={"message": f"Product '{p['name']}': {len(status_changes)} status changes, {len(kr_issues)} KR alerts"},
+            ))
+    return events if events else None
+
+
+async def handle_issue_assigned(event: CompanyEvent) -> None:
+    """When an issue is (re)assigned, create a project so the assignee starts working."""
+    slug = event.payload.get("product_slug", "")
+    issue_id = event.payload.get("issue_id", "")
+    assignee_id = event.payload.get("assignee_id", "")
+
+    issue = prod.load_issue(slug, issue_id)
+    if not issue:
+        logger.warning("[PRODUCT_TRIGGER] handle_issue_assigned: issue {} not found", issue_id)
+        return
+
+    # Only act on open/in_progress issues
+    if issue.get("status") == IssueStatus.DONE.value:
+        logger.debug("[PRODUCT_TRIGGER] Skipping assignment for closed issue {}", issue_id)
+        return
+
+    # Check if a project already exists for this issue (avoid duplicates)
+    linked = issue.get("linked_task_ids", [])
+    if linked:
+        logger.debug("[PRODUCT_TRIGGER] Issue {} already has linked tasks {}, skip", issue_id, linked)
+        return
+
+    logger.info("[PRODUCT_TRIGGER] Issue {} assigned to {} — creating project", issue_id, assignee_id)
+    project_id = await _create_project_for_issue(slug, issue)
+
+    if project_id:
+        prod.update_issue(
+            slug, issue_id,
+            status=IssueStatus.IN_PROGRESS.value,
+            linked_task_ids=[project_id],
+        )
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -208,6 +275,8 @@ def register_product_triggers() -> "asyncio.Task":
             try:
                 if event.type == EventType.ISSUE_CREATED:
                     await handle_issue_created(event)
+                elif event.type == EventType.ISSUE_ASSIGNED:
+                    await handle_issue_assigned(event)
                 elif event.type == EventType.AGENT_DONE:
                     # Only handle if it has product context
                     if event.payload.get("product_slug"):

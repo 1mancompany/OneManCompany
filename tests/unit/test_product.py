@@ -117,7 +117,7 @@ class TestIssueCRUD:
         )
         assert issue["id"].startswith("issue_")
         assert issue["title"] == "Button broken"
-        assert issue["status"] == IssueStatus.OPEN
+        assert issue["status"] == IssueStatus.BACKLOG
         assert issue["priority"] == IssuePriority.P1
         assert issue["reopened_count"] == 0
 
@@ -158,7 +158,7 @@ class TestIssueCRUD:
         p = prod.create_product(name="Issue Close", owner_id="00010")
         issue = prod.create_issue(slug=p["slug"], title="Close me", priority=IssuePriority.P1, created_by="x")
         closed = prod.close_issue(p["slug"], issue["id"], resolution=IssueResolution.FIXED)
-        assert closed["status"] == IssueStatus.CLOSED.value
+        assert closed["status"] == IssueStatus.DONE.value
         assert closed["resolution"] == IssueResolution.FIXED.value
         assert closed["closed_at"] is not None
 
@@ -167,7 +167,7 @@ class TestIssueCRUD:
         issue = prod.create_issue(slug=p["slug"], title="Reopen me", priority=IssuePriority.P1, created_by="x")
         prod.close_issue(p["slug"], issue["id"], resolution=IssueResolution.FIXED)
         reopened = prod.reopen_issue(p["slug"], issue["id"])
-        assert reopened["status"] == IssueStatus.OPEN.value
+        assert reopened["status"] == IssueStatus.BACKLOG.value
         assert reopened["closed_at"] is None
         assert reopened["resolution"] is None
         assert reopened["reopened_count"] == 1
@@ -262,3 +262,99 @@ class TestProductContext:
 
     def test_find_slug_by_product_id_not_found(self):
         assert prod.find_slug_by_product_id("prod_nonexist") is None
+
+
+# ---------------------------------------------------------------------------
+# Issue History (Audit Trail)
+# ---------------------------------------------------------------------------
+
+
+class TestIssueHistory:
+    def test_update_issue_records_history(self):
+        p = prod.create_product(name="HistTest", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Bug", created_by="ceo", priority=IssuePriority.P1)
+        prod.update_issue(p["slug"], issue["id"], priority="P0")
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        assert len(loaded.get("history", [])) >= 1
+        assert loaded["history"][-1]["field"] == "priority"
+
+    def test_close_issue_records_history(self):
+        p = prod.create_product(name="HistClose", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Fix", created_by="ceo")
+        prod.close_issue(p["slug"], issue["id"])
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        assert any(h["field"] == "status" for h in loaded.get("history", []))
+
+    def test_reopen_issue_records_history(self):
+        p = prod.create_product(name="HistReopen", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Fix", created_by="ceo")
+        prod.close_issue(p["slug"], issue["id"])
+        prod.reopen_issue(p["slug"], issue["id"])
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        history = loaded.get("history", [])
+        # Should have at least 2 entries: close + reopen
+        assert len(history) >= 2
+
+    def test_kr_progress_records_history(self):
+        p = prod.create_product(name="KRHist", owner_id="00004")
+        kr = prod.add_key_result(p["slug"], title="DAU", target=1000)
+        prod.update_kr_progress(p["slug"], kr["id"], current=500)
+        loaded = prod.load_product(p["slug"])
+        updated_kr = [k for k in loaded["key_results"] if k["id"] == kr["id"]][0]
+        assert len(updated_kr.get("history", [])) >= 1
+
+    def test_issue_has_agile_fields(self):
+        p = prod.create_product(name="AgileTest", owner_id="00004")
+        issue = prod.create_issue(
+            slug=p["slug"], title="Story", created_by="ceo",
+            story_points=5, sprint="Sprint 1",
+        )
+        assert issue["story_points"] == 5
+        assert issue["sprint"] == "Sprint 1"
+
+
+# ---------------------------------------------------------------------------
+# Issue Status Derivation
+# ---------------------------------------------------------------------------
+
+
+class TestIssueStatusDerivation:
+    def test_no_linked_tasks_is_backlog(self):
+        p = prod.create_product(name="DeriveTest", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Test", created_by="ceo")
+        status = prod.derive_issue_status(p["slug"], issue["id"])
+        assert status == IssueStatus.BACKLOG
+
+    def test_missing_issue_is_backlog(self):
+        prod.create_product(name="DeriveTest2", owner_id="00004")
+        status = prod.derive_issue_status("derivetest2", "nonexistent")
+        assert status == IssueStatus.BACKLOG
+
+    def test_sync_issue_statuses_returns_changes(self):
+        p = prod.create_product(name="SyncTest", owner_id="00004")
+        issue = prod.create_issue(
+            slug=p["slug"], title="Sync", created_by="ceo", priority=IssuePriority.P1,
+        )
+        # Set status to in_progress manually but no linked tasks
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
+        changes = prod.sync_issue_statuses(p["slug"])
+        # Should change back to backlog since no linked tasks
+        assert len(changes) >= 1
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        assert loaded["status"] == IssueStatus.BACKLOG.value
+
+    def test_released_status_preserved(self):
+        p = prod.create_product(name="ReleasedTest", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Released", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.RELEASED.value)
+        status = prod.derive_issue_status(p["slug"], issue["id"])
+        assert status == IssueStatus.RELEASED
+
+    def test_sync_skips_released_issues(self):
+        p = prod.create_product(name="SkipReleasedTest", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Skip", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.RELEASED.value)
+        changes = prod.sync_issue_statuses(p["slug"])
+        assert len(changes) == 0
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        assert loaded["status"] == IssueStatus.RELEASED.value

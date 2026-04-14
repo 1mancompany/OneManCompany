@@ -139,7 +139,7 @@ async def update_product_issue(
     Args:
         product_slug: The product slug
         issue_id: The issue ID (e.g. "issue_abc12345")
-        status: New status (open, in_progress, closed)
+        status: New status (backlog, planned, in_progress, in_review, done, released)
         priority: New priority (P0, P1, P2, P3)
         assignee_id: Employee ID to assign
         labels: Comma-separated labels (replaces existing)
@@ -226,7 +226,8 @@ async def get_product_context_tool(product_slug: str) -> str:
 
     # Active issues
     issues = prod.list_issues(product_slug)
-    open_issues = [i for i in issues if i.get("status") != IssueStatus.CLOSED.value]
+    terminal = {IssueStatus.DONE.value, IssueStatus.RELEASED.value}
+    open_issues = [i for i in issues if i.get("status") not in terminal]
     if open_issues:
         lines.append(f"\n## Open Issues ({len(open_issues)})")
         for issue in open_issues:
@@ -248,7 +249,7 @@ async def list_product_issues_tool(
 
     Args:
         product_slug: The product slug
-        status: Filter by status (open, in_progress, closed)
+        status: Filter by status (backlog, planned, in_progress, in_review, done, released)
         priority: Filter by priority (P0, P1, P2, P3)
     """
     kwargs: dict = {}

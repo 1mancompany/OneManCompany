@@ -159,6 +159,7 @@ class EventType(str, Enum):
     PRODUCT_CREATED = "product_created"
     ISSUE_CREATED = "issue_created"
     ISSUE_CLOSED = "issue_closed"
+    ISSUE_ASSIGNED = "issue_assigned"
     KR_UPDATED = "kr_updated"
     VERSION_RELEASED = "version_released"
 
@@ -179,10 +180,13 @@ class IssuePriority(str, Enum):
 
 
 class IssueStatus(str, Enum):
-    """Issue lifecycle status."""
-    OPEN = "open"
+    """Issue lifecycle status — derived from linked TaskNode states."""
+    BACKLOG = "backlog"
+    PLANNED = "planned"
     IN_PROGRESS = "in_progress"
-    CLOSED = "closed"
+    IN_REVIEW = "in_review"
+    DONE = "done"
+    RELEASED = "released"
 
 
 class IssueResolution(str, Enum):

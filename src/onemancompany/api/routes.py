@@ -7063,15 +7063,23 @@ async def api_add_key_result(slug: str, request: Request) -> dict:
 
 @router.put("/api/product/{slug}/kr/{kr_id}")
 async def api_update_kr(slug: str, kr_id: str, request: Request) -> dict:
-    """Update KR progress."""
+    """Update KR fields (current, title, target, unit)."""
     from onemancompany.core import product as prod
 
     body = await request.json()
-    current = body.get("current")
-    if current is None:
-        raise HTTPException(status_code=400, detail="Missing required field: current")
     try:
-        result = prod.update_kr_progress(slug, kr_id, current=float(current))
+        if "current" in body and len(body) == 1:
+            # Fast path: just updating progress
+            result = prod.update_kr_progress(slug, kr_id, current=float(body["current"]))
+        else:
+            # General field update
+            KR_MUTABLE_FIELDS = {"title", "target", "current", "unit"}
+            filtered = {k: v for k, v in body.items() if k in KR_MUTABLE_FIELDS}
+            if "target" in filtered:
+                filtered["target"] = float(filtered["target"])
+            if "current" in filtered:
+                filtered["current"] = float(filtered["current"])
+            result = prod.update_kr_fields(slug, kr_id, **filtered)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     await event_bus.publish(
@@ -7094,6 +7102,7 @@ async def api_create_issue(slug: str, request: Request) -> dict:
         raise HTTPException(status_code=400, detail="Missing required field: title")
     from onemancompany.core.models import IssuePriority as _IP
 
+    sp_raw = body.get("story_points")
     result = prod.create_issue(
         slug=slug,
         title=title,
@@ -7103,6 +7112,8 @@ async def api_create_issue(slug: str, request: Request) -> dict:
         labels=body.get("labels"),
         assignee_id=body.get("assignee_id"),
         milestone_version=body.get("milestone_version"),
+        story_points=int(sp_raw) if sp_raw is not None else None,
+        sprint=body.get("sprint"),
     )
     await event_bus.publish(
         CompanyEvent(
@@ -7143,7 +7154,7 @@ async def api_update_issue(slug: str, issue_id: str, request: Request) -> dict:
 
     from onemancompany.core.models import IssuePriority as _IP2, IssueStatus as _IS
 
-    ISSUE_MUTABLE_FIELDS = {"status", "priority", "assignee_id", "labels", "milestone_version", "description"}
+    ISSUE_MUTABLE_FIELDS = {"title", "status", "priority", "assignee_id", "labels", "milestone_version", "description", "story_points", "sprint"}
     body = await request.json()
     filtered = {k: v for k, v in body.items() if k in ISSUE_MUTABLE_FIELDS}
     if "status" in filtered:
@@ -7153,6 +7164,21 @@ async def api_update_issue(slug: str, issue_id: str, request: Request) -> dict:
     result = prod.update_issue(slug, issue_id, **filtered)
     if not result:
         raise HTTPException(status_code=404, detail=f"Issue '{issue_id}' not found")
+
+    # Publish ISSUE_ASSIGNED event when assignee changes
+    if "assignee_id" in filtered and filtered["assignee_id"]:
+        await event_bus.publish(
+            CompanyEvent(
+                type=EventType.ISSUE_ASSIGNED,
+                payload={
+                    "product_slug": slug,
+                    "issue_id": issue_id,
+                    "assignee_id": filtered["assignee_id"],
+                },
+                agent=SYSTEM_AGENT,
+            )
+        )
+
     return result
 
 
@@ -7217,3 +7243,31 @@ async def api_list_versions(slug: str) -> list[dict]:
     from onemancompany.core import product as prod
 
     return prod.list_versions(slug)
+
+
+@router.get("/api/product/{slug}/detail")
+async def api_product_detail(slug: str) -> dict:
+    """Full product detail for the detail page."""
+    from onemancompany.core import product as prod
+    from onemancompany.core.project_archive import list_projects
+
+    product = prod.load_product(slug)
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product '{slug}' not found")
+
+    # Issues (all, not just open)
+    issues = prod.list_issues(slug)
+
+    # Versions
+    versions = prod.list_versions(slug)
+
+    # Linked projects
+    all_projects = list_projects()
+    linked_projects = [p for p in all_projects if p.get("product_id") == product.get("id")]
+
+    return {
+        "product": product,
+        "issues": issues,
+        "versions": versions,
+        "projects": linked_projects,
+    }

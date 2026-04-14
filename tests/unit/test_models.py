@@ -170,9 +170,12 @@ class TestProductEnums:
 
     def test_issue_status_values(self):
         from onemancompany.core.models import IssueStatus
-        assert IssueStatus.OPEN.value == "open"
+        assert IssueStatus.BACKLOG.value == "backlog"
+        assert IssueStatus.PLANNED.value == "planned"
         assert IssueStatus.IN_PROGRESS.value == "in_progress"
-        assert IssueStatus.CLOSED.value == "closed"
+        assert IssueStatus.IN_REVIEW.value == "in_review"
+        assert IssueStatus.DONE.value == "done"
+        assert IssueStatus.RELEASED.value == "released"
 
     def test_issue_resolution_values(self):
         from onemancompany.core.models import IssueResolution
@@ -194,5 +197,5 @@ class TestProductEnums:
         # All should be str enums for YAML serialization
         assert isinstance(ProductStatus.ACTIVE, str)
         assert isinstance(IssuePriority.P0, str)
-        assert isinstance(IssueStatus.OPEN, str)
+        assert isinstance(IssueStatus.BACKLOG, str)
         assert isinstance(IssueResolution.FIXED, str)
