@@ -8186,6 +8186,13 @@ class AppController {
             <span class="product-group-name">${this._escHtml(prod.name)}${version}</span>
             ${planningIndicator}
           `;
+          if (prod.status === 'active' && prod.owner_id) {
+            const ownerEl = document.createElement('span');
+            ownerEl.className = 'product-owner-indicator';
+            ownerEl.textContent = `\u2192 ${prod.owner_id}`;
+            ownerEl.title = 'Product owner';
+            header.appendChild(ownerEl);
+          }
           const detailBtn = document.createElement('button');
           detailBtn.className = 'product-detail-btn';
           detailBtn.textContent = '\u22EF';

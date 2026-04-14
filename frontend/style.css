@@ -5877,6 +5877,12 @@ body.resize-dragging {
 .product-status-badge.status-planning { background: rgba(255,255,0,0.1); color: var(--pixel-yellow); }
 .product-status-badge.status-archived { background: rgba(128,128,128,0.15); color: var(--text-dim); }
 
+.product-owner-indicator {
+  color: var(--text-dim);
+  font-size: calc(5px + var(--font-boost));
+  margin-left: 4px;
+}
+
 .product-section-label {
   font-size: calc(6px + var(--font-boost));
   color: var(--pixel-cyan);

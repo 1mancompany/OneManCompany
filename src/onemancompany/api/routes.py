@@ -7038,6 +7038,16 @@ async def api_update_product(slug: str, request: Request) -> dict:
     result = prod.update_product(slug, **filtered)
     if not result:
         raise HTTPException(status_code=404, detail=f"Product '{slug}' not found")
+
+    # If status just changed to active, dispatch initial product review
+    if "status" in filtered:
+        new_status = filtered["status"]
+        if hasattr(new_status, "value"):
+            new_status = new_status.value
+        if new_status == "active":
+            from onemancompany.core.product_triggers import dispatch_product_review
+            await dispatch_product_review(slug)
+
     return result
 
 

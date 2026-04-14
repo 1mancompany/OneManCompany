@@ -136,6 +136,9 @@ async def handle_project_complete(event: CompanyEvent) -> None:
         )
     )
 
+    # After version release, schedule a product review so owner can plan next steps
+    await dispatch_product_review(slug)
+
 
 def sync_issue_statuses(product_slug: str) -> list[dict]:
     """Sync all issue statuses by deriving from linked TaskNode states.
@@ -205,9 +208,99 @@ async def check_kr_progress(product_slug: str) -> list[dict]:
     return created_issues
 
 
-@system_cron("product_health_check", interval="30m", description="Periodic product issue/KR health check")
+async def dispatch_product_review(product_slug: str) -> str | None:
+    """Dispatch a product review task to the product owner.
+
+    The owner reviews OKR progress, issue backlog, active projects,
+    and takes autonomous action to advance the product.
+
+    Returns the project_id if a task was dispatched, None otherwise.
+    """
+    product = prod.load_product(product_slug)
+    if not product:
+        logger.warning("[PRODUCT_TRIGGER] dispatch_product_review: product '{}' not found", product_slug)
+        return None
+
+    if product.get("status") != "active":
+        logger.debug("[PRODUCT_TRIGGER] Product '{}' not active, skip review", product_slug)
+        return None
+
+    owner_id = product.get("owner_id", "")
+    if not owner_id:
+        logger.warning("[PRODUCT_TRIGGER] Product '{}' has no owner", product_slug)
+        return None
+
+    # Check if owner already has too many active projects for this product (avoid stacking)
+    from onemancompany.core.project_archive import list_projects
+    existing = [p for p in list_projects()
+                if p.get("product_id") == product["id"]
+                and p.get("status") == "active"]
+    if len(existing) >= 3:
+        logger.debug("[PRODUCT_TRIGGER] Product '{}' already has {} active projects, skip review dispatch",
+                     product_slug, len(existing))
+        return None
+
+    # Build the review task description
+    context = prod.build_product_context(product_slug)
+
+    # Gather current project status
+    linked_projects = [p for p in list_projects() if p.get("product_id") == product["id"]]
+    active_projects = [p for p in linked_projects if p.get("status") == "active"]
+    completed_projects = [p for p in linked_projects if p.get("status") == "archived"]
+
+    # Gather issue stats
+    all_issues = prod.list_issues(product_slug)
+    backlog = [i for i in all_issues if i.get("status") == IssueStatus.BACKLOG.value]
+    in_progress = [i for i in all_issues if i.get("status") == IssueStatus.IN_PROGRESS.value]
+    done = [i for i in all_issues if i.get("status") == IssueStatus.DONE.value]
+
+    task_description = f"""## Product Review — {product['name']}
+
+You are the owner of this product. Review its current state and take action to advance it toward its objectives.
+
+{context}
+
+### Current Status
+- Active projects: {len(active_projects)}
+- Completed projects: {len(completed_projects)}
+- Issues: {len(backlog)} backlog, {len(in_progress)} in progress, {len(done)} done
+
+### Your Responsibilities
+1. **Review OKR progress** — Are KRs on track? If behind, what needs to change?
+2. **Review issue backlog** — Are priorities correct? Any missing issues? Any blocked?
+3. **Review active projects** — Are they progressing? Any need intervention?
+4. **Take action** — Create new issues, adjust priorities, update KR progress based on completed work
+5. **Plan next steps** — What should be worked on next? Create issues for upcoming work.
+
+### Available Tools
+- `create_product_issue` — Create new issues
+- `update_product_issue` — Update issue priority, status, assignee
+- `close_product_issue` — Close completed issues
+- `update_kr_progress_tool` — Update KR metrics
+- `get_product_context_tool` — Refresh product context
+- `list_product_issues_tool` — List/filter issues
+
+Act like a product manager. Be proactive. Don't just report — take action.
+"""
+
+    # Submit as a CEO task linked to this product
+    from onemancompany.core.project_archive import async_create_project_from_task
+    try:
+        project_id, _iter_id = await async_create_project_from_task(
+            task_description,
+            product_id=product["id"],
+        )
+        logger.info("[PRODUCT_TRIGGER] Dispatched product review for '{}' → project {}",
+                    product_slug, project_id)
+        return project_id
+    except Exception:
+        logger.exception("[PRODUCT_TRIGGER] Failed to dispatch product review for '{}'", product_slug)
+        return None
+
+
+@system_cron("product_health_check", interval="4h", description="Periodic product review + health check")
 async def product_health_check() -> list | None:
-    """Check all products for stale issues and lagging KRs."""
+    """Check all products for stale issues, lagging KRs, and dispatch owner reviews."""
     products = prod.list_products()
     events = []
     for p in products:
@@ -217,10 +310,12 @@ async def product_health_check() -> list | None:
         # Sync issue statuses from linked TaskNode states
         status_changes = sync_issue_statuses(slug)
         kr_issues = await check_kr_progress(slug)
-        if status_changes or kr_issues:
+        # Dispatch product review to owner (only for active products)
+        review_project = await dispatch_product_review(slug)
+        if status_changes or kr_issues or review_project:
             events.append(CompanyEvent(
                 type=EventType.ACTIVITY,
-                payload={"message": f"Product '{p['name']}': {len(status_changes)} status changes, {len(kr_issues)} KR alerts"},
+                payload={"message": f"Product '{p['name']}': {len(status_changes)} status changes, {len(kr_issues)} KR alerts" + (f", review dispatched" if review_project else "")},
             ))
     return events if events else None
 
