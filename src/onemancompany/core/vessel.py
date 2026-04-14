@@ -1722,8 +1722,8 @@ class EmployeeManager:
                     )
                     self._push_to_conversation(
                         node,
-                        "⚠️ Agent声称将执行后续工作但未实际创建任务，可能已stall。"
-                        "请检查并手动重新下达指令。",
+                        "⚠️ Agent claimed it would execute follow-up work but did not "
+                        "create any tasks. It may have stalled. Please review and re-dispatch.",
                     )
 
                 save_tree_async(entry.tree_path)
