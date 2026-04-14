@@ -17,6 +17,7 @@ from onemancompany.core.models import (
     IssueStatus,
 )
 from onemancompany.core import product as prod
+from onemancompany.core.system_cron import system_cron
 
 # Priorities that auto-trigger project creation
 _AUTO_PROJECT_PRIORITIES = {IssuePriority.P0.value, IssuePriority.P1.value}
@@ -224,6 +225,25 @@ async def check_kr_progress(product_slug: str) -> list[dict]:
         )
 
     return created_issues
+
+
+@system_cron("product_health_check", interval="30m", description="Periodic product issue/KR health check")
+async def product_health_check() -> list | None:
+    """Check all products for stale issues and lagging KRs."""
+    products = prod.list_products()
+    events = []
+    for p in products:
+        slug = p.get("slug", "")
+        if not slug:
+            continue
+        closed = await check_issue_status(slug)
+        kr_issues = await check_kr_progress(slug)
+        if closed or kr_issues:
+            events.append(CompanyEvent(
+                type=EventType.ACTIVITY,
+                payload={"message": f"Product '{p['name']}': {len(closed)} issues auto-closed, {len(kr_issues)} KR alerts created"},
+            ))
+    return events if events else None
 
 
 async def handle_issue_assigned(event: CompanyEvent) -> None:

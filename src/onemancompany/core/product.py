@@ -211,6 +211,9 @@ def update_kr_progress(slug: str, kr_id: str, *, current: float) -> dict:
             raise ValueError(f"Product '{slug}' not found")
         for kr in data.get("key_results", []):
             if kr["id"] == kr_id:
+                old_current = kr.get("current")
+                if old_current != current:
+                    _append_history(kr, "current", old_current, current)
                 kr["current"] = current
                 data["updated_at"] = datetime.now().isoformat()
                 _write_yaml(path, data)
@@ -234,6 +237,9 @@ def update_kr_fields(slug: str, kr_id: str, **fields) -> dict:
             if kr["id"] == kr_id:
                 for k, v in fields.items():
                     if v is not None:
+                        old_v = kr.get(k)
+                        if old_v != v:
+                            _append_history(kr, k, old_v, v)
                         kr[k] = v
                 data["updated_at"] = datetime.now().isoformat()
                 _write_yaml(path, data)
@@ -247,6 +253,19 @@ def update_kr_fields(slug: str, kr_id: str, **fields) -> dict:
 # Issue CRUD
 # ---------------------------------------------------------------------------
 
+def _append_history(data: dict, field: str, old_value, new_value, changed_by: str = "system") -> None:
+    """Append a history entry to a dict's history list. Cap at 100 entries."""
+    data.setdefault("history", []).append({
+        "timestamp": datetime.now().isoformat(),
+        "field": field,
+        "old_value": str(old_value) if old_value is not None else None,
+        "new_value": str(new_value) if new_value is not None else None,
+        "changed_by": changed_by,
+    })
+    if len(data["history"]) > 100:
+        data["history"] = data["history"][-100:]
+
+
 def create_issue(
     *,
     slug: str,
@@ -257,6 +276,8 @@ def create_issue(
     labels: list[str] | None = None,
     assignee_id: str | None = None,
     milestone_version: str | None = None,
+    story_points: int | None = None,
+    sprint: str | None = None,
 ) -> dict:
     """Create an issue for a product. Returns the issue dict."""
     issue_id = _gen_id("issue_")
@@ -281,6 +302,8 @@ def create_issue(
         "closed_at": None,
         "resolution": None,
         "reopened_count": 0,
+        "story_points": story_points,
+        "sprint": sprint,
     }
 
     issues_path = _issues_dir(slug)
@@ -341,6 +364,9 @@ def update_issue(slug: str, issue_id: str, **fields) -> dict | None:
             return None
         for key, value in fields.items():
             if value is not None:
+                old_value = data.get(key)
+                if old_value != value:
+                    _append_history(data, key, old_value, value, changed_by="system")
                 data[key] = value
         _write_yaml(path, data)
     mark_dirty(DirtyCategory.PRODUCTS)
@@ -360,6 +386,8 @@ def close_issue(
         if not data:
             logger.warning("close_issue: issue {} not found in {}", issue_id, slug)
             return None
+        old_status = data.get("status")
+        _append_history(data, "status", old_status, IssueStatus.CLOSED.value, changed_by="system")
         data["status"] = IssueStatus.CLOSED.value
         data["resolution"] = resolution.value
         data["closed_at"] = datetime.now().isoformat()
@@ -377,6 +405,8 @@ def reopen_issue(slug: str, issue_id: str) -> dict | None:
         if not data:
             logger.warning("reopen_issue: issue {} not found in {}", issue_id, slug)
             return None
+        old_status = data.get("status")
+        _append_history(data, "status", old_status, IssueStatus.OPEN.value, changed_by="system")
         data["status"] = IssueStatus.OPEN.value
         data["closed_at"] = None
         data["resolution"] = None

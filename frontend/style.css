@@ -6174,3 +6174,31 @@ body.resize-dragging {
 .kr-detail-unit:hover {
   color: var(--pixel-cyan);
 }
+
+.issue-card-history {
+  margin-top: 6px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  padding-top: 4px;
+}
+
+.issue-history-label {
+  color: var(--text-dim);
+  font-size: calc(5px + var(--font-boost));
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.issue-history-entry {
+  color: var(--text-dim);
+  font-size: calc(5px + var(--font-boost));
+  padding: 1px 0;
+}
+
+.issue-story-points {
+  font-size: calc(5px + var(--font-boost));
+  color: var(--pixel-cyan);
+  background: rgba(0,255,255,0.1);
+  padding: 0 4px;
+  border-radius: 2px;
+}

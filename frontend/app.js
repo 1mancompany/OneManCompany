@@ -7874,6 +7874,13 @@ class AppController {
     statusEl.textContent = issue.status;
     header.appendChild(statusEl);
 
+    if (issue.story_points) {
+      const spEl = document.createElement('span');
+      spEl.className = 'issue-story-points';
+      spEl.textContent = `${issue.story_points}pts`;
+      header.appendChild(spEl);
+    }
+
     // Action button (close/reopen)
     const actionBtn = document.createElement('button');
     actionBtn.className = 'issue-action-btn';
@@ -7917,6 +7924,7 @@ class AppController {
       ${labels ? `<div>Labels: ${labels}</div>` : ''}
       ${issue.created_by ? `<div>Created by: ${this._escHtml(issue.created_by)}</div>` : ''}
       ${issue.resolution ? `<div>Resolution: ${this._escHtml(issue.resolution)}</div>` : ''}
+      ${issue.sprint ? `<div>Sprint: ${this._escHtml(issue.sprint)}</div>` : ''}
     `;
     body.appendChild(metaEl);
 
@@ -7946,6 +7954,22 @@ class AppController {
     });
     assignRow.appendChild(assignSel);
     body.appendChild(assignRow);
+
+    const history = issue.history || [];
+    if (history.length > 0) {
+      const histEl = document.createElement('div');
+      histEl.className = 'issue-card-history';
+      histEl.innerHTML = '<div class="issue-history-label">History</div>';
+      const recent = history.slice(-5).reverse();
+      for (const h of recent) {
+        const hEntry = document.createElement('div');
+        hEntry.className = 'issue-history-entry';
+        const date = new Date(h.timestamp).toLocaleString();
+        hEntry.textContent = `${date}: ${h.field} ${h.old_value || '(none)'} \u2192 ${h.new_value} (${h.changed_by || 'system'})`;
+        histEl.appendChild(hEntry);
+      }
+      body.appendChild(histEl);
+    }
 
     card.appendChild(body);
 
@@ -8002,6 +8026,8 @@ class AppController {
           <option value="P0">P0</option><option value="P1">P1</option>
           <option value="P2" selected>P2</option><option value="P3">P3</option>
         </select>
+        <input type="number" class="form-input issue-new-sp" placeholder="Story pts" style="width:60px" />
+        <input type="text" class="form-input issue-new-sprint" placeholder="Sprint" style="width:80px" />
         <button class="btn-small issue-new-save">Create</button>
         <button class="kr-remove-btn issue-new-cancel">&times;</button>
       </div>
@@ -8012,10 +8038,12 @@ class AppController {
       if (!title) return;
       const desc = row.querySelector('.issue-new-desc').value.trim();
       const priority = row.querySelector('.issue-new-priority').value;
+      const sp = parseInt(row.querySelector('.issue-new-sp')?.value) || null;
+      const sprint = row.querySelector('.issue-new-sprint')?.value?.trim() || null;
       await fetch(`/api/product/${encodeURIComponent(slug)}/issue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, description: desc, priority, created_by: 'ceo' }),
+        body: JSON.stringify({ title, description: desc, priority, created_by: 'ceo', story_points: sp, sprint }),
       });
       this._openProductDetail(slug);
     });

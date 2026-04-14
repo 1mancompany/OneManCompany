@@ -7102,6 +7102,7 @@ async def api_create_issue(slug: str, request: Request) -> dict:
         raise HTTPException(status_code=400, detail="Missing required field: title")
     from onemancompany.core.models import IssuePriority as _IP
 
+    sp_raw = body.get("story_points")
     result = prod.create_issue(
         slug=slug,
         title=title,
@@ -7111,6 +7112,8 @@ async def api_create_issue(slug: str, request: Request) -> dict:
         labels=body.get("labels"),
         assignee_id=body.get("assignee_id"),
         milestone_version=body.get("milestone_version"),
+        story_points=int(sp_raw) if sp_raw is not None else None,
+        sprint=body.get("sprint"),
     )
     await event_bus.publish(
         CompanyEvent(
@@ -7151,7 +7154,7 @@ async def api_update_issue(slug: str, issue_id: str, request: Request) -> dict:
 
     from onemancompany.core.models import IssuePriority as _IP2, IssueStatus as _IS
 
-    ISSUE_MUTABLE_FIELDS = {"title", "status", "priority", "assignee_id", "labels", "milestone_version", "description"}
+    ISSUE_MUTABLE_FIELDS = {"title", "status", "priority", "assignee_id", "labels", "milestone_version", "description", "story_points", "sprint"}
     body = await request.json()
     filtered = {k: v for k, v in body.items() if k in ISSUE_MUTABLE_FIELDS}
     if "status" in filtered:
