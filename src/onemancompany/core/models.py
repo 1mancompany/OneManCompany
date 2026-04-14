@@ -180,10 +180,13 @@ class IssuePriority(str, Enum):
 
 
 class IssueStatus(str, Enum):
-    """Issue lifecycle status."""
-    OPEN = "open"
+    """Issue lifecycle status — derived from linked TaskNode states."""
+    BACKLOG = "backlog"
+    PLANNED = "planned"
     IN_PROGRESS = "in_progress"
-    CLOSED = "closed"
+    IN_REVIEW = "in_review"
+    DONE = "done"
+    RELEASED = "released"
 
 
 class IssueResolution(str, Enum):

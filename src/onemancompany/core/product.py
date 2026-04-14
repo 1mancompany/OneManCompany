@@ -290,7 +290,7 @@ def create_issue(
         "product_id": product_id,
         "title": title,
         "description": description,
-        "status": IssueStatus.OPEN,
+        "status": IssueStatus.BACKLOG,
         "priority": priority,
         "labels": labels or [],
         "assignee_id": assignee_id,
@@ -387,8 +387,8 @@ def close_issue(
             logger.warning("close_issue: issue {} not found in {}", issue_id, slug)
             return None
         old_status = data.get("status")
-        _append_history(data, "status", old_status, IssueStatus.CLOSED.value, changed_by="system")
-        data["status"] = IssueStatus.CLOSED.value
+        _append_history(data, "status", old_status, IssueStatus.DONE.value, changed_by="system")
+        data["status"] = IssueStatus.DONE.value
         data["resolution"] = resolution.value
         data["closed_at"] = datetime.now().isoformat()
         _write_yaml(path, data)
@@ -406,8 +406,8 @@ def reopen_issue(slug: str, issue_id: str) -> dict | None:
             logger.warning("reopen_issue: issue {} not found in {}", issue_id, slug)
             return None
         old_status = data.get("status")
-        _append_history(data, "status", old_status, IssueStatus.OPEN.value, changed_by="system")
-        data["status"] = IssueStatus.OPEN.value
+        _append_history(data, "status", old_status, IssueStatus.BACKLOG.value, changed_by="system")
+        data["status"] = IssueStatus.BACKLOG.value
         data["closed_at"] = None
         data["resolution"] = None
         data["reopened_count"] = data.get("reopened_count", 0) + 1
@@ -489,6 +489,12 @@ def release_version(
         product["current_version"] = new_version
         _write_yaml(_product_yaml_path(product_slug), product)
 
+    # Mark resolved issues as released
+    for issue_id in resolved_issue_ids:
+        issue = load_issue(product_slug, issue_id)
+        if issue and issue.get("status") != IssueStatus.RELEASED.value:
+            update_issue(product_slug, issue_id, status=IssueStatus.RELEASED.value)
+
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.info("[VERSION] Released {} for product '{}'", new_version, product_slug)
     return version_record
@@ -518,7 +524,7 @@ def build_product_context(product_slug: str) -> str:
             unit = kr.get("unit", "")
             suffix = f" {unit}" if unit else ""
             parts.append(f"  - {kr['title']}: {current}/{target}{suffix} ({pct:.0f}%)")
-    issues = list_issues(product_slug, status=IssueStatus.OPEN)
+    issues = list_issues(product_slug, status=IssueStatus.BACKLOG)
     issues.sort(key=lambda i: i.get("priority", "P3"))
     if issues:
         parts.append(f"\nActive Issues ({len(issues)}):")
@@ -536,3 +542,126 @@ def find_slug_by_product_id(product_id: str) -> str | None:
         if p.get("id") == product_id:
             return p.get("slug")
     return None
+
+
+# ---------------------------------------------------------------------------
+# Issue Status Derivation
+# ---------------------------------------------------------------------------
+
+def derive_issue_status(slug: str, issue_id: str) -> IssueStatus:
+    """Derive issue status from linked TaskNode states.
+
+    Rules:
+    - No linked tasks → BACKLOG
+    - All tasks pending → PLANNED
+    - Any task processing/holding → IN_PROGRESS
+    - All tasks completed (not yet accepted) → IN_REVIEW
+    - All tasks accepted/finished → DONE
+    - Issue already released (in a version) → RELEASED
+    """
+    issue = load_issue(slug, issue_id)
+    if not issue:
+        return IssueStatus.BACKLOG
+
+    # Already released? Keep it.
+    if issue.get("status") == IssueStatus.RELEASED.value:
+        return IssueStatus.RELEASED
+
+    linked_ids = issue.get("linked_task_ids", [])
+    if not linked_ids:
+        return IssueStatus.BACKLOG
+
+    # Load task node statuses from project archives
+    from onemancompany.core.task_lifecycle import TaskPhase
+
+    statuses = []
+    for task_ref in linked_ids:
+        status = _resolve_task_status(task_ref)
+        if status:
+            statuses.append(status)
+
+    if not statuses:
+        return IssueStatus.PLANNED
+
+    # Derive from statuses
+    status_set = set(statuses)
+
+    # Any processing/holding → in_progress
+    active = {TaskPhase.PROCESSING.value, TaskPhase.HOLDING.value}
+    if status_set & active:
+        return IssueStatus.IN_PROGRESS
+
+    # All finished/accepted → done
+    done = {TaskPhase.FINISHED.value, TaskPhase.ACCEPTED.value}
+    if status_set <= done:
+        return IssueStatus.DONE
+
+    # All completed (but not accepted yet) → in_review
+    completed_plus = {TaskPhase.COMPLETED.value} | done
+    if status_set <= completed_plus and TaskPhase.COMPLETED.value in status_set:
+        return IssueStatus.IN_REVIEW
+
+    # All pending → planned
+    pending = {TaskPhase.PENDING.value, TaskPhase.BLOCKED.value}
+    if status_set <= pending:
+        return IssueStatus.PLANNED
+
+    # Mix of pending and active → in_progress
+    return IssueStatus.IN_PROGRESS
+
+
+def _resolve_task_status(task_ref: str) -> str | None:
+    """Resolve a task reference to its status.
+
+    task_ref can be a project_id. Look up the project's task tree
+    and find the overall status.
+    """
+    from onemancompany.core.project_archive import load_project as _load_proj
+
+    proj = _load_proj(task_ref)
+    if not proj:
+        return None
+
+    status = proj.get("status", "")
+    # Map project status to TaskPhase equivalent
+    if status == "archived":
+        return "finished"
+    elif status == "active":
+        # Check if the project has an active iteration
+        iters = proj.get("iterations", [])
+        if not iters:
+            return "pending"
+        # Use the latest iteration's status
+        from onemancompany.core.project_archive import load_iteration
+
+        latest_iter_id = iters[-1] if isinstance(iters[-1], str) else iters[-1].get("id", "")
+        if latest_iter_id:
+            iter_doc = load_iteration(task_ref, latest_iter_id)
+            if iter_doc:
+                return iter_doc.get("status", "pending")
+        return "processing"
+    return None
+
+
+def sync_issue_statuses(slug: str) -> list[dict]:
+    """Sync all issue statuses by deriving from linked TaskNode states.
+
+    Returns list of issues whose status changed.
+    """
+    issues = list_issues(slug)
+    changed = []
+    for issue in issues:
+        # Skip released issues
+        if issue.get("status") == IssueStatus.RELEASED.value:
+            continue
+
+        derived = derive_issue_status(slug, issue["id"])
+        current = issue.get("status", IssueStatus.BACKLOG.value)
+
+        if derived.value != current:
+            _append_history(issue, "status", current, derived.value, changed_by="system:auto-derive")
+            update_issue(slug, issue["id"], status=derived.value)
+            changed.append({"issue_id": issue["id"], "old": current, "new": derived.value})
+            logger.debug("[PRODUCT] Issue {} status derived: {} → {}", issue["id"], current, derived.value)
+
+    return changed

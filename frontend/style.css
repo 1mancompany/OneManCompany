@@ -6057,9 +6057,12 @@ body.resize-dragging {
   border-radius: 2px;
 }
 
-.issue-card-status.status-open { color: var(--pixel-green); }
-.issue-card-status.status-in_progress { color: var(--pixel-yellow); }
-.issue-card-status.status-closed { color: var(--text-dim); }
+.issue-card-status.status-backlog { color: var(--text-dim); }
+.issue-card-status.status-planned { color: var(--pixel-yellow); }
+.issue-card-status.status-in_progress { color: var(--pixel-cyan); }
+.issue-card-status.status-in_review { color: #ff8800; }
+.issue-card-status.status-done { color: var(--pixel-green); }
+.issue-card-status.status-released { color: var(--text-dim); font-style: italic; }
 
 .issue-action-btn {
   background: transparent;

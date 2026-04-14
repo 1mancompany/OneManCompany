@@ -117,7 +117,7 @@ class TestIssueCRUD:
         )
         assert issue["id"].startswith("issue_")
         assert issue["title"] == "Button broken"
-        assert issue["status"] == IssueStatus.OPEN
+        assert issue["status"] == IssueStatus.BACKLOG
         assert issue["priority"] == IssuePriority.P1
         assert issue["reopened_count"] == 0
 
@@ -158,7 +158,7 @@ class TestIssueCRUD:
         p = prod.create_product(name="Issue Close", owner_id="00010")
         issue = prod.create_issue(slug=p["slug"], title="Close me", priority=IssuePriority.P1, created_by="x")
         closed = prod.close_issue(p["slug"], issue["id"], resolution=IssueResolution.FIXED)
-        assert closed["status"] == IssueStatus.CLOSED.value
+        assert closed["status"] == IssueStatus.DONE.value
         assert closed["resolution"] == IssueResolution.FIXED.value
         assert closed["closed_at"] is not None
 
@@ -167,7 +167,7 @@ class TestIssueCRUD:
         issue = prod.create_issue(slug=p["slug"], title="Reopen me", priority=IssuePriority.P1, created_by="x")
         prod.close_issue(p["slug"], issue["id"], resolution=IssueResolution.FIXED)
         reopened = prod.reopen_issue(p["slug"], issue["id"])
-        assert reopened["status"] == IssueStatus.OPEN.value
+        assert reopened["status"] == IssueStatus.BACKLOG.value
         assert reopened["closed_at"] is None
         assert reopened["resolution"] is None
         assert reopened["reopened_count"] == 1
@@ -311,3 +311,50 @@ class TestIssueHistory:
         )
         assert issue["story_points"] == 5
         assert issue["sprint"] == "Sprint 1"
+
+
+# ---------------------------------------------------------------------------
+# Issue Status Derivation
+# ---------------------------------------------------------------------------
+
+
+class TestIssueStatusDerivation:
+    def test_no_linked_tasks_is_backlog(self):
+        p = prod.create_product(name="DeriveTest", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Test", created_by="ceo")
+        status = prod.derive_issue_status(p["slug"], issue["id"])
+        assert status == IssueStatus.BACKLOG
+
+    def test_missing_issue_is_backlog(self):
+        prod.create_product(name="DeriveTest2", owner_id="00004")
+        status = prod.derive_issue_status("derivetest2", "nonexistent")
+        assert status == IssueStatus.BACKLOG
+
+    def test_sync_issue_statuses_returns_changes(self):
+        p = prod.create_product(name="SyncTest", owner_id="00004")
+        issue = prod.create_issue(
+            slug=p["slug"], title="Sync", created_by="ceo", priority=IssuePriority.P1,
+        )
+        # Set status to in_progress manually but no linked tasks
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
+        changes = prod.sync_issue_statuses(p["slug"])
+        # Should change back to backlog since no linked tasks
+        assert len(changes) >= 1
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        assert loaded["status"] == IssueStatus.BACKLOG.value
+
+    def test_released_status_preserved(self):
+        p = prod.create_product(name="ReleasedTest", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Released", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.RELEASED.value)
+        status = prod.derive_issue_status(p["slug"], issue["id"])
+        assert status == IssueStatus.RELEASED
+
+    def test_sync_skips_released_issues(self):
+        p = prod.create_product(name="SkipReleasedTest", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Skip", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.RELEASED.value)
+        changes = prod.sync_issue_statuses(p["slug"])
+        assert len(changes) == 0
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        assert loaded["status"] == IssueStatus.RELEASED.value

@@ -131,45 +131,15 @@ async def handle_project_complete(event: CompanyEvent) -> None:
     )
 
 
-async def check_issue_status(product_slug: str) -> list[dict]:
-    """Periodic self-check: sync issue status with linked project/task status.
+def sync_issue_statuses(product_slug: str) -> list[dict]:
+    """Sync all issue statuses by deriving from linked TaskNode states.
 
-    For each in_progress issue with linked tasks, check if the linked
-    project has completed. If so, auto-close the issue.
+    Delegates to prod.sync_issue_statuses() which derives status from
+    linked project/task states.
 
-    Returns list of auto-closed issue dicts.
+    Returns list of dicts with issue_id, old, and new status.
     """
-    from onemancompany.core.project_archive import load_project as _load_project
-
-    issues = prod.list_issues(product_slug, status=IssueStatus.OPEN)
-    issues += prod.list_issues(product_slug, status=IssueStatus(IssueStatus.IN_PROGRESS))
-
-    closed: list[dict] = []
-    for issue in issues:
-        linked_ids = issue.get("linked_task_ids", [])
-        if not linked_ids:
-            continue
-
-        # Check if ALL linked projects are completed/archived
-        all_done = True
-        for pid in linked_ids:
-            proj = _load_project(pid)
-            if not proj:
-                continue
-            status = proj.get("status", "")
-            if status not in ("archived", "completed"):
-                all_done = False
-                break
-
-        if all_done and linked_ids:
-            prod.close_issue(product_slug, issue["id"], resolution=IssueResolution.FIXED)
-            closed.append(issue)
-            logger.info(
-                "[PRODUCT_TRIGGER] Auto-closed issue {} — all linked projects completed",
-                issue["id"],
-            )
-
-    return closed
+    return prod.sync_issue_statuses(product_slug)
 
 
 async def check_kr_progress(product_slug: str) -> list[dict]:
@@ -183,7 +153,9 @@ async def check_kr_progress(product_slug: str) -> list[dict]:
         return []
 
     created_issues: list[dict] = []
-    existing_issues = prod.list_issues(product_slug, status=IssueStatus.OPEN)
+    # Check all non-terminal issues for dedup (KR tracking issues could be in any active status)
+    all_issues = prod.list_issues(product_slug)
+    existing_issues = [i for i in all_issues if i.get("status") not in (IssueStatus.DONE.value, IssueStatus.RELEASED.value)]
 
     for kr in product.get("key_results", []):
         target = kr.get("target", 0)
@@ -236,12 +208,13 @@ async def product_health_check() -> list | None:
         slug = p.get("slug", "")
         if not slug:
             continue
-        closed = await check_issue_status(slug)
+        # Sync issue statuses from linked TaskNode states
+        status_changes = sync_issue_statuses(slug)
         kr_issues = await check_kr_progress(slug)
-        if closed or kr_issues:
+        if status_changes or kr_issues:
             events.append(CompanyEvent(
                 type=EventType.ACTIVITY,
-                payload={"message": f"Product '{p['name']}': {len(closed)} issues auto-closed, {len(kr_issues)} KR alerts created"},
+                payload={"message": f"Product '{p['name']}': {len(status_changes)} status changes, {len(kr_issues)} KR alerts"},
             ))
     return events if events else None
 
@@ -258,7 +231,7 @@ async def handle_issue_assigned(event: CompanyEvent) -> None:
         return
 
     # Only act on open/in_progress issues
-    if issue.get("status") == IssueStatus.CLOSED.value:
+    if issue.get("status") == IssueStatus.DONE.value:
         logger.debug("[PRODUCT_TRIGGER] Skipping assignment for closed issue {}", issue_id)
         return
 

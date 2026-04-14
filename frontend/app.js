@@ -7795,7 +7795,7 @@ class AppController {
     const statusSel = document.createElement('select');
     statusSel.className = 'form-input';
     statusSel.style.width = 'auto';
-    statusSel.innerHTML = '<option value="">All</option><option value="open">Open</option><option value="in_progress">In Progress</option><option value="closed">Closed</option>';
+    statusSel.innerHTML = '<option value="">All</option><option value="backlog">Backlog</option><option value="planned">Planned</option><option value="in_progress">In Progress</option><option value="in_review">In Review</option><option value="done">Done</option><option value="released">Released</option>';
     statusSel.addEventListener('change', () => renderFiltered());
     toolbar.appendChild(statusSel);
 
@@ -7822,8 +7822,10 @@ class AppController {
       if (sf) filtered = filtered.filter(i => i.status === sf);
       if (pf) filtered = filtered.filter(i => i.priority === pf);
       filtered.sort((a, b) => {
-        if (a.status === 'closed' && b.status !== 'closed') return 1;
-        if (a.status !== 'closed' && b.status === 'closed') return -1;
+        const aDone = a.status === 'done' || a.status === 'released';
+        const bDone = b.status === 'done' || b.status === 'released';
+        if (aDone && !bDone) return 1;
+        if (!aDone && bDone) return -1;
         return (a.priority || 'P3').localeCompare(b.priority || 'P3');
       });
       issueList.innerHTML = '';
@@ -7841,7 +7843,7 @@ class AppController {
   _renderIssueCard(issue, slug, fullData) {
     const card = document.createElement('div');
     const priClass = (issue.priority || 'P2').toLowerCase();
-    const isClosed = issue.status === 'closed';
+    const isClosed = issue.status === 'done' || issue.status === 'released';
     card.className = `product-issue-card priority-${priClass}${isClosed ? ' issue-closed' : ''}`;
 
     // Header row

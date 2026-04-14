@@ -81,7 +81,7 @@ class TestProjectCompleteTrigger:
         loaded = prod.load_product(p["slug"])
         assert loaded["current_version"] == "0.1.1"
         issue = prod.load_issue(p["slug"], i1["id"])
-        assert issue["status"] == IssueStatus.CLOSED.value
+        assert issue["status"] == IssueStatus.RELEASED.value
 
 
 class TestKRTrigger:
