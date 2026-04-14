@@ -1129,9 +1129,11 @@ class EmployeeManager:
                 self._deferred_schedule.discard(employee_id)
             logger.debug("[SCHEDULE] employee={} no pending tasks → IDLE", employee_id)
             self._set_employee_status(employee_id, STATUS_IDLE)
+            self._publish_dispatch_status(employee_id, status="idle")
             return
         try:
             logger.debug("[SCHEDULE] employee={} starting node={}", employee_id, entry.node_id)
+            self._publish_dispatch_status(employee_id, status="dispatched", entry=entry)
             loop = asyncio.get_running_loop()
             self._running_tasks[employee_id] = loop.create_task(
                 self._run_task(employee_id, entry)
@@ -1443,8 +1445,8 @@ class EmployeeManager:
 
                 # Product context — inject if project is linked to a product
                 if project_id:
-                    from onemancompany.core.project_archive import load_project as _load_proj
-                    _proj_doc = _load_proj(project_id)
+                    from onemancompany.core.project_archive import load_named_project as _load_named_proj
+                    _proj_doc = _load_named_proj(project_id)
                     _product_id = _proj_doc.get("product_id", "") if _proj_doc else ""
                     if _product_id:
                         from onemancompany.core.product import build_product_context, find_slug_by_product_id
@@ -3116,10 +3118,36 @@ class EmployeeManager:
         summary = (node.result or node.description or "Task completed")[:MAX_SUMMARY_LEN]
         if agent_error:
             summary = f"(with errors) {summary}"
+
+        # Resolve product_slug + resolved_issue_ids for product trigger pipeline
+        _product_slug = ""
+        _resolved_issue_ids: list[str] = []
+        if project_id:
+            from onemancompany.core.project_archive import load_project as _lp
+            _proj = _lp(project_id)
+            _pid = _proj.get("product_id", "") if _proj else ""
+            if _pid:
+                from onemancompany.core.product import find_slug_by_product_id
+                _product_slug = find_slug_by_product_id(_pid) or ""
+            if _product_slug:
+                from onemancompany.core import product as _prod
+                _all_issues = _prod.list_issues(_product_slug)
+                _resolved_issue_ids = [
+                    i["id"] for i in _all_issues
+                    if project_id in i.get("linked_task_ids", [])
+                ]
+
         await event_bus.publish(
             CompanyEvent(
                 type=EventType.AGENT_DONE,
-                payload={"role": role, "summary": summary, "employee_id": employee_id, "project_id": project_id},
+                payload={
+                    "role": role,
+                    "summary": summary,
+                    "employee_id": employee_id,
+                    "project_id": project_id,
+                    "product_slug": _product_slug,
+                    "resolved_issue_ids": _resolved_issue_ids,
+                },
                 agent=role,
             )
         )
@@ -3340,6 +3368,26 @@ class EmployeeManager:
             spawn_background(_store.save_employee_runtime(employee_id, status=status))
         except RuntimeError:
             logger.warning("No event loop for runtime persist of {}", employee_id)
+
+    def _publish_dispatch_status(
+        self, employee_id: str, *, status: str, entry: ScheduleEntry | None = None
+    ) -> None:
+        """Fire-and-forget publish of DISPATCH_STATUS_CHANGE event."""
+        payload: dict = {"employee_id": employee_id, "status": status}
+        if entry is not None:
+            payload["node_id"] = entry.node_id
+            # Resolve project_id from the task tree
+            from onemancompany.core.task_tree import get_tree
+            tree = get_tree(entry.tree_path)
+            node = tree.get_node(entry.node_id) if tree else None
+            payload["project_id"] = (node.project_id if node else "") or ""
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(event_bus.publish(
+                CompanyEvent(type=EventType.DISPATCH_STATUS_CHANGE, payload=payload)
+            ))
+        except RuntimeError:
+            logger.debug("No event loop for dispatch_status_change of {}", employee_id)
 
     def _log_node(self, employee_id: str, node_id: str, log_type: str, content: str | dict) -> None:
         """Log an event for a node.

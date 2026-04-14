@@ -16,7 +16,7 @@ class TestIssueCreatedTrigger:
     async def test_p0_triggers_project(self, tmp_path):
         from onemancompany.core.product_triggers import handle_issue_created
 
-        p = prod.create_product(name="TriggerTest", owner_id="00004", description="obj")
+        p = prod.create_product(name="TriggerTest", owner_id="00004", description="obj", status=prod.ProductStatus.ACTIVE)
         issue = prod.create_issue(
             slug=p["slug"], title="Critical", description="desc",
             priority=IssuePriority.P0, created_by="ceo",

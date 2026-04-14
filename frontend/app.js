@@ -6904,6 +6904,37 @@ class AppController {
     await this._refreshOneononeList();
   }
 
+  async _openProductPlanningConversation(slug, convId) {
+    // Reuse the 1-on-1 terminal pattern for product planning conversations
+    this._currentCeoProject = null;
+    this._currentConvId = convId;
+    this._currentConvType = 'product';
+    this._currentConvEmployeeId = null;
+
+    // Clear active states
+    document.querySelectorAll('.ceo-proj-item').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.ceo-oneonone-item').forEach(el => el.classList.remove('active'));
+
+    // Load existing messages
+    let messages = [];
+    try {
+      const resp = await fetch(`/api/conversation/${encodeURIComponent(convId)}/messages`);
+      const data = await resp.json();
+      messages = data.messages || [];
+    } catch (e) {
+      console.error('[_openProductPlanningConversation]', e);
+    }
+
+    // Convert to terminal format
+    const history = messages.map(m => ({
+      role: m.sender === 'ceo' ? 'ceo' : 'system',
+      text: m.text || '',
+      source: m.sender === 'ceo' ? undefined : 'EA',
+    }));
+
+    this._ceoTerm?.showChat(`plan:${slug}`, history);
+  }
+
   async _sendConversationMessage(convId, text, attachments) {
     if (!this._chatPanel) return;
     this._chatPanel.showTyping(true);
@@ -7490,6 +7521,41 @@ class AppController {
     });
     meta.appendChild(statusSel);
     header.appendChild(meta);
+
+    // Planning/Activate/Archive buttons based on status
+    if (product.status === 'planning') {
+      const planBtn = document.createElement('button');
+      planBtn.className = 'btn-primary';
+      planBtn.style.width = 'auto';
+      planBtn.style.marginLeft = '8px';
+      planBtn.textContent = 'Start Planning';
+      planBtn.addEventListener('click', async () => {
+        const res = await fetch(`/api/product/${encodeURIComponent(slug)}/planning`, { method: 'POST' });
+        const data = await res.json();
+        if (data.conversation_id) {
+          // Close product modal and open planning conversation
+          document.getElementById('product-modal')?.classList.add('hidden');
+          this._openProductPlanningConversation(slug, data.conversation_id);
+        }
+      });
+      header.appendChild(planBtn);
+
+      const activateBtn = document.createElement('button');
+      activateBtn.className = 'btn-small';
+      activateBtn.style.marginLeft = '4px';
+      activateBtn.textContent = 'Activate Product';
+      activateBtn.addEventListener('click', async () => {
+        await fetch(`/api/product/${encodeURIComponent(slug)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'active' }),
+        });
+        this._openProductDetail(slug);
+        this.updateProjectsPanel();
+      });
+      header.appendChild(activateBtn);
+    }
+
     container.appendChild(header);
 
     // Objective
@@ -8113,11 +8179,20 @@ class AppController {
           header.className = 'product-group-header';
           const version = prod.current_version ? ` (v${this._escHtml(prod.current_version)})` : '';
           const statusBadge = prod.status === 'active' ? '\u25CF' : prod.status === 'planning' ? '\u25CB' : '\u25C6';
+          const planningIndicator = prod.status === 'planning' ? '<span class="product-planning-indicator">PLANNING</span>' : '';
           header.innerHTML = `
             <span class="product-expand-arrow">${state.main ? '\u25BE' : '\u25B8'}</span>
             <span class="product-status-dot status-${this._escHtml(prod.status || 'active')}">${statusBadge}</span>
             <span class="product-group-name">${this._escHtml(prod.name)}${version}</span>
+            ${planningIndicator}
           `;
+          if (prod.status === 'active' && prod.owner_id) {
+            const ownerEl = document.createElement('span');
+            ownerEl.className = 'product-owner-indicator';
+            ownerEl.textContent = `\u2192 ${prod.owner_id}`;
+            ownerEl.title = 'Product owner';
+            header.appendChild(ownerEl);
+          }
           const detailBtn = document.createElement('button');
           detailBtn.className = 'product-detail-btn';
           detailBtn.textContent = '\u22EF';

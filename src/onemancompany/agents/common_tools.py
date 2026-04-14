@@ -795,6 +795,11 @@ async def pull_meeting(
             break
 
     if not room:
+        await _publish("meeting_denied", {
+            "initiator_id": initiator_id,
+            "topic": topic,
+            "reason": "No meeting rooms available",
+        })
         return {
             "status": "denied",
             "message": "No meeting rooms available. Please try again later or work on other tasks.",
