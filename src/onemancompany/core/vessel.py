@@ -1129,9 +1129,11 @@ class EmployeeManager:
                 self._deferred_schedule.discard(employee_id)
             logger.debug("[SCHEDULE] employee={} no pending tasks → IDLE", employee_id)
             self._set_employee_status(employee_id, STATUS_IDLE)
+            self._publish_dispatch_status(employee_id, status="idle")
             return
         try:
             logger.debug("[SCHEDULE] employee={} starting node={}", employee_id, entry.node_id)
+            self._publish_dispatch_status(employee_id, status="dispatched", entry=entry)
             loop = asyncio.get_running_loop()
             self._running_tasks[employee_id] = loop.create_task(
                 self._run_task(employee_id, entry)
@@ -3366,6 +3368,26 @@ class EmployeeManager:
             spawn_background(_store.save_employee_runtime(employee_id, status=status))
         except RuntimeError:
             logger.warning("No event loop for runtime persist of {}", employee_id)
+
+    def _publish_dispatch_status(
+        self, employee_id: str, *, status: str, entry: ScheduleEntry | None = None
+    ) -> None:
+        """Fire-and-forget publish of DISPATCH_STATUS_CHANGE event."""
+        payload: dict = {"employee_id": employee_id, "status": status}
+        if entry is not None:
+            payload["node_id"] = entry.node_id
+            # Resolve project_id from the task tree
+            from onemancompany.core.task_tree import get_tree
+            tree = get_tree(entry.tree_path)
+            node = tree.get_node(entry.node_id) if tree else None
+            payload["project_id"] = (node.project_id if node else "") or ""
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(event_bus.publish(
+                CompanyEvent(type=EventType.DISPATCH_STATUS_CHANGE, payload=payload)
+            ))
+        except RuntimeError:
+            logger.debug("No event loop for dispatch_status_change of {}", employee_id)
 
     def _log_node(self, employee_id: str, node_id: str, log_type: str, content: str | dict) -> None:
         """Log an event for a node.
