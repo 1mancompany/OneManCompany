@@ -7271,3 +7271,34 @@ async def api_product_detail(slug: str) -> dict:
         "versions": versions,
         "projects": linked_projects,
     }
+
+
+@router.post("/api/product/{slug}/planning")
+async def api_start_product_planning(slug: str) -> dict:
+    """Start or resume a planning conversation for a product."""
+    from onemancompany.core import product as prod
+    from onemancompany.core.conversation import get_conversation_service
+    from onemancompany.core.models import ConversationType
+    from onemancompany.core.config import EA_ID
+
+    product = prod.load_product(slug)
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product '{slug}' not found")
+
+    conversation_service = get_conversation_service()
+
+    # Check for existing active planning conversation
+    active_convs = conversation_service.list_active(type=ConversationType.PRODUCT)
+    for conv in active_convs:
+        if conv.metadata.get("product_slug") == slug:
+            return {"conversation_id": conv.id, "existing": True}
+
+    # Create new planning conversation with EA as the counterpart
+    conv = await conversation_service.create(
+        type=ConversationType.PRODUCT,
+        employee_id=EA_ID,
+        tools_enabled=True,
+        product_slug=slug,
+        product_id=product["id"],
+    )
+    return {"conversation_id": conv.id, "existing": False}

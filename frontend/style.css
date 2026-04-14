@@ -6205,3 +6205,15 @@ body.resize-dragging {
   padding: 0 4px;
   border-radius: 2px;
 }
+
+.product-planning-indicator {
+  color: var(--pixel-yellow);
+  font-size: calc(5px + var(--font-boost));
+  margin-left: 6px;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

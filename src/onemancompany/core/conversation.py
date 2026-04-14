@@ -21,7 +21,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from onemancompany.core.config import CONVERSATIONS_DIR_NAME, PROJECTS_DIR, EMPLOYEES_DIR, open_utf
+from onemancompany.core.config import CONVERSATIONS_DIR_NAME, PROJECTS_DIR, PRODUCTS_DIR, EMPLOYEES_DIR, open_utf
 from onemancompany.core.events import event_bus, CompanyEvent
 from onemancompany.core.models import ConversationType, ConversationPhase, EventType
 
@@ -118,6 +118,11 @@ def resolve_conv_dir(conv: Conversation) -> Path:
     if conv.type == ConversationType.CEO_INBOX:
         project_dir = conv.metadata.get("project_dir", "")
         return Path(project_dir) / CONVERSATIONS_DIR_NAME / conv.id
+    elif conv.type == ConversationType.PRODUCT.value or conv.type == ConversationType.PRODUCT:
+        product_slug = conv.metadata.get("product_slug", "")
+        if product_slug:
+            return PRODUCTS_DIR / product_slug / CONVERSATIONS_DIR_NAME / conv.id
+        return EMPLOYEES_DIR / conv.employee_id / CONVERSATIONS_DIR_NAME / conv.id
     else:  # oneonone
         return EMPLOYEES_DIR / conv.employee_id / CONVERSATIONS_DIR_NAME / conv.id
 
@@ -582,6 +587,14 @@ class ConversationService:
         if PROJECTS_DIR.exists():
             for proj_dir in PROJECTS_DIR.iterdir():
                 conv_base = proj_dir / CONVERSATIONS_DIR_NAME
+                if conv_base.exists():
+                    for conv_dir in conv_base.iterdir():
+                        meta = conv_dir / CONVERSATION_META_FILENAME
+                        if meta.exists():
+                            self._index[conv_dir.name] = conv_dir
+        if PRODUCTS_DIR.exists():
+            for prod_dir in PRODUCTS_DIR.iterdir():
+                conv_base = prod_dir / CONVERSATIONS_DIR_NAME
                 if conv_base.exists():
                     for conv_dir in conv_base.iterdir():
                         meta = conv_dir / CONVERSATION_META_FILENAME

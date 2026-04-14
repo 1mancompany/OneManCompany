@@ -38,6 +38,12 @@ async def handle_issue_created(event: CompanyEvent) -> None:
         logger.warning("[PRODUCT_TRIGGER] issue {} not found in {}", issue_id, slug)
         return
 
+    # Gate: skip auto-project during planning phase
+    product = prod.load_product(slug)
+    if product and product.get("status") == "planning":
+        logger.debug("[PRODUCT_TRIGGER] Product '{}' is in planning — skipping auto-project", slug)
+        return
+
     priority = issue.get("priority", "")
     # Normalise — could be an enum value or a raw string
     if hasattr(priority, "value"):
@@ -228,6 +234,12 @@ async def handle_issue_assigned(event: CompanyEvent) -> None:
     issue = prod.load_issue(slug, issue_id)
     if not issue:
         logger.warning("[PRODUCT_TRIGGER] handle_issue_assigned: issue {} not found", issue_id)
+        return
+
+    # Gate: skip auto-project during planning phase
+    product = prod.load_product(slug)
+    if product and product.get("status") == "planning":
+        logger.debug("[PRODUCT_TRIGGER] Product '{}' is in planning — skipping auto-project on assign", slug)
         return
 
     # Only act on open/in_progress issues
