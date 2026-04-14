@@ -1443,8 +1443,8 @@ class EmployeeManager:
 
                 # Product context — inject if project is linked to a product
                 if project_id:
-                    from onemancompany.core.project_archive import load_project as _load_proj
-                    _proj_doc = _load_proj(project_id)
+                    from onemancompany.core.project_archive import load_named_project as _load_named_proj
+                    _proj_doc = _load_named_proj(project_id)
                     _product_id = _proj_doc.get("product_id", "") if _proj_doc else ""
                     if _product_id:
                         from onemancompany.core.product import build_product_context, find_slug_by_product_id
@@ -3116,10 +3116,36 @@ class EmployeeManager:
         summary = (node.result or node.description or "Task completed")[:MAX_SUMMARY_LEN]
         if agent_error:
             summary = f"(with errors) {summary}"
+
+        # Resolve product_slug + resolved_issue_ids for product trigger pipeline
+        _product_slug = ""
+        _resolved_issue_ids: list[str] = []
+        if project_id:
+            from onemancompany.core.project_archive import load_project as _lp
+            _proj = _lp(project_id)
+            _pid = _proj.get("product_id", "") if _proj else ""
+            if _pid:
+                from onemancompany.core.product import find_slug_by_product_id
+                _product_slug = find_slug_by_product_id(_pid) or ""
+            if _product_slug:
+                from onemancompany.core import product as _prod
+                _all_issues = _prod.list_issues(_product_slug)
+                _resolved_issue_ids = [
+                    i["id"] for i in _all_issues
+                    if project_id in i.get("linked_task_ids", [])
+                ]
+
         await event_bus.publish(
             CompanyEvent(
                 type=EventType.AGENT_DONE,
-                payload={"role": role, "summary": summary, "employee_id": employee_id, "project_id": project_id},
+                payload={
+                    "role": role,
+                    "summary": summary,
+                    "employee_id": employee_id,
+                    "project_id": project_id,
+                    "product_slug": _product_slug,
+                    "resolved_issue_ids": _resolved_issue_ids,
+                },
                 agent=role,
             )
         )

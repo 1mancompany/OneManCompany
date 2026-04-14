@@ -232,7 +232,8 @@ async def dispatch_product_review(product_slug: str) -> str | None:
 
     # Check if owner already has too many active projects for this product (avoid stacking)
     from onemancompany.core.project_archive import list_projects
-    existing = [p for p in list_projects()
+    all_projects = list_projects()
+    existing = [p for p in all_projects
                 if p.get("product_id") == product["id"]
                 and p.get("status") == "active"]
     if len(existing) >= 3:
@@ -243,8 +244,8 @@ async def dispatch_product_review(product_slug: str) -> str | None:
     # Build the review task description
     context = prod.build_product_context(product_slug)
 
-    # Gather current project status
-    linked_projects = [p for p in list_projects() if p.get("product_id") == product["id"]]
+    # Gather current project status (reuse cached list)
+    linked_projects = [p for p in all_projects if p.get("product_id") == product["id"]]
     active_projects = [p for p in linked_projects if p.get("status") == "active"]
     completed_projects = [p for p in linked_projects if p.get("status") == "archived"]
 
@@ -293,11 +294,12 @@ You are the owner of this product. Review its current state and take action to a
 - **Be concise** — Brief summary of what you checked and what action you took (or why no action needed).
 """
 
-    # Submit as a CEO task linked to this product
+    # Dispatch directly to product owner (not CEO/EA pipeline)
     from onemancompany.core.project_archive import async_create_project_from_task
     try:
         project_id, _iter_id = await async_create_project_from_task(
             task_description,
+            routed_to=owner_id,
             product_id=product["id"],
         )
         logger.info("[PRODUCT_TRIGGER] Dispatched product review for '{}' → project {}",
