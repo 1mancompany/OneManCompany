@@ -130,6 +130,47 @@ async def handle_project_complete(event: CompanyEvent) -> None:
     )
 
 
+async def check_issue_status(product_slug: str) -> list[dict]:
+    """Periodic self-check: sync issue status with linked project/task status.
+
+    For each in_progress issue with linked tasks, check if the linked
+    project has completed. If so, auto-close the issue.
+
+    Returns list of auto-closed issue dicts.
+    """
+    from onemancompany.core.project_archive import load_project as _load_project
+
+    issues = prod.list_issues(product_slug, status=IssueStatus.OPEN)
+    issues += prod.list_issues(product_slug, status=IssueStatus(IssueStatus.IN_PROGRESS))
+
+    closed: list[dict] = []
+    for issue in issues:
+        linked_ids = issue.get("linked_task_ids", [])
+        if not linked_ids:
+            continue
+
+        # Check if ALL linked projects are completed/archived
+        all_done = True
+        for pid in linked_ids:
+            proj = _load_project(pid)
+            if not proj:
+                continue
+            status = proj.get("status", "")
+            if status not in ("archived", "completed"):
+                all_done = False
+                break
+
+        if all_done and linked_ids:
+            prod.close_issue(product_slug, issue["id"], resolution=IssueResolution.FIXED)
+            closed.append(issue)
+            logger.info(
+                "[PRODUCT_TRIGGER] Auto-closed issue {} — all linked projects completed",
+                issue["id"],
+            )
+
+    return closed
+
+
 async def check_kr_progress(product_slug: str) -> list[dict]:
     """Check KR progress and create P2 issues for any lagging behind (<50%).
 
@@ -185,6 +226,39 @@ async def check_kr_progress(product_slug: str) -> list[dict]:
     return created_issues
 
 
+async def handle_issue_assigned(event: CompanyEvent) -> None:
+    """When an issue is (re)assigned, create a project so the assignee starts working."""
+    slug = event.payload.get("product_slug", "")
+    issue_id = event.payload.get("issue_id", "")
+    assignee_id = event.payload.get("assignee_id", "")
+
+    issue = prod.load_issue(slug, issue_id)
+    if not issue:
+        logger.warning("[PRODUCT_TRIGGER] handle_issue_assigned: issue {} not found", issue_id)
+        return
+
+    # Only act on open/in_progress issues
+    if issue.get("status") == IssueStatus.CLOSED.value:
+        logger.debug("[PRODUCT_TRIGGER] Skipping assignment for closed issue {}", issue_id)
+        return
+
+    # Check if a project already exists for this issue (avoid duplicates)
+    linked = issue.get("linked_task_ids", [])
+    if linked:
+        logger.debug("[PRODUCT_TRIGGER] Issue {} already has linked tasks {}, skip", issue_id, linked)
+        return
+
+    logger.info("[PRODUCT_TRIGGER] Issue {} assigned to {} — creating project", issue_id, assignee_id)
+    project_id = await _create_project_for_issue(slug, issue)
+
+    if project_id:
+        prod.update_issue(
+            slug, issue_id,
+            status=IssueStatus.IN_PROGRESS.value,
+            linked_task_ids=[project_id],
+        )
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -208,6 +282,8 @@ def register_product_triggers() -> "asyncio.Task":
             try:
                 if event.type == EventType.ISSUE_CREATED:
                     await handle_issue_created(event)
+                elif event.type == EventType.ISSUE_ASSIGNED:
+                    await handle_issue_assigned(event)
                 elif event.type == EventType.AGENT_DONE:
                     # Only handle if it has product context
                     if event.payload.get("product_slug"):

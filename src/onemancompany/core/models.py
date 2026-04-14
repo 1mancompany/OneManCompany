@@ -159,6 +159,7 @@ class EventType(str, Enum):
     PRODUCT_CREATED = "product_created"
     ISSUE_CREATED = "issue_created"
     ISSUE_CLOSED = "issue_closed"
+    ISSUE_ASSIGNED = "issue_assigned"
     KR_UPDATED = "kr_updated"
     VERSION_RELEASED = "version_released"
 

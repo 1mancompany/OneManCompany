@@ -7151,7 +7151,7 @@ async def api_update_issue(slug: str, issue_id: str, request: Request) -> dict:
 
     from onemancompany.core.models import IssuePriority as _IP2, IssueStatus as _IS
 
-    ISSUE_MUTABLE_FIELDS = {"status", "priority", "assignee_id", "labels", "milestone_version", "description"}
+    ISSUE_MUTABLE_FIELDS = {"title", "status", "priority", "assignee_id", "labels", "milestone_version", "description"}
     body = await request.json()
     filtered = {k: v for k, v in body.items() if k in ISSUE_MUTABLE_FIELDS}
     if "status" in filtered:
@@ -7161,6 +7161,21 @@ async def api_update_issue(slug: str, issue_id: str, request: Request) -> dict:
     result = prod.update_issue(slug, issue_id, **filtered)
     if not result:
         raise HTTPException(status_code=404, detail=f"Issue '{issue_id}' not found")
+
+    # Publish ISSUE_ASSIGNED event when assignee changes
+    if "assignee_id" in filtered and filtered["assignee_id"]:
+        await event_bus.publish(
+            CompanyEvent(
+                type=EventType.ISSUE_ASSIGNED,
+                payload={
+                    "product_slug": slug,
+                    "issue_id": issue_id,
+                    "assignee_id": filtered["assignee_id"],
+                },
+                agent=SYSTEM_AGENT,
+            )
+        )
+
     return result
 
 
