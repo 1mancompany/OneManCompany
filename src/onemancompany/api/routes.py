@@ -7217,3 +7217,31 @@ async def api_list_versions(slug: str) -> list[dict]:
     from onemancompany.core import product as prod
 
     return prod.list_versions(slug)
+
+
+@router.get("/api/product/{slug}/detail")
+async def api_product_detail(slug: str) -> dict:
+    """Full product detail for the detail page."""
+    from onemancompany.core import product as prod
+    from onemancompany.core.project_archive import list_projects
+
+    product = prod.load_product(slug)
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product '{slug}' not found")
+
+    # Issues (all, not just open)
+    issues = prod.list_issues(slug)
+
+    # Versions
+    versions = prod.list_versions(slug)
+
+    # Linked projects
+    all_projects = list_projects()
+    linked_projects = [p for p in all_projects if p.get("product_id") == product.get("id")]
+
+    return {
+        "product": product,
+        "issues": issues,
+        "versions": versions,
+        "projects": linked_projects,
+    }

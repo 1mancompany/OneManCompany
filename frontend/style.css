@@ -5830,3 +5830,320 @@ body.resize-dragging {
 .form-actions {
   margin-top: 12px;
 }
+
+/* ===== Product Detail Modal ===== */
+.product-modal-content {
+  max-width: 800px;
+  width: 85vw;
+  max-height: 85vh;
+  border-color: var(--pixel-cyan);
+  box-shadow: 0 0 40px rgba(0, 255, 255, 0.1);
+}
+
+.product-tab-content {
+  padding: 8px 0;
+  overflow-y: auto;
+  max-height: 65vh;
+}
+
+/* Product Detail Header */
+.product-detail-header {
+  margin-bottom: 12px;
+}
+
+.product-detail-name {
+  font-size: calc(10px + var(--font-boost));
+  color: var(--pixel-white);
+  margin: 0 0 4px 0;
+  cursor: pointer;
+}
+
+.product-detail-name:hover {
+  color: var(--pixel-cyan);
+}
+
+.product-detail-meta {
+  font-size: calc(6px + var(--font-boost));
+  color: var(--text-dim);
+}
+
+.product-status-badge {
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-size: calc(5px + var(--font-boost));
+}
+
+.product-status-badge.status-active { background: rgba(0,255,136,0.15); color: var(--pixel-green); }
+.product-status-badge.status-planning { background: rgba(255,255,0,0.1); color: var(--pixel-yellow); }
+.product-status-badge.status-archived { background: rgba(128,128,128,0.15); color: var(--text-dim); }
+
+.product-section-label {
+  font-size: calc(6px + var(--font-boost));
+  color: var(--pixel-cyan);
+  margin: 12px 0 4px 0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.product-detail-objective {
+  color: var(--pixel-white);
+  font-size: calc(6.5px + var(--font-boost));
+  line-height: 1.6;
+  cursor: pointer;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+}
+
+.product-detail-objective:hover {
+  border-color: var(--border);
+}
+
+.product-detail-owner {
+  color: var(--text-dim);
+  font-size: calc(6px + var(--font-boost));
+}
+
+/* KR Detail Rows */
+.product-kr-list {
+  margin-bottom: 8px;
+}
+
+.product-kr-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: calc(6px + var(--font-boost));
+  color: var(--pixel-white);
+}
+
+.kr-detail-title {
+  cursor: pointer;
+}
+
+.kr-detail-title:hover {
+  color: var(--pixel-cyan);
+}
+
+.kr-detail-current {
+  color: var(--pixel-green);
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.kr-detail-current:hover {
+  text-decoration: underline;
+}
+
+.kr-detail-track {
+  flex: 1;
+  max-width: 120px;
+}
+
+/* Inline Edit */
+.inline-edit-input {
+  background: var(--bg-dark);
+  color: var(--pixel-white);
+  border: 1px solid var(--pixel-cyan);
+  font-family: var(--font-pixel);
+  font-size: inherit;
+  padding: 2px 4px;
+  border-radius: 2px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.inline-edit-small {
+  width: auto;
+}
+
+/* Version History */
+.product-version-list {
+  margin-bottom: 8px;
+}
+
+.product-version-item {
+  padding: 4px 0;
+  font-size: calc(6px + var(--font-boost));
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.ver-tag {
+  color: var(--pixel-green);
+  font-weight: bold;
+}
+
+.ver-date {
+  color: var(--text-dim);
+  margin-left: 8px;
+}
+
+.ver-issues {
+  color: var(--text-dim);
+  margin-left: 8px;
+}
+
+.ver-changelog {
+  color: var(--text-dim);
+  font-size: calc(5.5px + var(--font-boost));
+  margin-top: 2px;
+  padding-left: 12px;
+  white-space: pre-line;
+}
+
+/* Issues Tab */
+.product-issues-toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.product-issues-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.product-issue-card {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--pixel-white);
+  padding: 0;
+  border-radius: 2px;
+}
+
+.product-issue-card.issue-closed {
+  opacity: 0.6;
+}
+
+.product-issue-card.priority-p0 { border-left-color: #ff4444; }
+.product-issue-card.priority-p1 { border-left-color: #ff8800; }
+.product-issue-card.priority-p2 { border-left-color: var(--pixel-yellow); }
+.product-issue-card.priority-p3 { border-left-color: var(--text-dim); }
+
+.issue-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: calc(6px + var(--font-boost));
+}
+
+.issue-card-header:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+.issue-card-priority {
+  font-weight: bold;
+  min-width: 28px;
+}
+
+.issue-card-title {
+  flex: 1;
+  color: var(--pixel-white);
+  cursor: pointer;
+}
+
+.issue-card-title:hover {
+  color: var(--pixel-cyan);
+}
+
+.issue-card-status {
+  font-size: calc(5px + var(--font-boost));
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.issue-card-status.status-open { color: var(--pixel-green); }
+.issue-card-status.status-in_progress { color: var(--pixel-yellow); }
+.issue-card-status.status-closed { color: var(--text-dim); }
+
+.issue-action-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--font-pixel);
+  font-size: calc(5px + var(--font-boost));
+  padding: 1px 6px;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.issue-action-btn:hover {
+  border-color: var(--pixel-cyan);
+  color: var(--pixel-cyan);
+}
+
+.issue-card-body {
+  padding: 6px 8px 8px 36px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.issue-card-body.hidden {
+  display: none;
+}
+
+.issue-card-desc {
+  color: var(--pixel-white);
+  font-size: calc(6px + var(--font-boost));
+  line-height: 1.6;
+  margin-bottom: 6px;
+  cursor: pointer;
+  padding: 2px;
+}
+
+.issue-card-desc:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+.issue-card-meta {
+  font-size: calc(5px + var(--font-boost));
+  color: var(--text-dim);
+}
+
+.issue-label {
+  display: inline-block;
+  background: rgba(0,255,255,0.1);
+  color: var(--pixel-cyan);
+  padding: 0 4px;
+  border-radius: 2px;
+  margin-right: 3px;
+  font-size: calc(5px + var(--font-boost));
+}
+
+/* New Issue Inline Form */
+.issue-inline-add {
+  padding: 8px;
+  background: rgba(0,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  margin-bottom: 6px;
+}
+
+.issue-inline-add .form-input {
+  margin-bottom: 4px;
+}
+
+.issue-new-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* Product Detail Button in panel */
+.product-detail-btn {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: calc(8px + var(--font-boost));
+  padding: 0 4px;
+}
+
+.product-detail-btn:hover {
+  color: var(--pixel-cyan);
+}
