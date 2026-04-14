@@ -298,7 +298,7 @@ Act like a product manager. Be proactive. Don't just report — take action.
         return None
 
 
-@system_cron("product_health_check", interval="4h", description="Periodic product review + health check")
+@system_cron("product_health_check", interval="10m", description="Periodic product review + health check")
 async def product_health_check() -> list | None:
     """Check all products for stale issues, lagging KRs, and dispatch owner reviews."""
     products = prod.list_products()
