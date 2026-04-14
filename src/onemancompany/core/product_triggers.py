@@ -265,22 +265,32 @@ You are the owner of this product. Review its current state and take action to a
 - Completed projects: {len(completed_projects)}
 - Issues: {len(backlog)} backlog, {len(in_progress)} in progress, {len(done)} done
 
-### Your Responsibilities
-1. **Review OKR progress** — Are KRs on track? If behind, what needs to change?
-2. **Review issue backlog** — Are priorities correct? Any missing issues? Any blocked?
-3. **Review active projects** — Are they progressing? Any need intervention?
-4. **Take action** — Create new issues, adjust priorities, update KR progress based on completed work
-5. **Plan next steps** — What should be worked on next? Create issues for upcoming work.
+### Review Checklist (follow in order)
 
-### Available Tools
-- `create_product_issue` — Create new issues
-- `update_product_issue` — Update issue priority, status, assignee
-- `close_product_issue` — Close completed issues
-- `update_kr_progress_tool` — Update KR metrics
-- `get_product_context_tool` — Refresh product context
-- `list_product_issues_tool` — List/filter issues
+**Step 1: Check existing Issues**
+- Are there open issues? Who is assigned? Are they being worked on (linked projects active)?
+- If an issue has no assignee or no active project → assign someone and dispatch work.
 
-Act like a product manager. Be proactive. Don't just report — take action.
+**Step 2: Check KR progress**
+- For each KR: is progress on track? Is anyone currently working toward this KR?
+- If a KR has no associated issues → create issues to advance it.
+- If a KR has issues but nobody is working on them → assign and dispatch.
+
+**Step 3: Fill gaps**
+- Are there KRs with no path to completion? Create the missing issues.
+- Are there stalled projects? Check what's blocking and take action.
+
+**Step 4: Dispatch work**
+- For unassigned high-priority issues, find the right employee (use `list_colleagues`) and assign them.
+- Use `create_product_issue` to create new issues when needed.
+- Use `update_product_issue` to assign and reprioritize.
+- Use `update_kr_progress_tool` to update KR metrics based on completed work.
+
+### Key Principles
+- **Skip if already handled** — If an issue already has an assignee AND an active project, do nothing for that issue. Avoid duplicate work.
+- **Only act on gaps** — Only create issues or dispatch work for things nobody is currently handling.
+- **Take action, don't just report** — If something needs doing and nobody is on it, assign it. You are the product owner — own it.
+- **Be concise** — Brief summary of what you checked and what action you took (or why no action needed).
 """
 
     # Submit as a CEO task linked to this product
