@@ -220,6 +220,29 @@ def update_kr_progress(slug: str, kr_id: str, *, current: float) -> dict:
     raise ValueError(f"KR '{kr_id}' not found in product '{slug}'")
 
 
+def update_kr_fields(slug: str, kr_id: str, **fields) -> dict:
+    """Update arbitrary fields on a key result. Returns updated KR dict.
+
+    Raises ValueError if product or KR not found.
+    """
+    with _get_slug_lock(slug):
+        path = _product_yaml_path(slug)
+        data = _read_yaml(path)
+        if not data:
+            raise ValueError(f"Product '{slug}' not found")
+        for kr in data.get("key_results", []):
+            if kr["id"] == kr_id:
+                for k, v in fields.items():
+                    if v is not None:
+                        kr[k] = v
+                data["updated_at"] = datetime.now().isoformat()
+                _write_yaml(path, data)
+                mark_dirty(DirtyCategory.PRODUCTS)
+                return kr
+
+    raise ValueError(f"KR '{kr_id}' not found in product '{slug}'")
+
+
 # ---------------------------------------------------------------------------
 # Issue CRUD
 # ---------------------------------------------------------------------------

@@ -7063,15 +7063,23 @@ async def api_add_key_result(slug: str, request: Request) -> dict:
 
 @router.put("/api/product/{slug}/kr/{kr_id}")
 async def api_update_kr(slug: str, kr_id: str, request: Request) -> dict:
-    """Update KR progress."""
+    """Update KR fields (current, title, target, unit)."""
     from onemancompany.core import product as prod
 
     body = await request.json()
-    current = body.get("current")
-    if current is None:
-        raise HTTPException(status_code=400, detail="Missing required field: current")
     try:
-        result = prod.update_kr_progress(slug, kr_id, current=float(current))
+        if "current" in body and len(body) == 1:
+            # Fast path: just updating progress
+            result = prod.update_kr_progress(slug, kr_id, current=float(body["current"]))
+        else:
+            # General field update
+            KR_MUTABLE_FIELDS = {"title", "target", "current", "unit"}
+            filtered = {k: v for k, v in body.items() if k in KR_MUTABLE_FIELDS}
+            if "target" in filtered:
+                filtered["target"] = float(filtered["target"])
+            if "current" in filtered:
+                filtered["current"] = float(filtered["current"])
+            result = prod.update_kr_fields(slug, kr_id, **filtered)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     await event_bus.publish(

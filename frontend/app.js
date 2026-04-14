@@ -7644,7 +7644,33 @@ class AppController {
   _makeKrFieldEditable(el, slug, krId, field) {
     el.style.cursor = 'pointer';
     el.title = 'Click to edit';
-    // TODO: implement KR field edit API
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (el.querySelector('input')) return;
+      const current = el.textContent;
+      const input = document.createElement('input');
+      input.className = 'inline-edit-input';
+      input.value = current;
+      el.textContent = '';
+      el.appendChild(input);
+      input.focus();
+      const save = () => {
+        const val = input.value.trim();
+        el.textContent = val || current;
+        if (val && val !== current) {
+          fetch(`/api/product/${encodeURIComponent(slug)}/kr/${encodeURIComponent(krId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ [field]: val }),
+          }).catch(err => { console.error('KR field save failed:', err); el.textContent = current; });
+        }
+      };
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        if (e.key === 'Escape') el.textContent = current;
+      });
+    });
   }
 
   _showAddKrInline(container, slug) {
