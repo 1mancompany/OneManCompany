@@ -6147,3 +6147,30 @@ body.resize-dragging {
 .product-detail-btn:hover {
   color: var(--pixel-cyan);
 }
+
+/* Inline select dropdowns in product detail */
+.issue-priority-select {
+  font-size: calc(6px + var(--font-boost));
+  padding: 1px 4px;
+  min-width: 40px;
+  font-weight: bold;
+}
+
+.kr-detail-target {
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.kr-detail-target:hover {
+  color: var(--pixel-cyan);
+  text-decoration: underline;
+}
+
+.kr-detail-unit {
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.kr-detail-unit:hover {
+  color: var(--pixel-cyan);
+}

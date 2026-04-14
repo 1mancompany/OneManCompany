@@ -7474,7 +7474,21 @@ class AppController {
 
     const meta = document.createElement('div');
     meta.className = 'product-detail-meta';
-    meta.innerHTML = `v${this._escHtml(product.current_version || '0.1.0')} \u00B7 <span class="product-status-badge status-${product.status || 'active'}">${product.status || 'active'}</span>`;
+    meta.innerHTML = `v${this._escHtml(product.current_version || '0.1.0')} \u00B7 `;
+    const statusSel = document.createElement('select');
+    statusSel.className = 'form-input';
+    statusSel.style.width = 'auto';
+    statusSel.style.marginLeft = '8px';
+    statusSel.innerHTML = '<option value="planning">planning</option><option value="active">active</option><option value="archived">archived</option>';
+    statusSel.value = product.status || 'active';
+    statusSel.addEventListener('change', () => {
+      fetch(`/api/product/${encodeURIComponent(slug)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: statusSel.value }),
+      }).then(() => this._openProductDetail(slug));
+    });
+    meta.appendChild(statusSel);
     header.appendChild(meta);
     container.appendChild(header);
 
@@ -7494,9 +7508,26 @@ class AppController {
     ownerLabel.className = 'product-section-label';
     ownerLabel.textContent = 'Owner';
     container.appendChild(ownerLabel);
-    const ownerEl = document.createElement('div');
-    ownerEl.className = 'product-detail-owner';
-    ownerEl.textContent = product.owner_id || '(unassigned)';
+    const ownerEl = document.createElement('select');
+    ownerEl.className = 'form-input';
+    ownerEl.style.width = 'auto';
+    ownerEl.innerHTML = '<option value="">Unassigned</option>';
+    fetch('/api/bootstrap').then(r => r.json()).then(d => {
+      for (const emp of (d.employees || [])) {
+        const opt = document.createElement('option');
+        opt.value = emp.id;
+        opt.textContent = `${emp.name || emp.id}`;
+        ownerEl.appendChild(opt);
+      }
+      ownerEl.value = product.owner_id || '';
+    });
+    ownerEl.addEventListener('change', () => {
+      fetch(`/api/product/${encodeURIComponent(slug)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner_id: ownerEl.value }),
+      });
+    });
     container.appendChild(ownerEl);
 
     // KR Section
@@ -7532,10 +7563,23 @@ class AppController {
       progTrack.className = 'kr-progress-track kr-detail-track';
       progTrack.innerHTML = `<div class="kr-progress-bar" style="width:${pct}%"></div>`;
 
+      const targetEl = document.createElement('span');
+      targetEl.className = 'kr-detail-target';
+      targetEl.textContent = String(target);
+      this._makeKrNumericEditable(targetEl, slug, kr.id, 'target');
+
+      const unitEl = document.createElement('span');
+      unitEl.className = 'kr-detail-unit';
+      unitEl.textContent = unit;
+      this._makeKrFieldEditable(unitEl, slug, kr.id, 'unit');
+
       krRow.appendChild(titleEl);
       krRow.appendChild(document.createTextNode(': '));
       krRow.appendChild(currentEl);
-      krRow.appendChild(document.createTextNode(`/${target}${unit} (${pct.toFixed(0)}%)`));
+      krRow.appendChild(document.createTextNode('/'));
+      krRow.appendChild(targetEl);
+      krRow.appendChild(unitEl);
+      krRow.appendChild(document.createTextNode(` (${pct.toFixed(0)}%)`));
       krRow.appendChild(progTrack);
       krList.appendChild(krRow);
     }
@@ -7638,6 +7682,40 @@ class AppController {
       };
       input.addEventListener('blur', save);
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') el.textContent = current; });
+    });
+  }
+
+  _makeKrNumericEditable(el, slug, krId, field) {
+    el.style.cursor = 'pointer';
+    el.title = 'Click to edit';
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (el.querySelector('input')) return;
+      const current = el.textContent;
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'inline-edit-input inline-edit-small';
+      input.value = current;
+      input.style.width = '60px';
+      el.textContent = '';
+      el.appendChild(input);
+      input.focus();
+      const save = () => {
+        const val = parseFloat(input.value);
+        el.textContent = isNaN(val) ? current : String(val);
+        if (!isNaN(val) && String(val) !== current) {
+          fetch(`/api/product/${encodeURIComponent(slug)}/kr/${encodeURIComponent(krId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ [field]: val }),
+          }).catch(err => { console.error('KR save failed:', err); el.textContent = current; });
+        }
+      };
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        if (e.key === 'Escape') el.textContent = current;
+      });
     });
   }
 
@@ -7770,9 +7848,19 @@ class AppController {
     const header = document.createElement('div');
     header.className = 'issue-card-header';
 
-    const priEl = document.createElement('span');
-    priEl.className = 'issue-card-priority';
-    priEl.textContent = `[${issue.priority || 'P2'}]`;
+    const priEl = document.createElement('select');
+    priEl.className = 'form-input issue-priority-select';
+    priEl.style.width = 'auto';
+    priEl.innerHTML = '<option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option>';
+    priEl.value = issue.priority || 'P2';
+    priEl.addEventListener('click', (e) => e.stopPropagation());
+    priEl.addEventListener('change', () => {
+      fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issue.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority: priEl.value }),
+      }).then(() => this._openProductDetail(slug));
+    });
     header.appendChild(priEl);
 
     const titleEl = document.createElement('span');
@@ -7827,11 +7915,37 @@ class AppController {
     const labels = (issue.labels || []).map(l => `<span class="issue-label">${this._escHtml(l)}</span>`).join('');
     metaEl.innerHTML = `
       ${labels ? `<div>Labels: ${labels}</div>` : ''}
-      ${issue.assignee_id ? `<div>Assignee: ${this._escHtml(issue.assignee_id)}</div>` : ''}
       ${issue.created_by ? `<div>Created by: ${this._escHtml(issue.created_by)}</div>` : ''}
       ${issue.resolution ? `<div>Resolution: ${this._escHtml(issue.resolution)}</div>` : ''}
     `;
     body.appendChild(metaEl);
+
+    const assignRow = document.createElement('div');
+    assignRow.textContent = 'Assignee: ';
+    const assignSel = document.createElement('select');
+    assignSel.className = 'form-input';
+    assignSel.style.width = 'auto';
+    assignSel.style.display = 'inline';
+    assignSel.innerHTML = '<option value="">Unassigned</option>';
+    fetch('/api/bootstrap').then(r => r.json()).then(d => {
+      for (const emp of (d.employees || [])) {
+        const opt = document.createElement('option');
+        opt.value = emp.id;
+        opt.textContent = emp.name || emp.id;
+        assignSel.appendChild(opt);
+      }
+      assignSel.value = issue.assignee_id || '';
+    });
+    assignSel.addEventListener('click', (e) => e.stopPropagation());
+    assignSel.addEventListener('change', () => {
+      fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issue.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignee_id: assignSel.value }),
+      });
+    });
+    assignRow.appendChild(assignSel);
+    body.appendChild(assignRow);
 
     card.appendChild(body);
 
