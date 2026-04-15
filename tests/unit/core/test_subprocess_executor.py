@@ -234,6 +234,54 @@ class TestSubprocessExecutor:
         await exe.cancel()  # should not raise
 
 
+class TestSubprocessExecutorEdgeCases:
+    @pytest.mark.asyncio
+    async def test_prompt_file_unlink_oserror_handled(self):
+        """Lines 61-62: OSError removing prompt file is logged, not raised."""
+        from onemancompany.core.subprocess_executor import SubprocessExecutor
+
+        exe = SubprocessExecutor(employee_id="00010", script_path="/tmp/test.sh")
+
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b'{"output":"ok"}', b"")
+        mock_proc.returncode = 0
+        mock_proc.pid = 12345
+
+        ctx = TaskContext(project_id="p1", work_dir="/tmp", employee_id="00010", task_id="t1")
+
+        with patch("onemancompany.core.subprocess_executor.asyncio.create_subprocess_exec", return_value=mock_proc), \
+             patch("os.unlink", side_effect=OSError("permission denied")):
+            result = await exe.execute("test prompt", ctx)
+
+        assert result.output == "ok"
+
+    @pytest.mark.asyncio
+    async def test_on_log_callbacks_invoked(self):
+        """Lines 94, 110, 116: on_log receives start, stderr, and error events."""
+        from onemancompany.core.subprocess_executor import SubprocessExecutor
+
+        exe = SubprocessExecutor(employee_id="00010", script_path="/tmp/test.sh")
+
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b"", b"some stderr output")
+        mock_proc.returncode = 1
+        mock_proc.pid = 12345
+
+        ctx = TaskContext(project_id="p1", work_dir="/tmp", employee_id="00010", task_id="t1")
+        log_calls = []
+
+        def on_log(level, msg):
+            log_calls.append((level, msg))
+
+        with patch("onemancompany.core.subprocess_executor.asyncio.create_subprocess_exec", return_value=mock_proc):
+            result = await exe.execute("test prompt", ctx, on_log=on_log)
+
+        levels = [c[0] for c in log_calls]
+        assert "start" in levels
+        assert "stderr" in levels
+        assert "error" in levels
+
+
 class TestSubprocessAdapterRegistration:
     def test_subprocess_adapter_registered(self):
         """SubprocessAdapter is registered and resolvable."""

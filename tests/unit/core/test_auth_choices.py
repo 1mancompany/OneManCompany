@@ -82,3 +82,34 @@ class TestValidateRegistryConsistency:
                     f"Choice {choice.value} provider '{choice.provider}' "
                     f"doesn't match group_id '{group.group_id}'"
                 )
+
+
+class TestValidateRegistryConsistencyFunction:
+    def test_validate_returns_no_warnings(self):
+        """Lines 87-95: validate_registry_consistency returns no warnings for valid setup."""
+        from onemancompany.core.auth_choices import validate_registry_consistency
+        warnings = validate_registry_consistency()
+        # 'custom' group_id is intentionally not in PROVIDER_REGISTRY
+        assert all("custom" in w for w in warnings) or len(warnings) == 0
+
+    def test_validate_detects_missing_group(self, monkeypatch):
+        """Lines 90-94: detects group_id not in PROVIDER_REGISTRY."""
+        from onemancompany.core import auth_choices as ac_mod
+        from onemancompany.core.auth_choices import (
+            AuthChoiceGroup, AuthChoiceOption, validate_registry_consistency,
+        )
+        fake_groups = [
+            AuthChoiceGroup(
+                group_id="nonexistent_provider",
+                label="Fake",
+                hint="",
+                choices=[AuthChoiceOption(
+                    value="fake-key", label="Fake Key", hint="",
+                    provider="nonexistent_provider", auth_method="api_key",
+                )],
+            ),
+        ]
+        monkeypatch.setattr(ac_mod, "AUTH_CHOICE_GROUPS", fake_groups)
+        warnings = validate_registry_consistency()
+        assert len(warnings) == 1
+        assert "nonexistent_provider" in warnings[0]

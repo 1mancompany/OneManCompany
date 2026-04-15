@@ -232,3 +232,64 @@ class TestOneononeReflectionParsing:
             result = await _close_oneonone(_make_oneonone_conv())
 
         assert result["principles_updated"] is False
+
+
+class TestConversationHooksEdgeCases:
+    def test_reset_hooks_clears_registry(self):
+        """Line 32: _reset_hooks clears all registered hooks."""
+        from onemancompany.core.conversation_hooks import _close_hooks, _reset_hooks, register_close_hook
+
+        @register_close_hook("test_temp_type")
+        async def _temp_hook(conv):
+            return {}
+
+        assert "test_temp_type" in _close_hooks
+        _reset_hooks()
+        assert "test_temp_type" not in _close_hooks
+
+    @pytest.mark.asyncio
+    async def test_reflection_exception_returns_empty(self, tmp_path):
+        """Lines 137-146: LLM exception returns empty reflection."""
+        mock_msg = MagicMock(role="ceo", text="Focus on testing")
+
+        with patch(_PATCHES["conv_dir"], return_value=tmp_path), \
+             patch(_PATCHES["load_msgs"], return_value=[mock_msg]), \
+             patch(_PATCHES["make_llm"], return_value=MagicMock()), \
+             patch(_PATCHES["llm_invoke"], new_callable=AsyncMock, side_effect=Exception("LLM failed")), \
+             patch(_PATCHES["store"]) as mock_store, \
+             patch(_PATCHES["event_bus"]) as mock_bus, \
+             patch(_PATCHES["load_emp"], return_value={"name": "Eve", "nickname": "E", "role": "Eng", "department": "Tech"}):
+
+            _setup_store_mock(mock_store)
+            mock_bus.publish = AsyncMock()
+
+            from onemancompany.core.conversation_hooks import _close_oneonone
+            result = await _close_oneonone(_make_oneonone_conv())
+
+        assert result["reflection"] == ""
+        assert result["principles_updated"] is False
+        assert result["note_saved"] is False
+
+    @pytest.mark.asyncio
+    async def test_updated_without_summary_marker(self, tmp_path):
+        """Line 157: UPDATED without SUMMARY takes everything after UPDATED:."""
+        llm_response = "UPDATED:\n- Always write tests first\n- Prioritize quality"
+        fake_result = FakeLLMResult(content=llm_response)
+        mock_msg = MagicMock(role="ceo", text="Focus on testing")
+
+        with patch(_PATCHES["conv_dir"], return_value=tmp_path), \
+             patch(_PATCHES["load_msgs"], return_value=[mock_msg]), \
+             patch(_PATCHES["make_llm"], return_value=MagicMock()), \
+             patch(_PATCHES["llm_invoke"], new_callable=AsyncMock, return_value=fake_result), \
+             patch(_PATCHES["store"]) as mock_store, \
+             patch(_PATCHES["event_bus"]) as mock_bus, \
+             patch(_PATCHES["load_emp"], return_value={"name": "Eve", "nickname": "E", "role": "Eng", "department": "Tech"}):
+
+            _setup_store_mock(mock_store)
+            mock_bus.publish = AsyncMock()
+
+            from onemancompany.core.conversation_hooks import _close_oneonone
+            result = await _close_oneonone(_make_oneonone_conv())
+
+        assert result["principles_updated"] is True
+        mock_store.save_work_principles.assert_called_once()

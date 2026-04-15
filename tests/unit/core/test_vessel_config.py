@@ -165,3 +165,21 @@ class TestLoadDefaultVesselConfig:
         assert cfg.limits.max_retries == 3
         assert cfg.capabilities.sandbox is False
         assert cfg.capabilities.file_upload is False
+
+    def test_default_config_missing_yaml(self, monkeypatch):
+        """Line 152: returns VesselConfig() when default yaml is missing."""
+        from onemancompany.core import vessel_config as vc_mod
+        monkeypatch.setattr(vc_mod, "_DEFAULT_VESSEL_YAML", Path("/nonexistent/vessel.yaml"))
+        cfg = _load_default_vessel_config()
+        assert isinstance(cfg, VesselConfig)
+
+
+class TestLoadVesselConfigEdgeCases:
+    def test_yaml_error_falls_back_to_default(self, tmp_path, monkeypatch):
+        """Lines 169-170: YAMLError in vessel.yaml falls back to default."""
+        from onemancompany.core.vessel_config import VESSEL_DIR_NAME, VESSEL_YAML_FILENAME
+        vessel_dir = tmp_path / VESSEL_DIR_NAME
+        vessel_dir.mkdir()
+        (vessel_dir / VESSEL_YAML_FILENAME).write_text(": invalid: yaml: [")
+        cfg = load_vessel_config(tmp_path)
+        assert isinstance(cfg, VesselConfig)

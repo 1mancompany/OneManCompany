@@ -265,6 +265,54 @@ class TestWriteSftRecord:
         record = json.loads((tmp_path / DEBUG_TRACE_FILENAME).read_text().strip())
         assert "tools" not in record
 
+    def test_dict_tool_passes_through(self, tmp_path):
+        """Line 182: pre-serialized dict tools pass through as-is."""
+        from langchain_core.messages import HumanMessage, AIMessage
+        dict_tool = {"type": "function", "function": {"name": "my_tool"}}
+        write_debug_trace(
+            str(tmp_path),
+            employee_id="00003",
+            source="langchain",
+            messages=[HumanMessage(content="hi"), AIMessage(content="ok")],
+            tools=[dict_tool],
+        )
+        record = json.loads((tmp_path / DEBUG_TRACE_FILENAME).read_text().strip())
+        assert record["tools"][0] == dict_tool
+
+    def test_tool_serialization_exception_skips(self, tmp_path):
+        """Lines 186-187: failed tool serialization is skipped gracefully."""
+        from langchain_core.messages import HumanMessage, AIMessage
+        bad_tool = MagicMock()
+        bad_tool.name = "broken"
+        # Make args_schema.model_json_schema raise
+        bad_tool.args_schema = MagicMock()
+        bad_tool.args_schema.model_json_schema.side_effect = Exception("schema broken")
+        # Also patch _serialize_tool_schema to raise
+        with patch("onemancompany.core.llm_trace._serialize_tool_schema", side_effect=Exception("broken")):
+            write_debug_trace(
+                str(tmp_path),
+                employee_id="00003",
+                source="langchain",
+                messages=[HumanMessage(content="hi"), AIMessage(content="ok")],
+                tools=[bad_tool],
+            )
+        record = json.loads((tmp_path / DEBUG_TRACE_FILENAME).read_text().strip())
+        # Tool serialization failed, so no tools key (empty list not written)
+        assert "tools" not in record
+
+    def test_write_oserror_handled(self, tmp_path):
+        """Line 207: OSError on write is handled gracefully."""
+        from langchain_core.messages import HumanMessage, AIMessage
+        # Use a non-writable directory
+        with patch("pathlib.Path.open", side_effect=OSError("permission denied")):
+            # Should not raise
+            write_debug_trace(
+                str(tmp_path),
+                employee_id="00003",
+                source="langchain",
+                messages=[HumanMessage(content="hi"), AIMessage(content="ok")],
+            )
+
 
 class TestDaemonSftAccumulation:
     """Test ClaudeDaemon._accumulate_debug_assistant."""

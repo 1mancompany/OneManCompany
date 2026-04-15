@@ -44,3 +44,23 @@ def test_keeps_recent_finished(tmp_path):
     tree.save(path)
     loaded = SystemTaskTree.load(path, "emp1")
     assert len(loaded.get_all_nodes()) == 1
+
+
+def test_get_node_returns_node():
+    """Line 38: get_node returns existing node by id."""
+    tree = SystemTaskTree("emp1")
+    node = tree.create_system_node("emp1", "task1")
+    found = tree.get_node(node.id)
+    assert found is node
+    assert tree.get_node("nonexistent") is None
+
+
+def test_get_pending_nodes():
+    """Line 44: get_pending_nodes filters to pending status only."""
+    tree = SystemTaskTree("emp1")
+    n1 = tree.create_system_node("emp1", "pending task")
+    n2 = tree.create_system_node("emp1", "done task")
+    n2.status = TaskPhase.FINISHED.value
+    pending = tree.get_pending_nodes()
+    assert len(pending) == 1
+    assert pending[0].id == n1.id

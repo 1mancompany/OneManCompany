@@ -164,3 +164,13 @@ class TestTaskNodeProductId:
         d = {"id": "abc123", "description": "old task"}
         node = TaskNode.from_dict(d)
         assert node.product_id == ""
+
+
+class TestSafeCancelTerminal:
+    def test_safe_cancel_finished_returns_false(self):
+        """Line 186: terminal states return False immediately."""
+        from unittest.mock import MagicMock
+        from onemancompany.core.task_lifecycle import safe_cancel, TaskPhase
+        node = MagicMock()
+        node.status = TaskPhase.FINISHED.value
+        assert safe_cancel(node) is False

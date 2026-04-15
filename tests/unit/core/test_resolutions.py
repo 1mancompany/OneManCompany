@@ -533,3 +533,36 @@ class TestListDeferredEditsEdgeCases:
         res._save_resolution(r)
         results = res.list_deferred_edits()
         assert results == []
+
+
+class TestResolutionsSnapshot:
+    def test_save_empty_returns_empty_dict(self):
+        """Lines 319-321: snapshot save returns {} when _task_edits is empty."""
+        from onemancompany.core.resolutions import _ResolutionsSnapshot, _task_edits
+        _task_edits.clear()
+        result = _ResolutionsSnapshot.save()
+        assert result == {}
+
+    def test_save_with_data_returns_task_edits(self):
+        """Line 321: snapshot save returns task_edits when non-empty."""
+        from onemancompany.core.resolutions import _ResolutionsSnapshot, _task_edits
+        _task_edits.clear()
+        _task_edits["t1"] = {"something": True}
+        result = _ResolutionsSnapshot.save()
+        assert result == {"task_edits": {"t1": {"something": True}}}
+        _task_edits.clear()
+
+    def test_restore_merges_task_edits(self):
+        """Lines 325-327: snapshot restore merges saved data."""
+        from onemancompany.core.resolutions import _ResolutionsSnapshot, _task_edits
+        _task_edits.clear()
+        _ResolutionsSnapshot.restore({"task_edits": {"t2": {"key": "val"}}})
+        assert _task_edits["t2"] == {"key": "val"}
+        _task_edits.clear()
+
+    def test_restore_empty_data(self):
+        """Lines 325-327: restore with empty data is a no-op."""
+        from onemancompany.core.resolutions import _ResolutionsSnapshot, _task_edits
+        _task_edits.clear()
+        _ResolutionsSnapshot.restore({})
+        assert len(_task_edits) == 0

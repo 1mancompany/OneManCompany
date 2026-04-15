@@ -258,3 +258,45 @@ class TestExecuteFire:
             result = await term_mod.execute_fire("00010")
 
         assert result["status"] == "fired"
+
+
+class TestFireEdgeCases:
+    @pytest.mark.asyncio
+    async def test_compute_layout_exception_ignored(self, monkeypatch):
+        """Lines 98-99: compute_layout failure doesn't block firing."""
+        from onemancompany.agents import termination as term_mod
+        from onemancompany.core import state as state_mod
+
+        cs = CompanyState()
+        emp = Employee(id="00010", name="Test", role="Eng", skills=["code"],
+                       employee_number="00010", nickname="T")
+        cs.employees["00010"] = emp
+        monkeypatch.setattr(term_mod, "company_state", cs)
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
+        monkeypatch.setattr(term_mod, "compute_layout", MagicMock(side_effect=Exception("layout broke")))
+        monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
+
+        result = await term_mod.execute_fire("00010")
+        assert result["status"] == "fired"
+
+    @pytest.mark.asyncio
+    async def test_post_fire_event_exception_ignored(self, monkeypatch):
+        """Lines 125-126: event publishing failure doesn't block firing."""
+        from onemancompany.agents import termination as term_mod
+        from onemancompany.core import state as state_mod
+
+        cs = CompanyState()
+        emp = Employee(id="00010", name="Test", role="Eng", skills=["code"],
+                       employee_number="00010", nickname="T")
+        cs.employees["00010"] = emp
+        monkeypatch.setattr(term_mod, "company_state", cs)
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
+        monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
+        mock_bus = MagicMock()
+        mock_bus.publish = AsyncMock(side_effect=Exception("event bus broke"))
+        monkeypatch.setattr(term_mod, "event_bus", mock_bus)
+
+        result = await term_mod.execute_fire("00010")
+        assert result["status"] == "fired"

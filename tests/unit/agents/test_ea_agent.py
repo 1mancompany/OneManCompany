@@ -139,6 +139,23 @@ class TestEAAgentBuildPrompt:
         assert "Move fast" not in prompt
 
 
+class TestEARoleIdentity:
+    def test_get_role_identity_section_no_guide(self, monkeypatch):
+        """Line 37: returns empty string when role_guide.md doesn't exist."""
+        from onemancompany.agents import ea_agent as ea_mod
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
+
+        monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
+        monkeypatch.setattr(ea_mod, "create_react_agent", lambda model, tools: MagicMock())
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", Path("/nonexistent"))
+
+        from onemancompany.agents.ea_agent import EAAgent
+        agent = EAAgent()
+        result = agent._get_role_identity_section()
+        assert result == ""
+
+
 class TestEAPromptContents:
     def test_ea_role_guide_references_sop(self):
         """EA role_guide.md references SOP for progressive disclosure."""

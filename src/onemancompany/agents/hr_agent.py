@@ -424,8 +424,6 @@ class HRAgent(BaseAgentRunner):
             if all(q.get("score") == SCORE_EXCELLENT for q in last_n):
                 old_level = level
                 new_level = min(level + 1, MAX_NORMAL_LEVEL)
-                if new_level == old_level:
-                    continue  # no actual promotion
                 new_title = make_title(new_level, edata.get(PF_ROLE, ""))
                 # Persist new level/title via store
                 await _store.save_employee(eid, {"level": new_level, "title": new_title})
