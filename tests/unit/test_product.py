@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from onemancompany.core import product as prod
@@ -11,6 +13,7 @@ from onemancompany.core.models import (
     IssueResolution,
     ProductStatus,
 )
+from onemancompany.core.task_lifecycle import TaskPhase
 
 
 @pytest.fixture(autouse=True)
@@ -358,3 +361,336 @@ class TestIssueStatusDerivation:
         assert len(changes) == 0
         loaded = prod.load_issue(p["slug"], issue["id"])
         assert loaded["status"] == IssueStatus.RELEASED.value
+
+    def test_derive_all_tasks_processing_is_in_progress(self):
+        """Linked tasks with processing status → IN_PROGRESS."""
+        p = prod.create_product(name="DeriveProc", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Proc", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], linked_task_ids=["proj_aaa"])
+        with patch.object(prod, "_resolve_task_status", return_value=TaskPhase.PROCESSING.value):
+            status = prod.derive_issue_status(p["slug"], issue["id"])
+        assert status == IssueStatus.IN_PROGRESS
+
+    def test_derive_all_tasks_holding_is_in_progress(self):
+        """Linked tasks with holding status → IN_PROGRESS."""
+        p = prod.create_product(name="DeriveHold", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Hold", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], linked_task_ids=["proj_bbb"])
+        with patch.object(prod, "_resolve_task_status", return_value=TaskPhase.HOLDING.value):
+            status = prod.derive_issue_status(p["slug"], issue["id"])
+        assert status == IssueStatus.IN_PROGRESS
+
+    def test_derive_all_finished_is_done(self):
+        """All tasks finished → DONE."""
+        p = prod.create_product(name="DeriveDone", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Done", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], linked_task_ids=["proj_c1", "proj_c2"])
+        with patch.object(prod, "_resolve_task_status", return_value=TaskPhase.FINISHED.value):
+            status = prod.derive_issue_status(p["slug"], issue["id"])
+        assert status == IssueStatus.DONE
+
+    def test_derive_all_accepted_is_done(self):
+        """All tasks accepted → DONE."""
+        p = prod.create_product(name="DeriveAccepted", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Acc", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], linked_task_ids=["proj_d1"])
+        with patch.object(prod, "_resolve_task_status", return_value=TaskPhase.ACCEPTED.value):
+            status = prod.derive_issue_status(p["slug"], issue["id"])
+        assert status == IssueStatus.DONE
+
+    def test_derive_completed_is_in_review(self):
+        """Some completed (not yet accepted) → IN_REVIEW."""
+        p = prod.create_product(name="DeriveReview", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Rev", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], linked_task_ids=["proj_e1", "proj_e2"])
+        returns = iter([TaskPhase.COMPLETED.value, TaskPhase.FINISHED.value])
+        with patch.object(prod, "_resolve_task_status", side_effect=returns):
+            status = prod.derive_issue_status(p["slug"], issue["id"])
+        assert status == IssueStatus.IN_REVIEW
+
+    def test_derive_all_pending_is_planned(self):
+        """All tasks pending → PLANNED."""
+        p = prod.create_product(name="DerivePlan", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Plan", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], linked_task_ids=["proj_f1"])
+        with patch.object(prod, "_resolve_task_status", return_value=TaskPhase.PENDING.value):
+            status = prod.derive_issue_status(p["slug"], issue["id"])
+        assert status == IssueStatus.PLANNED
+
+    def test_derive_all_blocked_is_planned(self):
+        """All tasks blocked → PLANNED."""
+        p = prod.create_product(name="DeriveBlocked", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Blocked", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], linked_task_ids=["proj_g1"])
+        with patch.object(prod, "_resolve_task_status", return_value=TaskPhase.BLOCKED.value):
+            status = prod.derive_issue_status(p["slug"], issue["id"])
+        assert status == IssueStatus.PLANNED
+
+    def test_derive_mix_pending_and_active_is_in_progress(self):
+        """Mix of pending and processing → IN_PROGRESS (fallthrough)."""
+        p = prod.create_product(name="DeriveMix", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="Mix", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], linked_task_ids=["proj_h1", "proj_h2"])
+        returns = iter([TaskPhase.PENDING.value, TaskPhase.COMPLETED.value])
+        with patch.object(prod, "_resolve_task_status", side_effect=returns):
+            status = prod.derive_issue_status(p["slug"], issue["id"])
+        # pending + completed doesn't match any exact bucket → fallthrough IN_PROGRESS
+        assert status == IssueStatus.IN_PROGRESS
+
+    def test_derive_no_resolvable_tasks_is_planned(self):
+        """Linked task IDs that all resolve to None → PLANNED."""
+        p = prod.create_product(name="DeriveNoResolve", owner_id="00004")
+        issue = prod.create_issue(slug=p["slug"], title="NoRes", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], linked_task_ids=["proj_z1"])
+        with patch.object(prod, "_resolve_task_status", return_value=None):
+            status = prod.derive_issue_status(p["slug"], issue["id"])
+        assert status == IssueStatus.PLANNED
+
+
+# ---------------------------------------------------------------------------
+# _resolve_task_status
+# ---------------------------------------------------------------------------
+
+
+class TestResolveTaskStatus:
+    def test_missing_project_returns_none(self):
+        with patch("onemancompany.core.project_archive.load_project", return_value=None) as mock_load:
+            result = prod._resolve_task_status("proj_missing")
+        mock_load.assert_called_once_with("proj_missing")
+        assert result is None
+
+    def test_archived_project_returns_finished(self):
+        with patch("onemancompany.core.project_archive.load_project", return_value={"status": "archived"}):
+            result = prod._resolve_task_status("proj_arch")
+        assert result == "finished"
+
+    def test_active_project_no_iterations_returns_pending(self):
+        with patch("onemancompany.core.project_archive.load_project", return_value={"status": "active", "iterations": []}):
+            result = prod._resolve_task_status("proj_noiter")
+        assert result == "pending"
+
+    def test_active_project_with_iteration_uses_iter_status(self):
+        proj = {"status": "active", "iterations": ["iter_001"]}
+        iter_doc = {"status": "processing"}
+        with patch("onemancompany.core.project_archive.load_project", return_value=proj), \
+             patch("onemancompany.core.project_archive.load_iteration", return_value=iter_doc):
+            result = prod._resolve_task_status("proj_active")
+        assert result == "processing"
+
+    def test_active_project_iteration_not_found_returns_processing(self):
+        proj = {"status": "active", "iterations": ["iter_gone"]}
+        with patch("onemancompany.core.project_archive.load_project", return_value=proj), \
+             patch("onemancompany.core.project_archive.load_iteration", return_value=None):
+            result = prod._resolve_task_status("proj_noit")
+        assert result == "processing"
+
+    def test_active_project_iteration_dict_format(self):
+        """Iteration list entries can be dicts with 'id' key."""
+        proj = {"status": "active", "iterations": [{"id": "iter_d01"}]}
+        iter_doc = {"status": "completed"}
+        with patch("onemancompany.core.project_archive.load_project", return_value=proj), \
+             patch("onemancompany.core.project_archive.load_iteration", return_value=iter_doc):
+            result = prod._resolve_task_status("proj_dictiter")
+        assert result == "completed"
+
+    def test_unknown_status_returns_none(self):
+        """Project with unknown status (not archived, not active) → None."""
+        with patch("onemancompany.core.project_archive.load_project", return_value={"status": "draft"}):
+            result = prod._resolve_task_status("proj_draft")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Additional edge-case tests for full coverage
+# ---------------------------------------------------------------------------
+
+
+class TestSlugifyEdgeCases:
+    def test_long_name_truncated(self):
+        """Line 59: slug longer than max_len gets truncated."""
+        long_name = "a" * 100
+        slug = prod._slugify(long_name, max_len=10)
+        assert len(slug) <= 10
+
+    def test_long_name_trailing_dash_stripped(self):
+        """Line 59: trailing dash after truncation is stripped."""
+        # Create a name that produces dashes near the cut point
+        name = "hello-world-" + "x" * 50
+        slug = prod._slugify(name, max_len=12)
+        assert not slug.endswith("-")
+
+
+class TestListProductsEdgeCases:
+    def test_list_products_no_dir(self, tmp_path, monkeypatch):
+        """Line 140: PRODUCTS_DIR doesn't exist → empty list."""
+        monkeypatch.setattr(prod, "PRODUCTS_DIR", tmp_path / "nonexistent")
+        assert prod.list_products() == []
+
+    def test_list_products_skips_files(self, tmp_path):
+        """Line 144: non-directory entries in PRODUCTS_DIR are skipped."""
+        # Create a file (not a directory) in PRODUCTS_DIR
+        (tmp_path / "not-a-dir.txt").write_text("junk")
+        products = prod.list_products()
+        assert products == []
+
+
+class TestUpdateProductEdgeCases:
+    def test_update_product_not_found(self):
+        """Lines 159-160: updating a missing product returns None."""
+        result = prod.update_product("no-such-slug", description="new")
+        assert result is None
+
+
+class TestKeyResultEdgeCases:
+    def test_add_kr_product_not_found(self):
+        """Lines 191-192: adding KR to missing product raises ValueError."""
+        with pytest.raises(ValueError, match="Product no-such not found"):
+            prod.add_key_result("no-such", title="KR", target=10)
+
+    def test_update_kr_progress_product_not_found(self):
+        """Line 211: updating KR progress on missing product raises ValueError."""
+        with pytest.raises(ValueError, match="Product 'gone' not found"):
+            prod.update_kr_progress("gone", "kr_xxx", current=5)
+
+    def test_update_kr_fields_success(self):
+        """Lines 231-249: update_kr_fields updates title, target, unit."""
+        p = prod.create_product(name="KRFields", owner_id="00004")
+        kr = prod.add_key_result(p["slug"], title="Old Title", target=100, unit="users")
+        updated = prod.update_kr_fields(
+            p["slug"], kr["id"], title="New Title", target=200, unit="DAU",
+        )
+        assert updated["title"] == "New Title"
+        assert updated["target"] == 200
+        assert updated["unit"] == "DAU"
+        # history should record changes
+        assert len(updated.get("history", [])) >= 3  # title, target, unit
+
+    def test_update_kr_fields_product_not_found(self):
+        """Lines 231-235: update_kr_fields on missing product raises ValueError."""
+        with pytest.raises(ValueError, match="Product 'nope' not found"):
+            prod.update_kr_fields("nope", "kr_xxx", title="X")
+
+    def test_update_kr_fields_kr_not_found(self):
+        """Lines 248-249: update_kr_fields with unknown kr_id raises ValueError."""
+        p = prod.create_product(name="KRFieldsMiss", owner_id="00004")
+        with pytest.raises(ValueError, match="KR 'kr_bad' not found"):
+            prod.update_kr_fields(p["slug"], "kr_bad", title="X")
+
+
+class TestIssueEdgeCases:
+    def test_create_issue_no_product(self):
+        """Line 266 (implicit): create_issue with missing product still works (empty product_id)."""
+        issue = prod.create_issue(slug="ghost", title="Orphan", created_by="ceo")
+        assert issue["product_id"] == ""
+
+    def test_list_issues_skips_non_yaml(self, tmp_path):
+        """Line 340: non-yaml files in issues dir are skipped."""
+        p = prod.create_product(name="NonYaml", owner_id="00004")
+        issues_dir = tmp_path / p["slug"] / "issues"
+        issues_dir.mkdir(parents=True, exist_ok=True)
+        (issues_dir / "readme.txt").write_text("not yaml")
+        issues = prod.list_issues(p["slug"])
+        assert issues == []
+
+    def test_list_issues_skips_empty_yaml(self, tmp_path):
+        """Line 343: empty yaml files are skipped."""
+        p = prod.create_product(name="EmptyYaml", owner_id="00004")
+        issues_dir = tmp_path / p["slug"] / "issues"
+        issues_dir.mkdir(parents=True, exist_ok=True)
+        (issues_dir / "empty.yaml").write_text("")
+        issues = prod.list_issues(p["slug"])
+        assert issues == []
+
+    def test_list_issues_filter_by_status(self):
+        """Line 346: status filter excludes non-matching issues."""
+        p = prod.create_product(name="StatusFilter", owner_id="00004")
+        prod.create_issue(slug=p["slug"], title="Open", created_by="ceo")
+        i2 = prod.create_issue(slug=p["slug"], title="Closed", created_by="ceo")
+        prod.close_issue(p["slug"], i2["id"])
+        backlog = prod.list_issues(p["slug"], status=IssueStatus.BACKLOG)
+        assert len(backlog) == 1
+        assert backlog[0]["title"] == "Open"
+
+    def test_update_issue_not_found(self):
+        """Lines 363-364: updating missing issue returns None."""
+        p = prod.create_product(name="UpdateMiss", owner_id="00004")
+        result = prod.update_issue(p["slug"], "issue_nope", title="x")
+        assert result is None
+
+    def test_close_issue_not_found(self):
+        """Lines 387-388: closing missing issue returns None."""
+        p = prod.create_product(name="CloseMiss", owner_id="00004")
+        result = prod.close_issue(p["slug"], "issue_gone")
+        assert result is None
+
+    def test_reopen_issue_not_found(self):
+        """Lines 406-407: reopening missing issue returns None."""
+        p = prod.create_product(name="ReopenMiss", owner_id="00004")
+        result = prod.reopen_issue(p["slug"], "issue_vanish")
+        assert result is None
+
+
+class TestAppendHistory:
+    def test_history_capped_at_100(self):
+        """Line 266: history list is capped at 100 entries."""
+        data = {"history": [{"field": f"f{i}"} for i in range(105)]}
+        prod._append_history(data, "new_field", "old", "new")
+        assert len(data["history"]) == 100
+        # The last entry should be our new one
+        assert data["history"][-1]["field"] == "new_field"
+
+
+class TestVersionEdgeCases:
+    def test_list_versions_empty(self):
+        """Lines 430-432: no versions dir → empty list."""
+        p = prod.create_product(name="NoVer", owner_id="00004")
+        versions = prod.list_versions(p["slug"])
+        assert versions == []
+
+    def test_list_versions_returns_versions(self):
+        """Lines 430-437: list_versions returns version records."""
+        p = prod.create_product(name="HasVer", owner_id="00004")
+        i1 = prod.create_issue(slug=p["slug"], title="Fix", created_by="ceo")
+        prod.close_issue(p["slug"], i1["id"])
+        prod.release_version(p["slug"], [i1["id"]])
+        versions = prod.list_versions(p["slug"])
+        assert len(versions) == 1
+        assert versions[0]["version"] == "0.1.1"
+
+    def test_release_version_product_not_found(self):
+        """Line 472: releasing version on missing product raises ValueError."""
+        with pytest.raises(ValueError, match="Product 'phantom' not found"):
+            prod.release_version("phantom", [])
+
+    def test_release_version_marks_issues_as_released(self):
+        """Line 534: release_version marks resolved issues as RELEASED."""
+        p = prod.create_product(name="RelMark", owner_id="00004")
+        i1 = prod.create_issue(slug=p["slug"], title="Done Bug", created_by="ceo")
+        prod.close_issue(p["slug"], i1["id"])
+        prod.release_version(p["slug"], [i1["id"]])
+        loaded = prod.load_issue(p["slug"], i1["id"])
+        assert loaded["status"] == IssueStatus.RELEASED.value
+
+
+class TestBuildProductContextEdgeCases:
+    def test_context_with_unit_field(self):
+        """Line 524-526: KR with unit field renders correctly."""
+        p = prod.create_product(name="UnitCtx", owner_id="00004")
+        prod.add_key_result(p["slug"], title="Revenue", target=1000, unit="USD")
+        ctx = prod.build_product_context(p["slug"])
+        assert "USD" in ctx
+        assert "0/1000 USD" in ctx
+
+    def test_context_with_empty_krs(self):
+        """No KRs: context should not contain 'Key Results' section."""
+        p = prod.create_product(name="NoKR", owner_id="00004")
+        ctx = prod.build_product_context(p["slug"])
+        assert "Key Results" not in ctx
+
+    def test_context_more_than_10_issues(self):
+        """Line 534: >10 issues shows '... and N more'."""
+        p = prod.create_product(name="ManyIssues", owner_id="00004")
+        for i in range(12):
+            prod.create_issue(slug=p["slug"], title=f"Issue {i}", created_by="ceo")
+        ctx = prod.build_product_context(p["slug"])
+        assert "and 2 more" in ctx

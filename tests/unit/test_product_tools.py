@@ -214,3 +214,450 @@ class TestProductTools:
         assert "get_product_context_tool" in names
         assert "list_product_issues_tool" in names
         assert "update_kr_progress_tool" in names
+
+    # ------------------------------------------------------------------
+    # _resolve_caller_id fallback (lines 33-34)
+    # ------------------------------------------------------------------
+    def test_resolve_caller_id_exception_path(self):
+        """When vessel import raises, _resolve_caller_id returns 'agent' (lines 33-34)."""
+        from unittest.mock import patch
+
+        # _resolve_caller_id imports _current_vessel inside the function.
+        # We patch the import mechanism so that the import itself raises.
+        import builtins
+        real_import = builtins.__import__
+
+        def _fail_vessel(name, *args, **kwargs):
+            if "vessel" in name:
+                raise ImportError("mocked vessel import failure")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=_fail_vessel):
+            from onemancompany.agents.product_tools import _resolve_caller_id
+            result = _resolve_caller_id()
+            assert result == "agent"
+
+    # ------------------------------------------------------------------
+    # create_product_tool (lines 57-85)
+    # ------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_create_product_tool_basic(self):
+        from onemancompany.agents.product_tools import create_product_tool
+
+        result = await create_product_tool.ainvoke(
+            {
+                "name": "NewProduct",
+                "description": "A new product",
+            }
+        )
+        assert "Created product" in result
+        assert "NewProduct" in result
+
+    @pytest.mark.asyncio
+    async def test_create_product_tool_with_krs(self):
+        from onemancompany.agents.product_tools import create_product_tool
+
+        result = await create_product_tool.ainvoke(
+            {
+                "name": "KRProduct",
+                "description": "Product with KRs",
+                "key_results": "DAU达到1000|1000|users;页面加载<2s|2.0|seconds",
+            }
+        )
+        assert "Created product" in result
+        assert "2 key results" in result
+
+    @pytest.mark.asyncio
+    async def test_create_product_tool_with_owner(self):
+        from onemancompany.agents.product_tools import create_product_tool
+
+        result = await create_product_tool.ainvoke(
+            {
+                "name": "OwnedProduct",
+                "description": "Has owner",
+                "owner_id": "emp001",
+            }
+        )
+        assert "Created product" in result
+
+    @pytest.mark.asyncio
+    async def test_create_product_tool_kr_no_unit(self):
+        """KR with only title|target (no unit)."""
+        from onemancompany.agents.product_tools import create_product_tool
+
+        result = await create_product_tool.ainvoke(
+            {
+                "name": "KRNoUnit",
+                "description": "test",
+                "key_results": "Users|500",
+            }
+        )
+        assert "1 key results" in result
+
+    @pytest.mark.asyncio
+    async def test_create_product_tool_kr_invalid_target(self):
+        """KR with non-numeric target is skipped."""
+        from onemancompany.agents.product_tools import create_product_tool
+
+        result = await create_product_tool.ainvoke(
+            {
+                "name": "KRBadTarget",
+                "description": "test",
+                "key_results": "Bad|notanumber|units",
+            }
+        )
+        assert "Created product" in result
+        # No KRs should be added
+        assert "key results" not in result
+
+    @pytest.mark.asyncio
+    async def test_create_product_tool_kr_single_part_skipped(self):
+        """KR with only one part (no pipe separator) is skipped."""
+        from onemancompany.agents.product_tools import create_product_tool
+
+        result = await create_product_tool.ainvoke(
+            {
+                "name": "KRSinglePart",
+                "description": "test",
+                "key_results": "nodelimiter",
+            }
+        )
+        assert "Created product" in result
+        assert "key results" not in result
+
+    @pytest.mark.asyncio
+    async def test_create_product_tool_error_path(self):
+        """create_product raising ValueError returns error (lines 84-85)."""
+        from unittest.mock import patch
+        from onemancompany.agents.product_tools import create_product_tool
+
+        with patch(
+            "onemancompany.agents.product_tools.prod.create_product",
+            side_effect=ValueError("bad input"),
+        ):
+            result = await create_product_tool.ainvoke(
+                {"name": "Fail", "description": "d"}
+            )
+        assert "Error" in result
+        assert "bad input" in result
+
+    # ------------------------------------------------------------------
+    # create_product_issue error paths (lines 111, 124-125)
+    # ------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_create_issue_invalid_priority(self, product_slug):
+        """Invalid priority returns an error message (line 111)."""
+        from onemancompany.agents.product_tools import create_product_issue
+
+        result = await create_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "title": "Bug",
+                "description": "desc",
+                "priority": "INVALID",
+            }
+        )
+        assert "Error" in result
+        assert "invalid priority" in result
+
+    @pytest.mark.asyncio
+    async def test_create_issue_error_path(self):
+        """create_issue raising ValueError returns error (lines 124-125)."""
+        from unittest.mock import patch
+        from onemancompany.agents.product_tools import create_product_issue
+
+        with patch(
+            "onemancompany.agents.product_tools.prod.create_issue",
+            side_effect=FileNotFoundError("product not found"),
+        ):
+            result = await create_product_issue.ainvoke(
+                {
+                    "product_slug": "nonexistent",
+                    "title": "Bug",
+                    "description": "desc",
+                    "priority": "P1",
+                }
+            )
+        assert "Error" in result
+        assert "product not found" in result
+
+    # ------------------------------------------------------------------
+    # update_product_issue edge cases (lines 151, 153, 155, 158, 163, 166-167)
+    # ------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_update_issue_no_fields(self, product_slug):
+        """No fields to update returns error (line 158)."""
+        from onemancompany.agents.product_tools import update_product_issue
+
+        result = await update_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "issue_id": "issue_fake",
+            }
+        )
+        assert "no fields to update" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_update_issue_with_priority(self, product_slug):
+        """Update with priority field (line 151)."""
+        from onemancompany.agents.product_tools import (
+            create_product_issue,
+            update_product_issue,
+        )
+
+        cr = await create_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "title": "PriBug",
+                "description": "d",
+                "priority": "P2",
+            }
+        )
+        issue_id = re.search(r"(issue_\w+)", cr).group(1)
+        result = await update_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "issue_id": issue_id,
+                "priority": "P0",
+            }
+        )
+        assert "P0" in result
+
+    @pytest.mark.asyncio
+    async def test_update_issue_with_assignee(self, product_slug):
+        """Update with assignee_id field (line 153)."""
+        from onemancompany.agents.product_tools import (
+            create_product_issue,
+            update_product_issue,
+        )
+
+        cr = await create_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "title": "AssigneeBug",
+                "description": "d",
+                "priority": "P2",
+            }
+        )
+        issue_id = re.search(r"(issue_\w+)", cr).group(1)
+        result = await update_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "issue_id": issue_id,
+                "assignee_id": "emp001",
+            }
+        )
+        assert "assignee_id" in result
+
+    @pytest.mark.asyncio
+    async def test_update_issue_with_labels(self, product_slug):
+        """Update with labels field (line 155)."""
+        from onemancompany.agents.product_tools import (
+            create_product_issue,
+            update_product_issue,
+        )
+
+        cr = await create_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "title": "LabelBug",
+                "description": "d",
+                "priority": "P2",
+            }
+        )
+        issue_id = re.search(r"(issue_\w+)", cr).group(1)
+        result = await update_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "issue_id": issue_id,
+                "labels": "bug,frontend",
+            }
+        )
+        assert "labels" in result
+
+    @pytest.mark.asyncio
+    async def test_update_issue_not_found(self, product_slug):
+        """Issue not found returns error (line 163)."""
+        from onemancompany.agents.product_tools import update_product_issue
+
+        result = await update_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "issue_id": "issue_nonexistent",
+                "status": "in_progress",
+            }
+        )
+        assert "error" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_update_issue_error_path(self):
+        """update_issue raising ValueError returns error (lines 166-167)."""
+        from unittest.mock import patch
+        from onemancompany.agents.product_tools import update_product_issue
+
+        with patch(
+            "onemancompany.agents.product_tools.prod.update_issue",
+            side_effect=FileNotFoundError("product not found"),
+        ):
+            result = await update_product_issue.ainvoke(
+                {
+                    "product_slug": "nonexistent-product",
+                    "issue_id": "issue_fake",
+                    "status": "in_progress",
+                }
+            )
+        assert "Error" in result
+        assert "product not found" in result
+
+    # ------------------------------------------------------------------
+    # close_product_issue edge cases (lines 190, 193-194)
+    # ------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_close_issue_not_found(self, product_slug):
+        """Closing nonexistent issue returns error (line 190)."""
+        from onemancompany.agents.product_tools import close_product_issue
+
+        result = await close_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "issue_id": "issue_nonexistent",
+                "resolution": "fixed",
+            }
+        )
+        assert "error" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_close_issue_error_path(self):
+        """close_issue raising ValueError returns error (lines 193-194)."""
+        from unittest.mock import patch
+        from onemancompany.agents.product_tools import close_product_issue
+
+        with patch(
+            "onemancompany.agents.product_tools.prod.close_issue",
+            side_effect=FileNotFoundError("product not found"),
+        ):
+            result = await close_product_issue.ainvoke(
+                {
+                    "product_slug": "nonexistent-product",
+                    "issue_id": "issue_fake",
+                    "resolution": "fixed",
+                }
+            )
+        assert "Error" in result
+        assert "product not found" in result
+
+    # ------------------------------------------------------------------
+    # get_product_context_tool with KRs and issues (lines 220-225, 232-234)
+    # ------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_get_product_context_with_krs_and_issues(self, product_slug):
+        """Context includes KRs and open issues (lines 220-225, 232-234)."""
+        from onemancompany.agents.product_tools import (
+            create_product_issue,
+            get_product_context_tool,
+        )
+
+        # Add KRs
+        prod.add_key_result(product_slug, title="DAU", target=1000)
+        prod.update_kr_progress(
+            product_slug,
+            prod.load_product(product_slug)["key_results"][0]["id"],
+            current=500,
+        )
+
+        # Add an open issue
+        await create_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "title": "OpenBug",
+                "description": "still open",
+                "priority": "P1",
+            }
+        )
+
+        result = await get_product_context_tool.ainvoke(
+            {"product_slug": product_slug}
+        )
+        assert "Key Results" in result
+        assert "DAU" in result
+        assert "500/1000" in result
+        assert "50%" in result
+        assert "Open Issues" in result
+        assert "OpenBug" in result
+
+    @pytest.mark.asyncio
+    async def test_get_product_context_kr_zero_target(self, product_slug):
+        """KR with target=0 shows 0% (edge case in line 224)."""
+        from onemancompany.agents.product_tools import get_product_context_tool
+
+        prod.add_key_result(product_slug, title="ZeroTarget", target=0)
+
+        result = await get_product_context_tool.ainvoke(
+            {"product_slug": product_slug}
+        )
+        assert "ZeroTarget" in result
+        assert "0%" in result
+
+    # ------------------------------------------------------------------
+    # list_product_issues_tool filters (lines 259, 261-263)
+    # ------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_list_issues_with_status_filter(self, product_slug):
+        """Filter by status (line 259)."""
+        from onemancompany.agents.product_tools import (
+            create_product_issue,
+            list_product_issues_tool,
+        )
+
+        await create_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "title": "Backlog issue",
+                "description": "d",
+                "priority": "P2",
+            }
+        )
+        result = await list_product_issues_tool.ainvoke(
+            {"product_slug": product_slug, "status": "backlog"}
+        )
+        assert "Backlog issue" in result
+
+    @pytest.mark.asyncio
+    async def test_list_issues_with_priority_filter(self, product_slug):
+        """Filter by priority (lines 261-263)."""
+        from onemancompany.agents.product_tools import (
+            create_product_issue,
+            list_product_issues_tool,
+        )
+
+        await create_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "title": "Critical issue",
+                "description": "d",
+                "priority": "P0",
+            }
+        )
+        await create_product_issue.ainvoke(
+            {
+                "product_slug": product_slug,
+                "title": "Low issue",
+                "description": "d",
+                "priority": "P3",
+            }
+        )
+        result = await list_product_issues_tool.ainvoke(
+            {"product_slug": product_slug, "priority": "P0"}
+        )
+        assert "Critical issue" in result
+
+    # ------------------------------------------------------------------
+    # PRODUCT_TOOLS export (line 292)
+    # ------------------------------------------------------------------
+    def test_product_tools_export_is_list(self):
+        """PRODUCT_TOOLS is a list of tool objects (line 292)."""
+        from onemancompany.agents.product_tools import PRODUCT_TOOLS
+
+        assert isinstance(PRODUCT_TOOLS, list)
+        for t in PRODUCT_TOOLS:
+            assert hasattr(t, "ainvoke")

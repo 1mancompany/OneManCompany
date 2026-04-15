@@ -299,8 +299,6 @@ async def run_product_check(product_slug: str) -> dict:
             continue  # someone is already working on it
 
         priority = issue.get("priority", "")
-        if hasattr(priority, "value"):
-            priority = priority.value
 
         # High priority + no active project → create project
         if priority in _AUTO_PROJECT_PRIORITIES and not linked:
