@@ -152,6 +152,12 @@ async def handle_project_complete(event: CompanyEvent) -> None:
         prod.close_issue(slug, issue_id, resolution=IssueResolution.FIXED)
         logger.info("[PRODUCT_TRIGGER] Closed issue {} as fixed", issue_id)
 
+    # Skip version release if no issues were resolved
+    if not resolved_issue_ids:
+        logger.debug("[PRODUCT_TRIGGER] No resolved issues for project {}, skip version release", project_id)
+        await run_product_check(slug)
+        return
+
     # Release a new version
     version_record = prod.release_version(
         slug,

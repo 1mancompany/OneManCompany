@@ -7132,6 +7132,19 @@ async def api_create_issue(slug: str, request: Request) -> dict:
             agent=SYSTEM_AGENT,
         )
     )
+    # If assignee was provided at creation time, also fire ISSUE_ASSIGNED
+    if result.get("assignee_id"):
+        await event_bus.publish(
+            CompanyEvent(
+                type=EventType.ISSUE_ASSIGNED,
+                payload={
+                    "product_slug": slug,
+                    "issue_id": result["id"],
+                    "assignee_id": result["assignee_id"],
+                },
+                agent=SYSTEM_AGENT,
+            )
+        )
     return result
 
 
