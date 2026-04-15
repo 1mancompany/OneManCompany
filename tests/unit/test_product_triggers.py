@@ -546,6 +546,54 @@ class TestRunProductCheck:
 
         mock_create.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_assignee_path_three_plus_cap(self):
+        """Line 323: assigned issue path also respects 3+ active projects cap."""
+        from onemancompany.core.product_triggers import run_product_check
+
+        p = _make_product(name="AssignCap")
+        pid = p.get("id", "prod_x")
+        issue = _make_issue(p["slug"], priority=IssuePriority.P3, title="LowPri Assigned")
+        prod.update_issue(p["slug"], issue["id"], assignee_id="emp-1")
+
+        active_projects = [
+            {"project_id": f"proj-{i}", "status": "active", "product_id": pid}
+            for i in range(3)
+        ]
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=active_projects):
+            with patch(
+                "onemancompany.core.product_triggers._create_project_for_issue",
+                new_callable=AsyncMock,
+            ) as mock_create:
+                result = await run_product_check(p["slug"])
+
+        mock_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_kr_met_or_zero_target_skipped(self):
+        """Line 340: KR with target<=0 or current>=target is skipped."""
+        from onemancompany.core.product_triggers import run_product_check
+
+        p = _make_product(name="KRMet")
+        # KR with target already met
+        kr1 = prod.add_key_result(p["slug"], title="Done KR", target=100)
+        prod.update_kr_progress(p["slug"], kr1["id"], current=100)
+        # KR with zero target
+        prod.add_key_result(p["slug"], title="Zero KR", target=0)
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]):
+            with patch(
+                "onemancompany.core.product_triggers._create_project_for_issue",
+                new_callable=AsyncMock,
+            ):
+                result = await run_product_check(p["slug"])
+
+        # No issues should be created for met/zero KRs
+        kr_actions = [a for a in result.get("actions", []) if "Done KR" in a or "Zero KR" in a]
+        assert len(kr_actions) == 0
+
+
 
 # ---------------------------------------------------------------------------
 # product_health_check

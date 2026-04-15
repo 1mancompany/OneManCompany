@@ -288,8 +288,6 @@ async def update_kr_progress_tool(
     """
     try:
         kr = prod.update_kr_progress(product_slug, kr_id, current=current_value)
-        if kr is None:
-            return f"Error: KR {kr_id} not found in product {product_slug}"
         target = kr.get("target", 0)
         current = kr.get("current", 0)
         pct = (current / target * 100) if target else 0
