@@ -70,22 +70,63 @@ async def handle_issue_created(event: CompanyEvent) -> None:
 
 
 async def _create_project_for_issue(slug: str, issue: dict) -> str:
-    """Create a project from an issue. Returns the project_id or empty string."""
-    from onemancompany.core.project_archive import async_create_project_from_task
+    """Create a project from an issue AND schedule EA to execute it.
+
+    Full flow: create project → create TaskTree → schedule EA node.
+    Same as CEO task submission in routes.py, but triggered by product system.
+    Returns the project_id or empty string.
+    """
+    from pathlib import Path
+    from onemancompany.core.config import CEO_ID, EA_ID, TASK_TREE_FILENAME
+    from onemancompany.core.project_archive import async_create_project_from_task, get_project_dir
+    from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 
     product = prod.load_product(slug)
     product_id = product["id"] if product else ""
     task_description = f"[{issue.get('priority', '')}] {issue['title']}: {issue.get('description', '')}"
 
     try:
-        project_id, _iter_id = await async_create_project_from_task(
+        project_id, iter_id = await async_create_project_from_task(
             task_description,
             product_id=product_id,
         )
+        pdir = get_project_dir(project_id)
+        ctx_id = f"{project_id}/{iter_id}" if iter_id else project_id
+
+        # Build EA task with product context
+        product_ctx = prod.build_product_context(slug)
+        ea_task = (
+            f"A product issue needs to be resolved. Analyze and dispatch to the appropriate employee:\n\n"
+            f"Issue: {task_description}\n\n"
+            f"{product_ctx}\n\n"
+            f"[Project ID: {ctx_id}] [Project workspace: {pdir}]"
+        )
+
+        # Create TaskTree with CEO root + EA child (same as ceo_submit_task)
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import _save_project_tree
+
+        tree = TaskTree(project_id=ctx_id, mode="standard")
+        ceo_root = tree.create_root(employee_id=CEO_ID, description=task_description)
+        ceo_root.node_type = NodeType.CEO_PROMPT.value
+        ceo_root.set_status(TaskPhase.PROCESSING)
+        ea_node = tree.add_child(
+            parent_id=ceo_root.id,
+            employee_id=EA_ID,
+            description=ea_task,
+            acceptance_criteria=[],
+        )
+        _save_project_tree(pdir, tree)
+
+        # Schedule EA to execute
+        from onemancompany.core.agent_loop import employee_manager
+        tree_path = str(Path(pdir) / TASK_TREE_FILENAME)
+        employee_manager.schedule_node(EA_ID, ea_node.id, tree_path)
+        employee_manager._schedule_next(EA_ID)
+
         logger.info(
-            "[PRODUCT_TRIGGER] Created project {} for issue {}",
-            project_id,
-            issue["id"],
+            "[PRODUCT_TRIGGER] Created project {} with TaskTree for issue {} → EA scheduled",
+            project_id, issue["id"],
         )
         return project_id
     except Exception:
