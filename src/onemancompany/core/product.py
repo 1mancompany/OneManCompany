@@ -659,7 +659,6 @@ def sync_issue_statuses(slug: str) -> list[dict]:
         current = issue.get("status", IssueStatus.BACKLOG.value)
 
         if derived.value != current:
-            _append_history(issue, "status", current, derived.value, changed_by="system:auto-derive")
             update_issue(slug, issue["id"], status=derived.value)
             changed.append({"issue_id": issue["id"], "old": current, "new": derived.value})
             logger.debug("[PRODUCT] Issue {} status derived: {} → {}", issue["id"], current, derived.value)

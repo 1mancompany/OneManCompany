@@ -7045,8 +7045,8 @@ async def api_update_product(slug: str, request: Request) -> dict:
         if hasattr(new_status, "value"):
             new_status = new_status.value
         if new_status == "active":
-            from onemancompany.core.product_triggers import dispatch_product_review
-            await dispatch_product_review(slug)
+            from onemancompany.core.product_triggers import run_product_check
+            await run_product_check(slug)
 
     return result
 
@@ -7132,6 +7132,19 @@ async def api_create_issue(slug: str, request: Request) -> dict:
             agent=SYSTEM_AGENT,
         )
     )
+    # If assignee was provided at creation time, also fire ISSUE_ASSIGNED
+    if result.get("assignee_id"):
+        await event_bus.publish(
+            CompanyEvent(
+                type=EventType.ISSUE_ASSIGNED,
+                payload={
+                    "product_slug": slug,
+                    "issue_id": result["id"],
+                    "assignee_id": result["assignee_id"],
+                },
+                agent=SYSTEM_AGENT,
+            )
+        )
     return result
 
 

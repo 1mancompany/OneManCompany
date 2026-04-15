@@ -7707,6 +7707,8 @@ class AppController {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ [fieldName]: val }),
+          }).then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
           }).catch(err => {
             console.error('Save failed:', err);
             el.textContent = current;
@@ -7743,7 +7745,7 @@ class AppController {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ current: val }),
-          }).catch(err => { console.error('KR save failed:', err); el.textContent = current; });
+          }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); }).catch(err => { console.error('KR save failed:', err); el.textContent = current; });
         }
       };
       input.addEventListener('blur', save);
@@ -7774,7 +7776,7 @@ class AppController {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ [field]: val }),
-          }).catch(err => { console.error('KR save failed:', err); el.textContent = current; });
+          }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); }).catch(err => { console.error('KR save failed:', err); el.textContent = current; });
         }
       };
       input.addEventListener('blur', save);
@@ -7806,7 +7808,7 @@ class AppController {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ [field]: val }),
-          }).catch(err => { console.error('KR field save failed:', err); el.textContent = current; });
+          }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); }).catch(err => { console.error('KR field save failed:', err); el.textContent = current; });
         }
       };
       input.addEventListener('blur', save);
@@ -8071,7 +8073,7 @@ class AppController {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ [fieldName]: val }),
-          }).catch(err => { console.error('Issue save failed:', err); el.textContent = current; });
+          }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); }).catch(err => { console.error('Issue save failed:', err); el.textContent = current; });
         }
       };
       input.addEventListener('blur', save);

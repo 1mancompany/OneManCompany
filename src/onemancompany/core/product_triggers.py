@@ -70,22 +70,63 @@ async def handle_issue_created(event: CompanyEvent) -> None:
 
 
 async def _create_project_for_issue(slug: str, issue: dict) -> str:
-    """Create a project from an issue. Returns the project_id or empty string."""
-    from onemancompany.core.project_archive import async_create_project_from_task
+    """Create a project from an issue AND schedule EA to execute it.
+
+    Full flow: create project → create TaskTree → schedule EA node.
+    Same as CEO task submission in routes.py, but triggered by product system.
+    Returns the project_id or empty string.
+    """
+    from pathlib import Path
+    from onemancompany.core.config import CEO_ID, EA_ID, TASK_TREE_FILENAME
+    from onemancompany.core.project_archive import async_create_project_from_task, get_project_dir
+    from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 
     product = prod.load_product(slug)
     product_id = product["id"] if product else ""
     task_description = f"[{issue.get('priority', '')}] {issue['title']}: {issue.get('description', '')}"
 
     try:
-        project_id, _iter_id = await async_create_project_from_task(
+        project_id, iter_id = await async_create_project_from_task(
             task_description,
             product_id=product_id,
         )
+        pdir = get_project_dir(project_id)
+        ctx_id = f"{project_id}/{iter_id}" if iter_id else project_id
+
+        # Build EA task with product context
+        product_ctx = prod.build_product_context(slug)
+        ea_task = (
+            f"A product issue needs to be resolved. Analyze and dispatch to the appropriate employee:\n\n"
+            f"Issue: {task_description}\n\n"
+            f"{product_ctx}\n\n"
+            f"[Project ID: {ctx_id}] [Project workspace: {pdir}]"
+        )
+
+        # Create TaskTree with CEO root + EA child (same as ceo_submit_task)
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import _save_project_tree
+
+        tree = TaskTree(project_id=ctx_id, mode="standard")
+        ceo_root = tree.create_root(employee_id=CEO_ID, description=task_description)
+        ceo_root.node_type = NodeType.CEO_PROMPT.value
+        ceo_root.set_status(TaskPhase.PROCESSING)
+        ea_node = tree.add_child(
+            parent_id=ceo_root.id,
+            employee_id=EA_ID,
+            description=ea_task,
+            acceptance_criteria=[],
+        )
+        _save_project_tree(pdir, tree)
+
+        # Schedule EA to execute
+        from onemancompany.core.agent_loop import employee_manager
+        tree_path = str(Path(pdir) / TASK_TREE_FILENAME)
+        employee_manager.schedule_node(EA_ID, ea_node.id, tree_path)
+        employee_manager._schedule_next(EA_ID)
+
         logger.info(
-            "[PRODUCT_TRIGGER] Created project {} for issue {}",
-            project_id,
-            issue["id"],
+            "[PRODUCT_TRIGGER] Created project {} with TaskTree for issue {} → EA scheduled",
+            project_id, issue["id"],
         )
         return project_id
     except Exception:
@@ -110,6 +151,12 @@ async def handle_project_complete(event: CompanyEvent) -> None:
     for issue_id in resolved_issue_ids:
         prod.close_issue(slug, issue_id, resolution=IssueResolution.FIXED)
         logger.info("[PRODUCT_TRIGGER] Closed issue {} as fixed", issue_id)
+
+    # Skip version release if no issues were resolved
+    if not resolved_issue_ids:
+        logger.debug("[PRODUCT_TRIGGER] No resolved issues for project {}, skip version release", project_id)
+        await run_product_check(slug)
+        return
 
     # Release a new version
     version_record = prod.release_version(
@@ -136,8 +183,8 @@ async def handle_project_complete(event: CompanyEvent) -> None:
         )
     )
 
-    # After version release, schedule a product review so owner can plan next steps
-    await dispatch_product_review(slug)
+    # After version release, run product check to detect next gaps
+    await run_product_check(slug)
 
 
 def sync_issue_statuses(product_slug: str) -> list[dict]:
@@ -208,111 +255,131 @@ async def check_kr_progress(product_slug: str) -> list[dict]:
     return created_issues
 
 
-async def dispatch_product_review(product_slug: str) -> str | None:
-    """Dispatch a product review task to the product owner.
+async def run_product_check(product_slug: str) -> dict:
+    """Code-level product health check. No LLM calls — pure logic.
 
-    The owner reviews OKR progress, issue backlog, active projects,
-    and takes autonomous action to advance the product.
-
-    Returns the project_id if a task was dispatched, None otherwise.
+    Checks for gaps and only dispatches work when needed:
+    1. Unassigned high-priority issues → auto-create project for them
+    2. KRs with no issues → auto-create issues
+    3. Issues with assignee but no active project → create project
+    All actions are logged. Returns summary dict.
     """
     product = prod.load_product(product_slug)
     if not product:
-        logger.warning("[PRODUCT_TRIGGER] dispatch_product_review: product '{}' not found", product_slug)
-        return None
+        return {"skipped": True, "reason": "not found"}
 
     if product.get("status") != "active":
-        logger.debug("[PRODUCT_TRIGGER] Product '{}' not active, skip review", product_slug)
-        return None
+        return {"skipped": True, "reason": f"status={product.get('status')}"}
 
     owner_id = product.get("owner_id", "")
     if not owner_id:
-        logger.warning("[PRODUCT_TRIGGER] Product '{}' has no owner", product_slug)
-        return None
+        return {"skipped": True, "reason": "no owner"}
 
-    # Check if owner already has too many active projects for this product (avoid stacking)
     from onemancompany.core.project_archive import list_projects
     all_projects = list_projects()
-    existing = [p for p in all_projects
-                if p.get("product_id") == product["id"]
-                and p.get("status") == "active"]
-    if len(existing) >= 3:
-        logger.debug("[PRODUCT_TRIGGER] Product '{}' already has {} active projects, skip review dispatch",
-                     product_slug, len(existing))
-        return None
+    active_for_product = [
+        p for p in all_projects
+        if p.get("product_id") == product["id"] and p.get("status") == "active"
+    ]
 
-    # Build the review task description
-    context = prod.build_product_context(product_slug)
-
-    # Gather current project status (reuse cached list)
-    linked_projects = [p for p in all_projects if p.get("product_id") == product["id"]]
-    active_projects = [p for p in linked_projects if p.get("status") == "active"]
-    completed_projects = [p for p in linked_projects if p.get("status") == "archived"]
-
-    # Gather issue stats
     all_issues = prod.list_issues(product_slug)
-    backlog = [i for i in all_issues if i.get("status") == IssueStatus.BACKLOG.value]
-    in_progress = [i for i in all_issues if i.get("status") == IssueStatus.IN_PROGRESS.value]
-    done = [i for i in all_issues if i.get("status") == IssueStatus.DONE.value]
+    actions_taken: list[str] = []
 
-    task_description = f"""## Product Review — {product['name']}
-
-You are the owner of this product. Review its current state and take action to advance it toward its objectives.
-
-{context}
-
-### Current Status
-- Active projects: {len(active_projects)}
-- Completed projects: {len(completed_projects)}
-- Issues: {len(backlog)} backlog, {len(in_progress)} in progress, {len(done)} done
-
-### Review Checklist (follow in order)
-
-**Step 1: Check existing Issues**
-- Are there open issues? Who is assigned? Are they being worked on (linked projects active)?
-- If an issue has no assignee or no active project → assign someone and dispatch work.
-
-**Step 2: Check KR progress**
-- For each KR: is progress on track? Is anyone currently working toward this KR?
-- If a KR has no associated issues → create issues to advance it.
-- If a KR has issues but nobody is working on them → assign and dispatch.
-
-**Step 3: Fill gaps**
-- Are there KRs with no path to completion? Create the missing issues.
-- Are there stalled projects? Check what's blocking and take action.
-
-**Step 4: Dispatch work**
-- For unassigned high-priority issues, find the right employee (use `list_colleagues`) and assign them.
-- Use `create_product_issue` to create new issues when needed.
-- Use `update_product_issue` to assign and reprioritize.
-- Use `update_kr_progress_tool` to update KR metrics based on completed work.
-
-### Key Principles
-- **Skip if already handled** — If an issue already has an assignee AND an active project, do nothing for that issue. Avoid duplicate work.
-- **Only act on gaps** — Only create issues or dispatch work for things nobody is currently handling.
-- **Take action, don't just report** — If something needs doing and nobody is on it, assign it. You are the product owner — own it.
-- **Be concise** — Brief summary of what you checked and what action you took (or why no action needed).
-"""
-
-    # Dispatch directly to product owner (not CEO/EA pipeline)
-    from onemancompany.core.project_archive import async_create_project_from_task
-    try:
-        project_id, _iter_id = await async_create_project_from_task(
-            task_description,
-            routed_to=owner_id,
-            product_id=product["id"],
+    # --- Step 1: Unassigned backlog/planned issues with P0/P1 → create project ---
+    for issue in all_issues:
+        status = issue.get("status", "")
+        if status in (IssueStatus.DONE.value, IssueStatus.RELEASED.value):
+            continue
+        linked = issue.get("linked_task_ids", [])
+        has_active_project = any(
+            pid in [p.get("project_id") for p in active_for_product]
+            for pid in linked
         )
-        logger.info("[PRODUCT_TRIGGER] Dispatched product review for '{}' → project {}",
-                    product_slug, project_id)
-        return project_id
-    except Exception:
-        logger.exception("[PRODUCT_TRIGGER] Failed to dispatch product review for '{}'", product_slug)
-        return None
+        if has_active_project:
+            continue  # someone is already working on it
+
+        priority = issue.get("priority", "")
+        if hasattr(priority, "value"):
+            priority = priority.value
+
+        # High priority + no active project → create project
+        if priority in _AUTO_PROJECT_PRIORITIES and not linked:
+            if len(active_for_product) >= 3:
+                logger.debug("[PRODUCT_CHECK] Skipping project for issue {} — 3+ active projects", issue["id"])
+                continue
+            project_id = await _create_project_for_issue(product_slug, issue)
+            if project_id:
+                prod.update_issue(
+                    product_slug, issue["id"],
+                    status=IssueStatus.IN_PROGRESS.value,
+                    linked_task_ids=list(linked) + [project_id],
+                )
+                active_for_product.append({"project_id": project_id, "status": "active"})
+                actions_taken.append(f"Created project for P0/P1 issue: {issue['title']}")
+
+        # Has assignee but no project → create project
+        elif issue.get("assignee_id") and not linked:
+            if len(active_for_product) >= 3:
+                continue
+            project_id = await _create_project_for_issue(product_slug, issue)
+            if project_id:
+                prod.update_issue(
+                    product_slug, issue["id"],
+                    status=IssueStatus.IN_PROGRESS.value,
+                    linked_task_ids=[project_id],
+                )
+                active_for_product.append({"project_id": project_id, "status": "active"})
+                actions_taken.append(f"Created project for assigned issue: {issue['title']}")
+
+    # --- Step 2: KRs with no issues → auto-create issues ---
+    krs = product.get("key_results", [])
+    for kr in krs:
+        target = kr.get("target", 0)
+        current = kr.get("current", 0)
+        if target <= 0 or current >= target:
+            continue  # met or invalid
+
+        kr_title = kr.get("title", "")
+        # Check if any open issue is related to this KR (by title match)
+        has_issue = any(
+            kr_title in i.get("title", "") or kr.get("id", "") in i.get("title", "")
+            for i in all_issues
+            if i.get("status") not in (IssueStatus.DONE.value, IssueStatus.RELEASED.value)
+        )
+        if not has_issue:
+            progress_pct = (current / target * 100) if target else 0
+            issue = prod.create_issue(
+                slug=product_slug,
+                title=f"Advance KR: {kr_title} (currently {progress_pct:.0f}%)",
+                description=f"Key result '{kr_title}' is at {current}/{target}. Create and execute work to advance this metric.",
+                priority=IssuePriority.P2,
+                created_by="system",
+                labels=["kr-tracking", "auto-created"],
+            )
+            actions_taken.append(f"Created issue for KR: {kr_title}")
+            all_issues.append(issue)  # prevent duplicate creation in same cycle
+
+    if actions_taken:
+        logger.info("[PRODUCT_CHECK] Product '{}': {}", product_slug, "; ".join(actions_taken))
+    else:
+        logger.debug("[PRODUCT_CHECK] Product '{}': no action needed", product_slug)
+
+    return {
+        "skipped": False,
+        "actions": actions_taken,
+        "active_projects": len(active_for_product),
+        "total_issues": len(all_issues),
+    }
 
 
-@system_cron("product_health_check", interval="10m", description="Periodic product review + health check")
+@system_cron("product_health_check", interval="10m", description="Periodic product status sync + gap detection")
 async def product_health_check() -> list | None:
-    """Check all products for stale issues, lagging KRs, and dispatch owner reviews."""
+    """Lightweight code-level product check. No LLM calls.
+
+    For each active product:
+    1. Sync issue statuses from TaskNode states
+    2. Detect gaps (unassigned issues, missing KR issues) and auto-dispatch
+    """
     products = prod.list_products()
     events = []
     for p in products:
@@ -321,13 +388,18 @@ async def product_health_check() -> list | None:
             continue
         # Sync issue statuses from linked TaskNode states
         status_changes = sync_issue_statuses(slug)
-        kr_issues = await check_kr_progress(slug)
-        # Dispatch product review to owner (only for active products)
-        review_project = await dispatch_product_review(slug)
-        if status_changes or kr_issues or review_project:
+        # Code-level gap detection and auto-dispatch
+        check_result = await run_product_check(slug)
+        actions = check_result.get("actions", [])
+        if status_changes or actions:
+            msg_parts = []
+            if status_changes:
+                msg_parts.append(f"{len(status_changes)} status changes")
+            if actions:
+                msg_parts.append(f"{len(actions)} actions: {'; '.join(actions)}")
             events.append(CompanyEvent(
                 type=EventType.ACTIVITY,
-                payload={"message": f"Product '{p['name']}': {len(status_changes)} status changes, {len(kr_issues)} KR alerts" + (f", review dispatched" if review_project else "")},
+                payload={"message": f"Product '{p['name']}': {', '.join(msg_parts)}"},
             ))
     return events if events else None
 

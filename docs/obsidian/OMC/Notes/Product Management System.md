@@ -164,13 +164,38 @@ history:
 
 History is embedded in the entity's YAML file, not a separate file. This keeps the "disk is single source of truth" principle: one file = one entity = complete state + history.
 
-## Periodic Health Check
+## Product Lifecycle
 
-A [[Snapshot and Hot Reload|system cron]] (`product_health_check`, every 30 minutes) runs for all active Products:
+### Planning Phase
 
-1. **Issue status sync** — for each in-progress Issue, check linked TaskNode states, derive correct Issue status, auto-close if all done
-2. **KR progress check** — for KRs below 50% progress, auto-create a P2 Issue alert (skip if alert already exists)
-3. **Stale issue detection** — Issues in `in_progress` for >7 days without TaskNode activity get flagged
+When a Product is created, it starts in `planning` status:
+- CEO can start a **planning conversation** (`POST /api/product/{slug}/planning`) with EA
+- Agent uses product tools to define OKR, create Issues, set priorities during conversation
+- **Planning gate**: P0/P1 issues do NOT auto-trigger project creation during planning
+- CEO clicks "Activate Product" when ready → status changes to `active`
+
+### Active Phase — Autonomous Product Management
+
+When status changes to `active`, the system runs `run_product_check()` immediately and then every 10 minutes via system cron. This is **pure code logic (zero LLM calls)** — it detects gaps and auto-dispatches work:
+
+1. **Issue status sync** — derive Issue status from linked TaskNode states (`sync_issue_statuses`)
+2. **Gap detection** (`run_product_check`):
+   - Unassigned P0/P1 Issues → auto-create Project with TaskTree, schedule EA
+   - Issues with assignee but no active Project → create Project
+   - KRs with no related Issues → auto-create P2 Issues
+   - Everything already handled → do nothing (no project spam)
+3. **Anti-stacking**: max 3 active projects per product
+
+### Project Creation Flow
+
+When the system creates a Project for an Issue (`_create_project_for_issue`), it does the **full execution flow** (same as CEO task submission):
+1. `async_create_project_from_task()` → create project directory + iteration
+2. `TaskTree(project_id=...)` → create CEO root node + EA child node
+3. `_save_project_tree()` → persist to disk
+4. `employee_manager.schedule_node(EA_ID, ...)` → EA enters dispatch queue
+5. `employee_manager._schedule_next(EA_ID)` → EA starts executing
+
+Without steps 2-5, Projects are empty shells with no tree structure and no execution.
 
 ## Agent Tools
 
@@ -190,10 +215,11 @@ Agents interact with the Product system through [[MCP Tool Bridge|LangChain tool
 
 | Event | Trigger | Action |
 |-------|---------|--------|
-| `ISSUE_CREATED` (P0/P1) | Auto | Create Project, assign to EA |
-| `ISSUE_ASSIGNED` | CEO assigns | Create Project for assignee |
-| `AGENT_DONE` (with product) | TaskNode completes | Close linked Issues, release Version |
-| `KR_UPDATED` | Periodic check | Create P2 Issue if KR < 50% |
+| `ISSUE_CREATED` (P0/P1) | Auto | Create Project + TaskTree, schedule EA (gated by planning status) |
+| `ISSUE_ASSIGNED` | CEO assigns via UI | Create Project for assignee (gated by planning status) |
+| `AGENT_DONE` (with product) | TaskNode completes | Close linked Issues, release Version, run gap check |
+| `DISPATCH_STATUS_CHANGE` | Task scheduled/idle | Broadcast dispatch status to frontend |
+| `MEETING_DENIED` | No rooms available | Notify frontend of booking denial |
 | `VERSION_RELEASED` | Project completion | Broadcast to frontend |
 
 ## Context Injection
@@ -246,6 +272,8 @@ Dropdown to select Product when submitting tasks. Links the created Project to t
 5. **History is embedded** — one file = complete entity state
 6. **Disk is truth** — no in-memory caching, YAML on disk
 7. **No duplicate systems** — Issue lifecycle does not duplicate TaskNode lifecycle; they connect via `linked_task_ids`
+8. **Code-level checks, not LLM reviews** — periodic gap detection is pure logic (zero token cost), only creates projects when actual work is needed
+9. **Full execution flow** — every auto-created Project gets a TaskTree + EA scheduling, never an empty shell
 
 ## Related
 - [[Task Lifecycle FSM]] — TaskNode state machine that drives Issue status
