@@ -20,7 +20,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[sandbox]"
-          pip install pytest pytest-asyncio
+          pip install pytest pytest-asyncio pytest-cov
 
-      - name: Run unit tests
-        run: python -m pytest tests/unit/ -x --tb=short
+      - name: Run unit tests with coverage
+        run: |
+          python -m pytest tests/unit/ -x --tb=short \
+            --cov=onemancompany.core \
+            --cov=onemancompany.agents \
+            --cov-report=term-missing \
+            --cov-fail-under=100
