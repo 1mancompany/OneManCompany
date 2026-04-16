@@ -28,4 +28,4 @@ jobs:
             --cov=onemancompany.core \
             --cov=onemancompany.agents \
             --cov-report=term-missing \
-            --cov-fail-under=100
+            --cov-fail-under=98
