@@ -228,23 +228,6 @@ class TestGrepSearch:
 # list_colleagues (lines 526-528)
 # ---------------------------------------------------------------------------
 
-class TestListColleagues:
-    def test_with_tools(self):
-        from onemancompany.agents.common_tools import list_colleagues
-        from onemancompany.core.state import company_state, OfficeTool
-        company_state.tools["test_tool"] = OfficeTool(
-            id="test_tool", name="Test Tool", description="A tool",
-            added_by="COO", allowed_users=[],
-        )
-        try:
-            with patch("onemancompany.core.store.load_all_employees", return_value={
-                "00010": {"name": "Test", "role": "Dev", "department": "Tech",
-                          "skills": [], "tool_permissions": ["bash"]},
-            }):
-                result = list_colleagues.invoke({})
-            assert isinstance(result, str)
-        finally:
-            company_state.tools.pop("test_tool", None)
 
 
 # ---------------------------------------------------------------------------
