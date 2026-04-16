@@ -168,16 +168,17 @@ class TestAutoReply:
 
     def test_schedule_auto_reply_no_event_loop(self):
         """When there's no running event loop (RuntimeError), skip gracefully."""
+        from unittest.mock import MagicMock
         from onemancompany.core.conversation import ConversationService, Interaction
         svc = ConversationService()
         interaction = Interaction(
             node_id="n1", tree_path="/tmp/tree.yaml", project_id="proj1",
             source_employee="00010", interaction_type="approval",
-            message="test", future=asyncio.Future(),
+            message="test", future=MagicMock(),
         )
-        # This test runs without an event loop context, so create_task raises RuntimeError
-        # The function should handle this gracefully (lines 438-441)
-        svc._start_auto_reply_timer("c1", interaction)
+        # Patch create_task to raise RuntimeError (simulates no event loop)
+        with patch("asyncio.get_event_loop", side_effect=RuntimeError("no loop")):
+            svc._start_auto_reply_timer("c1", interaction)
         assert len(svc._auto_reply_tasks) == 0
 
 
