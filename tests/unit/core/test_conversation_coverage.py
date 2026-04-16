@@ -194,7 +194,7 @@ class TestEaAutoReply:
         interaction = Interaction(
             node_id="n1", tree_path="/tmp/tree.yaml", project_id="proj1",
             source_employee="00010", interaction_type="approval",
-            message="Please approve budget", future=asyncio.Future(),
+            message="Please approve budget", future=MagicMock(),
         )
 
         mock_llm = MagicMock()
@@ -214,7 +214,7 @@ class TestEaAutoReply:
         interaction = Interaction(
             node_id="n1", tree_path="/tmp/tree.yaml", project_id="proj1",
             source_employee="00010", interaction_type="approval",
-            message="test", future=asyncio.Future(),
+            message="test", future=MagicMock(),
         )
 
         with patch("onemancompany.agents.base.make_llm"), \
@@ -303,7 +303,7 @@ class TestDrainAndCancel:
     def test_drain_pending(self):
         from onemancompany.core.conversation import ConversationService, Interaction
         svc = ConversationService()
-        future = asyncio.Future()
+        future = MagicMock()
         interaction = Interaction(
             node_id="n1", tree_path="/tmp/tree.yaml", project_id="proj1",
             source_employee="00010", interaction_type="approval",
