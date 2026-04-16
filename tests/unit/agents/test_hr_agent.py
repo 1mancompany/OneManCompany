@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import random
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1276,3 +1277,94 @@ class TestPerformanceMeetingOnReview:
 
         # Review should still be recorded despite meeting failure
         assert emp.performance_history[-1]["score"] == 3.5
+
+
+class TestHREdgeCases:
+    @pytest.mark.asyncio
+    async def test_broadcast_exception_handled(self, monkeypatch):
+        """Lines 85-86: _broadcast exception is caught and logged."""
+        from onemancompany.agents import hr_agent
+        from onemancompany.core import async_utils
+
+        # Make spawn_background raise to trigger exception handler
+        monkeypatch.setattr(async_utils, "spawn_background", MagicMock(side_effect=Exception("bus error")))
+
+        # Should not raise
+        await hr_agent._broadcast("test_event", {"key": "val"})
+
+    def test_get_role_identity_section_no_guide(self, monkeypatch):
+        """Line 201: returns empty string when role_guide.md doesn't exist."""
+        from onemancompany.agents import hr_agent as hr_mod
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
+
+        monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
+        monkeypatch.setattr(hr_mod, "create_react_agent", lambda model, tools: MagicMock())
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", Path("/nonexistent"))
+
+        from onemancompany.agents.hr_agent import HRAgent
+        agent = HRAgent()
+        result = agent._get_role_identity_section()
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_quarterly_review_skips_ceo(self, monkeypatch):
+        """Line 272: CEO (level >= CEO_LEVEL) is skipped in quarterly review."""
+        from onemancompany.agents import hr_agent as hr_mod
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod, config as config_mod
+        from onemancompany.core.config import CEO_LEVEL
+
+        cs = _make_cs()
+        hr_emp = _make_emp(config_mod.HR_ID, level=FOUNDING_LEVEL, role="HR")
+        cs.employees[config_mod.HR_ID] = hr_emp
+
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
+        monkeypatch.setattr(base_mod, "load_employee_skills", lambda eid: {})
+        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", Path("/nonexistent"))
+        monkeypatch.setattr(base_mod, "SHARED_PROMPTS_DIR", Path("/nonexistent"))
+        monkeypatch.setattr(hr_mod, "create_react_agent", lambda model, tools: MagicMock())
+
+        # Mock store to return only CEO
+        mock_store = MagicMock()
+        mock_store.load_all_employees.return_value = {
+            "00001": {"name": "CEO", "level": CEO_LEVEL, "role": "CEO", "performance_history": []},
+        }
+        monkeypatch.setattr(hr_mod, "_store", mock_store)
+
+        agent = hr_mod.HRAgent()
+        # Mock self.run to avoid LLM call
+        agent.run = AsyncMock(return_value="Review done")
+        result = await agent.run_quarterly_review()
+        # The task should NOT contain CEO in the reviewable list
+        call_args = agent.run.call_args[0][0]
+        assert "CEO" not in call_args
+
+    @pytest.mark.asyncio
+    async def test_apply_results_review_skips_empty_id(self, monkeypatch):
+        """Line 362: review with no emp_id is skipped."""
+        from onemancompany.agents import hr_agent
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod, config as config_mod
+
+        cs = _make_cs()
+        emp = _make_emp(config_mod.HR_ID, level=FOUNDING_LEVEL, role="HR")
+        cs.employees[config_mod.HR_ID] = emp
+
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
+        monkeypatch.setattr(base_mod, "load_employee_skills", lambda eid: {})
+        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", Path("/nonexistent"))
+        monkeypatch.setattr(base_mod, "SHARED_PROMPTS_DIR", Path("/nonexistent"))
+        monkeypatch.setattr(hr_agent, "create_react_agent", lambda model, tools: MagicMock())
+
+        agent = hr_agent.HRAgent()
+
+        # Review entry with no id should be skipped
+        output = '```json\n{"action": "review", "reviews": [{"score": 3.5, "feedback": "OK"}]}\n```'
+        with patch("onemancompany.agents.hr_agent._execute_review", new_callable=AsyncMock) as mock_review:
+            await hr_agent.HRAgent._apply_results(agent, output)
+            mock_review.assert_not_called()

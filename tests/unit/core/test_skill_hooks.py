@@ -10,8 +10,10 @@ import pytest
 
 from onemancompany.core.skill_hooks import (
     HookConfig, HookEvent, HookResult,
-    _matches, _registry,
+    _build_env, _expand_command, _exec_callback_hook, _exec_command_hook,
+    _matches, _registry, _resolve_event,
     clear_hooks, collect_context, get_hooks, get_updated_input,
+    load_hooks_from_skills,
     register_callback_hook, register_skill_hooks,
     run_hooks, should_block,
 )
@@ -48,6 +50,11 @@ class TestMatches:
     def test_regex_fullmatch(self):
         assert _matches("bash.*", "bash_exec") is True
         assert _matches("bash.*", "prebash") is False
+
+    def test_invalid_regex_falls_back_to_exact(self):
+        # Invalid regex pattern — falls back to exact string match
+        assert _matches("[invalid", "[invalid") is True
+        assert _matches("[invalid", "other") is False
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +165,46 @@ class TestRegistration:
         assert len(hooks) == 1
         assert hooks[0].callback is my_hook
 
+    def test_hook_list_not_list_wrapped(self):
+        """Non-list hook_list value gets wrapped in a list."""
+        hooks_meta = {
+            "task_start": {"command": "echo single", "mode": "auto"},
+        }
+        count = register_skill_hooks("00004", "wrap-skill", hooks_meta)
+        assert count == 1
+
+    def test_non_dict_hook_entry_skipped(self):
+        """Non-dict entries in hook list are skipped."""
+        hooks_meta = {
+            "task_start": ["not-a-dict", {"command": "echo yes"}],
+        }
+        count = register_skill_hooks("00004", "mix-skill", hooks_meta)
+        assert count == 1
+
+    def test_cc_nested_non_dict_inner_skipped(self):
+        """Non-dict inner hooks in CC nested format are skipped."""
+        hooks_meta = {
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": ["not-a-dict", {"command": "echo ok"}],
+                },
+            ],
+        }
+        count = register_skill_hooks("00004", "nested-skip", hooks_meta)
+        assert count == 1
+
+    def test_empty_command_skipped(self):
+        """Hook with no command (e.g. unresolved trigger) is skipped."""
+        hooks_meta = {
+            "task_start": [
+                {"trigger": "nonexistent-trigger"},
+            ],
+        }
+        with patch("onemancompany.core.skill_hooks.EMPLOYEES_DIR", __import__("pathlib").Path("/nonexistent")):
+            count = register_skill_hooks("00004", "no-cmd", hooks_meta)
+        assert count == 0
+
 
 # ---------------------------------------------------------------------------
 # should_block / get_updated_input / collect_context
@@ -240,6 +287,308 @@ class TestCallbackExecution:
 # ---------------------------------------------------------------------------
 # Tool event filtering
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# _resolve_event
+# ---------------------------------------------------------------------------
+
+class TestResolveEvent:
+    def test_known_cc_event(self):
+        assert _resolve_event("PreToolUse") == HookEvent.PRE_TOOL
+
+    def test_our_event(self):
+        assert _resolve_event("pre_tool") == HookEvent.PRE_TOOL
+
+    def test_unknown_event(self):
+        assert _resolve_event("totally_unknown") is None
+
+    def test_valid_enum_value_fallback(self):
+        # "task_start" is both in _CC_EVENT_MAP and a valid HookEvent value
+        assert _resolve_event("task_start") == HookEvent.TASK_START
+
+
+# ---------------------------------------------------------------------------
+# _expand_command
+# ---------------------------------------------------------------------------
+
+class TestExpandCommand:
+    def test_expands_braced_vars(self):
+        env = {"FOO": "bar", "BAZ": "qux"}
+        result = _expand_command("echo ${FOO} ${BAZ}", env)
+        assert result == "echo bar qux"
+
+    def test_no_expansion_needed(self):
+        result = _expand_command("echo hello", {"FOO": "bar"})
+        assert result == "echo hello"
+
+
+# ---------------------------------------------------------------------------
+# _exec_command_hook
+# ---------------------------------------------------------------------------
+
+class TestExecCommandHook:
+    @pytest.mark.asyncio
+    async def test_successful_json_output(self):
+        config = HookConfig(
+            event=HookEvent.PRE_TOOL,
+            command='echo \'{"decision":"allow","reason":"ok","additionalContext":"ctx"}\'',
+            timeout=5,
+            skill_name="test",
+        )
+        env = dict(__import__("os").environ)
+        result = await _exec_command_hook(config, {}, env, "00004")
+        assert result.exit_code == 0
+        assert result.decision == "allow"
+        assert result.reason == "ok"
+        assert result.additional_context == "ctx"
+
+    @pytest.mark.asyncio
+    async def test_non_json_stdout(self):
+        config = HookConfig(
+            event=HookEvent.PRE_TOOL,
+            command="echo 'plain text'",
+            timeout=5,
+            skill_name="test",
+        )
+        env = dict(__import__("os").environ)
+        result = await _exec_command_hook(config, {}, env, "00004")
+        assert result.additional_context == "plain text"
+
+    @pytest.mark.asyncio
+    async def test_empty_stdout(self):
+        config = HookConfig(
+            event=HookEvent.PRE_TOOL,
+            command="true",
+            timeout=5,
+            skill_name="test",
+        )
+        env = dict(__import__("os").environ)
+        result = await _exec_command_hook(config, {}, env, "00004")
+        assert result.exit_code == 0
+
+    @pytest.mark.asyncio
+    async def test_stderr_with_exit_block(self):
+        config = HookConfig(
+            event=HookEvent.PRE_TOOL,
+            command="echo 'blocked' >&2; exit 2",
+            timeout=5,
+            skill_name="test",
+        )
+        env = dict(__import__("os").environ)
+        result = await _exec_command_hook(config, {}, env, "00004")
+        assert result.exit_code == 2
+        assert result.error == "blocked"
+
+    @pytest.mark.asyncio
+    async def test_stderr_with_nonzero_exit(self):
+        config = HookConfig(
+            event=HookEvent.PRE_TOOL,
+            command="echo 'warning' >&2; exit 1",
+            timeout=5,
+            skill_name="test",
+        )
+        env = dict(__import__("os").environ)
+        result = await _exec_command_hook(config, {}, env, "00004")
+        assert result.exit_code == 1
+        assert result.error == "warning"
+
+    @pytest.mark.asyncio
+    async def test_timeout(self):
+        config = HookConfig(
+            event=HookEvent.PRE_TOOL,
+            command="sleep 10",
+            timeout=0.1,
+            skill_name="test",
+        )
+        env = dict(__import__("os").environ)
+        result = await _exec_command_hook(config, {}, env, "00004")
+        assert result.exit_code == 1
+        assert "timed out" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_general_exception(self):
+        config = HookConfig(
+            event=HookEvent.PRE_TOOL,
+            command="echo ok",
+            timeout=5,
+            skill_name="test",
+        )
+        with patch("onemancompany.core.skill_hooks.asyncio.create_subprocess_shell",
+                    side_effect=OSError("spawn failed")):
+            result = await _exec_command_hook(config, {}, {}, "00004")
+        assert result.exit_code == 1
+        assert "spawn failed" in result.error
+
+    @pytest.mark.asyncio
+    async def test_json_with_updated_input(self):
+        config = HookConfig(
+            event=HookEvent.PRE_TOOL,
+            command='echo \'{"updatedInput":{"key":"val"}}\'',
+            timeout=5,
+            skill_name="test",
+        )
+        env = dict(__import__("os").environ)
+        result = await _exec_command_hook(config, {}, env, "00004")
+        assert result.updated_input == {"key": "val"}
+
+
+# ---------------------------------------------------------------------------
+# _exec_callback_hook exception
+# ---------------------------------------------------------------------------
+
+class TestExecCallbackHookException:
+    @pytest.mark.asyncio
+    async def test_callback_raises_exception(self):
+        async def bad_hook(inp):
+            raise ValueError("oops")
+
+        config = HookConfig(
+            event=HookEvent.TASK_START,
+            callback=bad_hook,
+            timeout=5,
+            skill_name="bad-skill",
+        )
+        result = await _exec_callback_hook(config, {})
+        assert result.exit_code == 1
+        assert "oops" in result.error
+
+
+# ---------------------------------------------------------------------------
+# run_hooks comprehensive branches
+# ---------------------------------------------------------------------------
+
+class TestRunHooksComprehensive:
+    @pytest.mark.asyncio
+    async def test_run_hooks_with_command_hook(self):
+        """Command hooks are executed via run_hooks."""
+        register_skill_hooks("00004", "cmd-skill", {
+            "task_start": [{"command": "echo '{}'"}],
+        })
+        results = await run_hooks("00004", HookEvent.TASK_START, task_id="t1")
+        assert len(results) == 1
+        assert results[0].exit_code == 0
+
+    @pytest.mark.asyncio
+    async def test_run_hooks_with_tool_output_and_error(self):
+        """run_hooks sets TOOL_OUTPUT and EXIT_CODE env vars."""
+        async def check_hook(inp):
+            assert "tool_output" in inp
+            assert "error_message" in inp
+            return {}
+
+        register_callback_hook("00004", HookEvent.POST_TOOL_FAILURE, check_hook)
+        results = await run_hooks(
+            "00004", HookEvent.POST_TOOL_FAILURE,
+            tool_name="bash",
+            tool_input={"cmd": "ls"},
+            tool_output={"error": "failed"},
+            error_message="command failed",
+        )
+        assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_run_hooks_filtered_to_empty(self):
+        """Hooks filtered by matcher to zero should return empty."""
+        register_skill_hooks("00004", "s", {
+            "pre_tool": [{"command": "echo ok", "matcher": "specific_tool"}],
+        })
+        results = await run_hooks("00004", HookEvent.PRE_TOOL, tool_name="other_tool")
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_run_hooks_with_tool_input(self):
+        async def cap_hook(inp):
+            assert inp["tool_input"] == {"arg": "val"}
+            return {}
+
+        register_callback_hook("00004", HookEvent.PRE_TOOL, cap_hook)
+        results = await run_hooks(
+            "00004", HookEvent.PRE_TOOL,
+            tool_name="bash",
+            tool_input={"arg": "val"},
+        )
+        assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_run_hooks_no_command_no_callback(self):
+        """Hook with neither command nor callback is skipped."""
+        config = HookConfig(event=HookEvent.TASK_START, skill_name="empty")
+        _registry[("00004", HookEvent.TASK_START)] = [config]
+        results = await run_hooks("00004", HookEvent.TASK_START)
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_run_hooks_gather_exception_converted(self):
+        """Raw exceptions from gather are converted to HookResults."""
+        # Patch gather to return an exception object (simulating return_exceptions=True)
+        real_gather = asyncio.gather
+
+        async def fake_gather(*coros, **kwargs):
+            # Run normally but replace first result with an exception
+            results = await real_gather(*coros, **kwargs)
+            return [RuntimeError("raw exception")] + list(results[1:])
+
+        async def ok_hook(inp):
+            return {"decision": "allow"}
+
+        register_callback_hook("00004", HookEvent.TASK_START, ok_hook)
+
+        with patch("onemancompany.core.skill_hooks.asyncio.gather", side_effect=fake_gather):
+            results = await run_hooks("00004", HookEvent.TASK_START)
+        assert len(results) == 1
+        assert results[0].exit_code == 1
+        assert "raw exception" in results[0].error
+
+    @pytest.mark.asyncio
+    async def test_run_hooks_tool_output_no_error(self):
+        """tool_output without error_message sets EXIT_CODE=0."""
+        async def hook(inp):
+            assert "tool_output" in inp
+            return {}
+
+        register_callback_hook("00004", HookEvent.POST_TOOL, hook)
+        results = await run_hooks(
+            "00004", HookEvent.POST_TOOL,
+            tool_name="bash",
+            tool_output={"ok": True},
+        )
+        assert len(results) == 1
+
+
+# ---------------------------------------------------------------------------
+# load_hooks_from_skills
+# ---------------------------------------------------------------------------
+
+class TestLoadHooksFromSkills:
+    def test_loads_and_registers(self):
+        with patch("onemancompany.core.config.load_employee_skills", return_value={"my-skill": "content"}) as _, \
+             patch("onemancompany.agents.base._parse_skill_frontmatter") as mock_parse:
+            mock_parse.return_value = (
+                {"metadata": {"hooks": {"task_start": [{"command": "echo hi"}]}}},
+                "Body",
+            )
+            total = load_hooks_from_skills("00004")
+        assert total == 1
+        assert len(get_hooks("00004", HookEvent.TASK_START)) == 1
+
+    def test_non_dict_metadata(self):
+        """Non-dict metadata.hooks falls back to empty."""
+        with patch("onemancompany.core.config.load_employee_skills", return_value={"s": "content"}) as _, \
+             patch("onemancompany.agents.base._parse_skill_frontmatter") as mock_parse:
+            mock_parse.return_value = (
+                {"metadata": "not-a-dict"},
+                "Body",
+            )
+            total = load_hooks_from_skills("00004")
+        assert total == 0
+
+    def test_no_hooks_in_metadata(self):
+        with patch("onemancompany.core.config.load_employee_skills", return_value={"s": "content"}) as _, \
+             patch("onemancompany.agents.base._parse_skill_frontmatter") as mock_parse:
+            mock_parse.return_value = ({"metadata": {}}, "Body")
+            total = load_hooks_from_skills("00004")
+        assert total == 0
+
 
 class TestToolEventFiltering:
     @pytest.mark.asyncio

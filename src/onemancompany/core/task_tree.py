@@ -103,16 +103,10 @@ class TaskNode:
     def __setattr__(self, name: str, value) -> None:
         super().__setattr__(name, value)
         if name == "description":
-            try:
-                super().__setattr__("_content_dirty", True)
-                super().__setattr__("_description_preview", (value or "")[:200])
-            except AttributeError:
-                return  # During __init__ before _content_dirty exists
+            super().__setattr__("_content_dirty", True)
+            super().__setattr__("_description_preview", (value or "")[:200])
         elif name in ("result", "directives"):
-            try:
-                super().__setattr__("_content_dirty", True)
-            except AttributeError:
-                return  # During __init__ before _content_dirty exists
+            super().__setattr__("_content_dirty", True)
 
     @property
     def description_preview(self) -> str:

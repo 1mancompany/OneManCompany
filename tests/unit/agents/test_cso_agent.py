@@ -456,3 +456,78 @@ class TestSalesPipelineLifecycle:
         result = cso_mod.settle_task.invoke({"task_id": "s1"})
         assert tasks[0]["status"] == "settled"
         assert overhead["company_tokens"] == 500
+
+
+class TestCSOEdgeCases:
+    def test_update_sales_task_no_event_loop(self, monkeypatch):
+        """_update_sales_task_sync uses sync fallback when no running event loop."""
+        from onemancompany.agents import cso_agent as cso_mod
+
+        tasks = [{"id": "s1", "status": "draft", "value": 100}]
+        monkeypatch.setattr(cso_mod, "_store", MagicMock(
+            load_sales_tasks=MagicMock(return_value=tasks),
+            save_sales_tasks_sync=MagicMock(),
+        ))
+        # No running loop — should use sync fallback
+        cso_mod._update_sales_task_sync("s1", {"status": "active"})
+        assert tasks[0]["status"] == "active"
+        cso_mod._store.save_sales_tasks_sync.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_sales_task_with_event_loop(self, monkeypatch):
+        """Line 56: _update_sales_task_sync uses create_task when loop is running."""
+        from onemancompany.agents import cso_agent as cso_mod
+        import asyncio
+
+        tasks = [{"id": "s1", "status": "draft", "value": 100}]
+        mock_store = MagicMock(
+            load_sales_tasks=MagicMock(return_value=tasks),
+            save_sales_tasks=AsyncMock(),
+        )
+        monkeypatch.setattr(cso_mod, "_store", mock_store)
+
+        cso_mod._update_sales_task_sync("s1", {"status": "active"})
+        assert tasks[0]["status"] == "active"
+        # Allow the created task to run
+        await asyncio.sleep(0)
+
+    def test_save_overhead_tokens_no_event_loop(self, monkeypatch):
+        """_save_overhead_tokens_sync sync fallback."""
+        from onemancompany.agents import cso_agent as cso_mod
+
+        monkeypatch.setattr(cso_mod, "_store", MagicMock(
+            load_overhead=MagicMock(return_value={"company_tokens": 0}),
+            save_overhead_sync=MagicMock(),
+        ))
+        cso_mod._save_overhead_tokens_sync(500)
+        cso_mod._store.save_overhead_sync.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_save_overhead_tokens_with_event_loop(self, monkeypatch):
+        """Line 75: _save_overhead_tokens_sync uses create_task when loop is running."""
+        from onemancompany.agents import cso_agent as cso_mod
+        import asyncio
+
+        mock_store = MagicMock(
+            load_overhead=MagicMock(return_value={"company_tokens": 0}),
+            save_overhead=AsyncMock(),
+        )
+        monkeypatch.setattr(cso_mod, "_store", mock_store)
+
+        cso_mod._save_overhead_tokens_sync(500)
+        await asyncio.sleep(0)
+
+    def test_get_role_identity_section_no_guide(self, monkeypatch):
+        """Line 253: returns empty string when role_guide.md doesn't exist."""
+        from onemancompany.agents import cso_agent as cso_mod
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
+
+        monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
+        monkeypatch.setattr(cso_mod, "create_react_agent", lambda model, tools: MagicMock())
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", Path("/nonexistent"))
+
+        from onemancompany.agents.cso_agent import CSOAgent
+        agent = CSOAgent()
+        result = agent._get_role_identity_section()
+        assert result == ""

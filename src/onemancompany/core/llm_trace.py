@@ -83,14 +83,8 @@ def _serialize_message(msg) -> dict[str, Any]:
         return {"role": "user", "content": msg.content}
     elif isinstance(msg, AIMessage):
         entry: dict[str, Any] = {"role": "assistant"}
-        # Content can be str or list of blocks
-        if isinstance(msg.content, str):
-            entry["content"] = msg.content
-        elif isinstance(msg.content, list):
-            # Multi-block content (text + tool_use mixed)
-            entry["content"] = msg.content
-        else:
-            entry["content"] = str(msg.content)
+        # Content is str or list of blocks (enforced by LangChain)
+        entry["content"] = msg.content
         # Tool calls
         tool_calls = getattr(msg, "tool_calls", None)
         if tool_calls:

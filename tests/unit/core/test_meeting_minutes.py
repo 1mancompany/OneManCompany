@@ -105,3 +105,44 @@ def test_query_returns_summary_without_messages(tmp_path, monkeypatch):
     assert len(results) == 1
     assert "messages" not in results[0]
     assert results[0]["message_count"] == 1
+
+
+def test_query_filters_by_room_id(tmp_path, monkeypatch):
+    """Line 72: room_id filter skips non-matching meetings."""
+    import onemancompany.core.meeting_minutes as mm
+    import yaml
+    monkeypatch.setattr(mm, "MINUTES_DIR", tmp_path)
+    doc1 = {"room_id": "room_A", "project_id": "", "participants": ["00003"], "messages": []}
+    doc2 = {"room_id": "room_B", "project_id": "", "participants": ["00003"], "messages": []}
+    (tmp_path / "meeting_a.yaml").write_text(yaml.dump(doc1))
+    (tmp_path / "meeting_b.yaml").write_text(yaml.dump(doc2))
+    results = mm.query_minutes(room_id="room_A")
+    assert len(results) == 1
+    assert results[0]["room_id"] == "room_A"
+
+
+def test_query_filters_by_project_id(tmp_path, monkeypatch):
+    """Line 72-73: project_id filter skips non-matching meetings."""
+    import onemancompany.core.meeting_minutes as mm
+    import yaml
+    monkeypatch.setattr(mm, "MINUTES_DIR", tmp_path)
+    # Write two meeting files directly to avoid timestamp collision
+    doc1 = {"room_id": "room1", "project_id": "proj_1", "participants": ["00003"], "messages": []}
+    doc2 = {"room_id": "room1", "project_id": "proj_2", "participants": ["00003"], "messages": []}
+    (tmp_path / "meeting_a.yaml").write_text(yaml.dump(doc1))
+    (tmp_path / "meeting_b.yaml").write_text(yaml.dump(doc2))
+    results = mm.query_minutes(project_id="proj_1")
+    assert len(results) == 1
+    assert results[0]["project_id"] == "proj_1"
+
+
+def test_query_respects_limit(tmp_path, monkeypatch):
+    """Line 80-81: limit cuts off results."""
+    import onemancompany.core.meeting_minutes as mm
+    import yaml
+    monkeypatch.setattr(mm, "MINUTES_DIR", tmp_path)
+    for i in range(5):
+        doc = {"room_id": "room1", "project_id": "", "participants": ["00003"], "messages": []}
+        (tmp_path / f"meeting_{i}.yaml").write_text(yaml.dump(doc))
+    results = mm.query_minutes(limit=2)
+    assert len(results) == 2

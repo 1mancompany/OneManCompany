@@ -81,3 +81,10 @@ class TestErrorClassification:
         for exc in exceptions:
             err = classify_exception(exc)
             assert err.suggestion, f"No suggestion for {err.code}"
+
+    def test_billing_limit_branch(self):
+        """Line 83: billing + limit triggers LLM_QUOTA_EXCEEDED."""
+        from onemancompany.core.errors import ErrorCode
+        exc = Exception("billing limit exceeded")
+        err = classify_exception(exc)
+        assert err.code == ErrorCode.LLM_QUOTA_EXCEEDED

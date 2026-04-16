@@ -19,3 +19,13 @@ def test_parse_valid(input_str, expected):
 ])
 def test_parse_invalid(input_str):
     assert parse_interval(input_str) is None
+
+
+def test_whitespace_only_returns_none():
+    """Line 17: string that becomes empty after strip."""
+    assert parse_interval("   ") is None
+
+
+def test_negative_value_returns_none():
+    """Line 29: negative duration produces result <= 0."""
+    assert parse_interval("-5m") is None
