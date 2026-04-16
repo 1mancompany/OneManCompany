@@ -446,6 +446,277 @@ class TestListAllCrons:
             result = auto_mod.list_all_crons()
         assert any(c["name"] == "c1" for c in result)
 
+    def test_list_all_crons_no_employees_dir(self, tmp_path, monkeypatch):
+        """Cover line 544-545: EMPLOYEES_DIR doesn't exist."""
+        import onemancompany.core.automation as auto_mod
+        monkeypatch.setattr(auto_mod, "EMPLOYEES_DIR", tmp_path / "nonexistent")
+        with patch("onemancompany.core.system_cron.system_cron_manager") as mock_sys:
+            mock_sys.get_all.return_value = [{"name": "sys_cron"}]
+            result = auto_mod.list_all_crons()
+        assert len(result) == 1
+
+    def test_list_all_crons_skips_non_dir(self, tmp_path, monkeypatch):
+        """Cover line 548-549: skip non-directory entries."""
+        import onemancompany.core.automation as auto_mod
+        import onemancompany.core.config as config_mod
+        emp_dir = tmp_path / "employees"
+        emp_dir.mkdir()
+        (emp_dir / "random_file.txt").write_text("not a dir")
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(auto_mod, "EMPLOYEES_DIR", emp_dir)
+        with patch("onemancompany.core.system_cron.system_cron_manager") as mock_sys:
+            mock_sys.get_all.return_value = []
+            result = auto_mod.list_all_crons()
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# _broadcast_cron_status exception path (lines 88-89)
+# ---------------------------------------------------------------------------
+
+class TestBroadcastCronStatusException:
+    def test_broadcast_exception_caught(self, tmp_path, monkeypatch):
+        """Cover lines 88-89: outer except catches broadcast errors."""
+        _setup_employee(tmp_path, monkeypatch)
+        from onemancompany.core.automation import _broadcast_cron_status
+        # Patch CompanyEvent to raise during construction
+        with patch("onemancompany.core.events.event_bus") as mock_bus:
+            mock_bus.publish.side_effect = RuntimeError("boom")
+            # Should not raise — caught by outer except
+            _broadcast_cron_status("00010", "test_cron", True)
+
+
+# ---------------------------------------------------------------------------
+# _add_to_project_tree — no root node (line 161) + success path (168-186)
+# ---------------------------------------------------------------------------
+
+class TestAddToProjectTreeFull:
+    def test_tree_has_no_root(self, tmp_path, monkeypatch):
+        """Cover line 161: tree has no root_id."""
+        _setup_employee(tmp_path, monkeypatch)
+        from onemancompany.core.automation import _add_to_project_tree
+
+        tree_file = tmp_path / "tree.yaml"
+        tree_file.write_text("")
+
+        mock_tree = MagicMock()
+        mock_tree.root_id = None
+
+        with patch("onemancompany.core.task_tree.get_tree", return_value=mock_tree), \
+             patch("onemancompany.core.task_tree.get_tree_lock"):
+            with pytest.raises(ValueError, match="no root node"):
+                _add_to_project_tree("00010", "desc", str(tree_file), "proj1")
+
+    def test_tree_root_is_terminal(self, tmp_path, monkeypatch):
+        """Cover line 166: root node in terminal state."""
+        _setup_employee(tmp_path, monkeypatch)
+        from onemancompany.core.automation import _add_to_project_tree
+
+        tree_file = tmp_path / "tree.yaml"
+        tree_file.write_text("")
+
+        mock_root_node = MagicMock()
+        mock_root_node.status = "finished"
+
+        mock_tree = MagicMock()
+        mock_tree.root_id = "root_001"
+        mock_tree.get_node.return_value = mock_root_node
+
+        with patch("onemancompany.core.task_tree.get_tree", return_value=mock_tree), \
+             patch("onemancompany.core.task_tree.get_tree_lock"):
+            with pytest.raises(ValueError, match="cannot add cron child"):
+                _add_to_project_tree("00010", "desc", str(tree_file), "proj1")
+
+    def test_add_to_project_tree_success(self, tmp_path, monkeypatch):
+        """Cover lines 168-186: successful add_child path."""
+        _setup_employee(tmp_path, monkeypatch)
+        from onemancompany.core.automation import _add_to_project_tree
+
+        tree_file = tmp_path / "tree.yaml"
+        tree_file.write_text("")
+
+        mock_child = MagicMock()
+        mock_child.id = "child_001"
+
+        mock_root_node = MagicMock()
+        mock_root_node.status = "processing"
+
+        mock_tree = MagicMock()
+        mock_tree.root_id = "root_001"
+        mock_tree.get_node.return_value = mock_root_node
+        mock_tree.add_child.return_value = mock_child
+
+        mock_manager = MagicMock()
+
+        with patch("onemancompany.core.task_tree.get_tree", return_value=mock_tree), \
+             patch("onemancompany.core.task_tree.get_tree_lock"), \
+             patch("onemancompany.core.task_tree.save_tree_async"), \
+             patch("onemancompany.core.vessel.employee_manager", mock_manager):
+            result = _add_to_project_tree("00010", "desc", str(tree_file), "proj1")
+        assert result == "child_001"
+        mock_manager.schedule_node.assert_called_once()
+        mock_manager._schedule_next.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _cancel_cron_tasks (lines 260-275, 279-282)
+# ---------------------------------------------------------------------------
+
+class TestCancelCronTasks:
+    def test_cancel_cron_tasks_cancels_node(self, tmp_path, monkeypatch):
+        """Cover lines 260-275: cancel a scheduled task node."""
+        _setup_employee(tmp_path, monkeypatch)
+        import onemancompany.core.automation as auto_mod
+
+        tree_file = tmp_path / "tree.yaml"
+        tree_file.write_text("")
+
+        mock_entry = MagicMock()
+        mock_entry.node_id = "task_1"
+        mock_entry.tree_path = str(tree_file)
+
+        mock_node = MagicMock()
+        mock_node.completed_at = None
+
+        mock_tree = MagicMock()
+        mock_tree.get_node.return_value = mock_node
+
+        mock_manager = MagicMock()
+        mock_manager._schedule = {"00010": [mock_entry]}
+        mock_manager._running_tasks = {}
+
+        with patch("onemancompany.core.vessel.employee_manager", mock_manager), \
+             patch("onemancompany.core.task_tree.TaskTree") as MockTaskTree, \
+             patch("onemancompany.core.task_lifecycle.safe_cancel", return_value=True):
+            MockTaskTree.load.return_value = mock_tree
+            result = auto_mod._cancel_cron_tasks("00010", ["task_1"])
+        assert "task_1" in result
+
+    def test_cancel_cron_tasks_skips_nonmatching_node(self, tmp_path, monkeypatch):
+        """Cover line 262: skip entry with non-matching node_id."""
+        _setup_employee(tmp_path, monkeypatch)
+        import onemancompany.core.automation as auto_mod
+
+        mock_entry = MagicMock()
+        mock_entry.node_id = "other_task"
+        mock_entry.tree_path = str(tmp_path / "tree.yaml")
+
+        mock_manager = MagicMock()
+        mock_manager._schedule = {"00010": [mock_entry]}
+        mock_manager._running_tasks = {}
+
+        with patch("onemancompany.core.vessel.employee_manager", mock_manager):
+            result = auto_mod._cancel_cron_tasks("00010", ["task_1"])
+        assert result == []
+
+    def test_cancel_cron_tasks_skips_missing_tree(self, tmp_path, monkeypatch):
+        """Cover line 265: skip entry whose tree_path doesn't exist."""
+        _setup_employee(tmp_path, monkeypatch)
+        import onemancompany.core.automation as auto_mod
+
+        mock_entry = MagicMock()
+        mock_entry.node_id = "task_1"
+        mock_entry.tree_path = str(tmp_path / "nonexistent_tree.yaml")
+
+        mock_manager = MagicMock()
+        mock_manager._schedule = {"00010": [mock_entry]}
+        mock_manager._running_tasks = {}
+
+        with patch("onemancompany.core.vessel.employee_manager", mock_manager):
+            result = auto_mod._cancel_cron_tasks("00010", ["task_1"])
+        assert result == []
+
+    def test_cancel_cron_tasks_cancels_running_asyncio_task(self, tmp_path, monkeypatch):
+        """Cover lines 279-282: cancel running asyncio.Task."""
+        _setup_employee(tmp_path, monkeypatch)
+        import onemancompany.core.automation as auto_mod
+
+        mock_entry = MagicMock()
+        mock_entry.node_id = "task_1"
+        mock_entry.tree_path = str(tmp_path / "tree.yaml")
+        (tmp_path / "tree.yaml").write_text("")
+
+        mock_node = MagicMock()
+        mock_tree = MagicMock()
+        mock_tree.get_node.return_value = mock_node
+
+        mock_running = MagicMock()
+        mock_running.done.return_value = False
+
+        mock_manager = MagicMock()
+        mock_manager._schedule = {"00010": [mock_entry]}
+        mock_manager._running_tasks = {"00010": mock_running}
+
+        with patch("onemancompany.core.vessel.employee_manager", mock_manager), \
+             patch("onemancompany.core.task_tree.TaskTree") as MockTT, \
+             patch("onemancompany.core.task_lifecycle.safe_cancel", return_value=True):
+            MockTT.load.return_value = mock_tree
+            result = auto_mod._cancel_cron_tasks("00010", ["task_1"])
+        assert "task_1" in result
+        mock_running.cancel.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# stop_all_crons_for_employee with task_ids (line 365)
+# ---------------------------------------------------------------------------
+
+class TestStopAllCronsWithTasks:
+    def test_stop_all_with_dispatched_tasks(self, tmp_path, monkeypatch):
+        """Cover line 365: calls _cancel_cron_tasks when task_ids exist."""
+        _setup_employee(tmp_path, monkeypatch)
+        import onemancompany.core.automation as auto_mod
+
+        auto_mod._save_automations("00010", {
+            "crons": [{"name": "c1", "dispatched_task_ids": ["node_1", "node_2"]}],
+            "webhooks": [],
+        })
+
+        t1 = MagicMock()
+        t1.done.return_value = False
+        auto_mod._cron_tasks["00010:c1"] = t1
+
+        with patch.object(auto_mod, "_cancel_cron_tasks", return_value=["node_1"]) as mock_cancel:
+            result = auto_mod.stop_all_crons_for_employee("00010")
+        mock_cancel.assert_called_once()
+        assert result["cancelled_tasks"] == ["node_1"]
+
+
+# ---------------------------------------------------------------------------
+# restore_all_crons — skip non-dir file (line 398)
+# ---------------------------------------------------------------------------
+
+class TestRestoreAllCronsNonDir:
+    @pytest.mark.asyncio
+    async def test_restore_all_skips_non_dir(self, tmp_path, monkeypatch):
+        """Cover line 397-398: skip non-directory entries."""
+        import onemancompany.core.automation as auto_mod
+        import onemancompany.core.config as config_mod
+        emp_dir = tmp_path / "employees"
+        emp_dir.mkdir()
+        (emp_dir / "a_file.txt").write_text("not a dir")
+        monkeypatch.setattr(auto_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        count = auto_mod.restore_all_crons()
+        assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# restore_all_webhooks — skip non-dir (line 504)
+# ---------------------------------------------------------------------------
+
+class TestRestoreAllWebhooksNonDir:
+    def test_restore_webhooks_skips_non_dir(self, tmp_path, monkeypatch):
+        """Cover line 503-504: skip non-directory entries."""
+        import onemancompany.core.automation as auto_mod
+        import onemancompany.core.config as config_mod
+        emp_dir = tmp_path / "employees"
+        emp_dir.mkdir()
+        (emp_dir / "a_file.txt").write_text("not a dir")
+        monkeypatch.setattr(auto_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        count = auto_mod.restore_all_webhooks()
+        assert count == 0
+
 
 # ---------------------------------------------------------------------------
 # stop_all_automations (lines 572-579)

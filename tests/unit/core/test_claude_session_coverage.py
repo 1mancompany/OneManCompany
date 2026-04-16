@@ -518,3 +518,452 @@ class TestEnsurePlugins:
         monkeypatch.setattr(cs_mod, "_ensured_plugins", {"already-done"})
         # Should be no-op
         await cs_mod._ensure_plugins(["already-done"])
+
+
+# ---------------------------------------------------------------------------
+# _run_claude_cmd — CancelledError + generic exception (lines 189-192)
+# ---------------------------------------------------------------------------
+
+class TestRunClaudeCmdEdgeCases:
+    @pytest.mark.asyncio
+    async def test_cancelled_error_reraises(self):
+        import onemancompany.core.claude_session as cs_mod
+        with patch("asyncio.create_subprocess_exec", side_effect=asyncio.CancelledError):
+            with pytest.raises(asyncio.CancelledError):
+                await cs_mod._run_claude_cmd(["echo"], "test", {})
+
+    @pytest.mark.asyncio
+    async def test_generic_exception(self):
+        import onemancompany.core.claude_session as cs_mod
+        with patch("asyncio.create_subprocess_exec", side_effect=OSError("no such file")):
+            result = await cs_mod._run_claude_cmd(["bad"], "test", {})
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# write_llm_trace — OSError path (lines 56-57)
+# ---------------------------------------------------------------------------
+
+class TestWriteLlmTraceError:
+    def test_write_trace_os_error(self, tmp_path, monkeypatch):
+        import onemancompany.core.claude_session as cs_mod
+        import onemancompany.core.config as config_mod
+        monkeypatch.setattr(config_mod, "IS_DEBUG", True)
+        monkeypatch.setattr(cs_mod, "PROJECTS_DIR", tmp_path)
+        # Create a file where the directory should be
+        (tmp_path / "proj1").write_text("I'm a file, not a dir")
+        # Should not raise — just log
+        cs_mod.write_llm_trace("proj1", {"data": "test"})
+
+
+# ---------------------------------------------------------------------------
+# ClaudeDaemon.start() (lines 291-337)
+# ---------------------------------------------------------------------------
+
+class TestClaudeDaemonStart:
+    @pytest.mark.asyncio
+    async def test_start_new_session(self, tmp_path, monkeypatch):
+        import onemancompany.core.claude_session as cs_mod
+        from onemancompany.core.claude_session import ClaudeDaemon
+        monkeypatch.setattr(cs_mod, "EMPLOYEES_DIR", tmp_path)
+        (tmp_path / "emp1").mkdir()
+
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", True, work_dir=str(tmp_path))
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+        mock_proc.pid = 12345
+        mock_proc.stderr = MagicMock()
+        mock_proc.stderr.readline = AsyncMock(return_value=b"")
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = AsyncMock(side_effect=asyncio.TimeoutError)
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
+            await daemon.start()
+        assert daemon._started is True
+        assert daemon.is_new is False  # After start, future restarts should use --resume
+
+    @pytest.mark.asyncio
+    async def test_start_resume_session(self, tmp_path, monkeypatch):
+        import onemancompany.core.claude_session as cs_mod
+        from onemancompany.core.claude_session import ClaudeDaemon
+        monkeypatch.setattr(cs_mod, "EMPLOYEES_DIR", tmp_path)
+        (tmp_path / "emp1").mkdir()
+
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", False, work_dir=str(tmp_path))
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+        mock_proc.pid = 12345
+        mock_proc.stderr = MagicMock()
+        mock_proc.stderr.readline = AsyncMock(return_value=b"")
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = AsyncMock(side_effect=asyncio.TimeoutError)
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
+            await daemon.start()
+        assert daemon._started is True
+
+    @pytest.mark.asyncio
+    async def test_start_with_model_and_mcp(self, tmp_path, monkeypatch):
+        import onemancompany.core.claude_session as cs_mod
+        from onemancompany.core.claude_session import ClaudeDaemon
+        monkeypatch.setattr(cs_mod, "EMPLOYEES_DIR", tmp_path)
+        (tmp_path / "emp1").mkdir()
+
+        daemon = ClaudeDaemon(
+            "emp1", "proj1", "sid1", True,
+            model="claude-3", mcp_config_path="/tmp/mcp.json",
+            work_dir=str(tmp_path),
+        )
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+        mock_proc.pid = 12345
+        mock_proc.stderr = MagicMock()
+        mock_proc.stderr.readline = AsyncMock(return_value=b"")
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = AsyncMock(side_effect=asyncio.TimeoutError)
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
+            await daemon.start()
+        assert daemon._started is True
+
+    @pytest.mark.asyncio
+    async def test_start_with_plugins(self, tmp_path, monkeypatch):
+        import onemancompany.core.claude_session as cs_mod
+        from onemancompany.core.claude_session import ClaudeDaemon
+        monkeypatch.setattr(cs_mod, "EMPLOYEES_DIR", tmp_path)
+        (tmp_path / "emp1").mkdir()
+
+        daemon = ClaudeDaemon(
+            "emp1", "proj1", "sid1", True,
+            claude_plugins=["my_plugin"],
+            work_dir=str(tmp_path),
+        )
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+        mock_proc.pid = 12345
+        mock_proc.stderr = MagicMock()
+        mock_proc.stderr.readline = AsyncMock(return_value=b"")
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = AsyncMock(side_effect=asyncio.TimeoutError)
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
+             patch.object(cs_mod, "_ensure_plugins", new_callable=AsyncMock):
+            await daemon.start()
+        assert daemon._started is True
+
+
+# ---------------------------------------------------------------------------
+# _drain_initial_stdout (lines 350-376)
+# ---------------------------------------------------------------------------
+
+class TestDrainInitialStdout:
+    @pytest.mark.asyncio
+    async def test_drain_json_messages(self):
+        from onemancompany.core.claude_session import ClaudeDaemon
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", True)
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+
+        lines = [
+            json.dumps({"type": "assistant", "message": {}}).encode() + b"\n",
+        ]
+        call_idx = [0]
+
+        async def mock_readline():
+            if call_idx[0] < len(lines):
+                line = lines[call_idx[0]]
+                call_idx[0] += 1
+                return line
+            raise asyncio.TimeoutError
+
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = mock_readline
+        daemon.proc = mock_proc
+        await daemon._drain_initial_stdout()
+
+    @pytest.mark.asyncio
+    async def test_drain_non_json_line(self):
+        from onemancompany.core.claude_session import ClaudeDaemon
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", True)
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+
+        call_idx = [0]
+
+        async def mock_readline():
+            if call_idx[0] == 0:
+                call_idx[0] += 1
+                return b"not json\n"
+            raise asyncio.TimeoutError
+
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = mock_readline
+        daemon.proc = mock_proc
+        await daemon._drain_initial_stdout()
+
+    @pytest.mark.asyncio
+    async def test_drain_eof(self):
+        from onemancompany.core.claude_session import ClaudeDaemon
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", True)
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = AsyncMock(return_value=b"")
+        daemon.proc = mock_proc
+        await daemon._drain_initial_stdout()
+
+    @pytest.mark.asyncio
+    async def test_drain_no_proc(self):
+        from onemancompany.core.claude_session import ClaudeDaemon
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", True)
+        daemon.proc = None
+        await daemon._drain_initial_stdout()  # should return immediately
+
+
+# ---------------------------------------------------------------------------
+# _write_debug_trace (lines 485, 491-503)
+# ---------------------------------------------------------------------------
+
+class TestDaemonWriteDebugTrace:
+    def test_write_debug_trace_success(self):
+        from onemancompany.core.claude_session import ClaudeDaemon
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", True)
+        with patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/proj"), \
+             patch("onemancompany.core.llm_trace.write_debug_trace_async") as mock_write, \
+             patch("onemancompany.core.vessel._current_task_id") as mock_tid:
+            mock_tid.get.return_value = "node_1"
+            daemon._write_debug_trace([{"role": "user", "content": "hi"}], "claude-3", 10, 5)
+        mock_write.assert_called_once()
+
+    def test_write_debug_trace_no_project_dir(self):
+        from onemancompany.core.claude_session import ClaudeDaemon
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", True)
+        with patch("onemancompany.core.project_archive.get_project_dir", return_value=None):
+            daemon._write_debug_trace([], "claude-3", 10, 5)  # should return early
+
+    def test_write_debug_trace_outer_exception(self):
+        from onemancompany.core.claude_session import ClaudeDaemon
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", True)
+        with patch("onemancompany.core.project_archive.get_project_dir", side_effect=RuntimeError("boom")):
+            daemon._write_debug_trace([], "claude-3", 10, 5)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# _trace_assistant_message — non-dict block skip (line 396)
+# ---------------------------------------------------------------------------
+
+class TestTraceAssistantMessageNonDict:
+    def test_skips_non_dict_block(self, monkeypatch):
+        import onemancompany.core.claude_session as cs_mod
+        from onemancompany.core.claude_session import ClaudeDaemon
+        monkeypatch.setattr("onemancompany.core.config.IS_DEBUG", False)
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", True)
+        message = {"content": ["not a dict", 42, {"type": "text", "text": "ok"}]}
+        daemon._trace_assistant_message(message)
+
+
+# ---------------------------------------------------------------------------
+# _accumulate_debug_assistant — non-dict block (line 442)
+# ---------------------------------------------------------------------------
+
+class TestAccumulateDebugNonDict:
+    def test_skips_non_dict(self):
+        from onemancompany.core.claude_session import ClaudeDaemon
+        messages: list[dict] = []
+        msg = {"content": ["string_block", 123]}
+        ClaudeDaemon._accumulate_debug_assistant(messages, msg)
+        assert len(messages) == 0
+
+
+# ---------------------------------------------------------------------------
+# send_prompt — assistant message path (lines 573-589) + non-JSON (552-554)
+# ---------------------------------------------------------------------------
+
+class TestSendPromptAssistant:
+    @pytest.mark.asyncio
+    async def test_send_prompt_assistant_message(self, monkeypatch):
+        import onemancompany.core.claude_session as cs_mod
+        from onemancompany.core.claude_session import ClaudeDaemon
+        monkeypatch.setattr("onemancompany.core.config.IS_DEBUG", False)
+
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", True)
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.write = MagicMock()
+        mock_proc.stdin.drain = AsyncMock()
+
+        assistant_msg = json.dumps({
+            "type": "assistant",
+            "message": {
+                "model": "claude-3",
+                "usage": {"input_tokens": 50, "output_tokens": 100},
+                "content": [{"type": "text", "text": "Hello"}],
+            },
+        })
+        non_json = b"not json at all\n"
+        empty_line = b"\n"
+        result_msg = json.dumps({"type": "result", "result": "Done"})
+
+        lines = [
+            non_json,
+            empty_line,
+            assistant_msg.encode() + b"\n",
+            result_msg.encode() + b"\n",
+        ]
+        call_idx = [0]
+
+        async def mock_readline():
+            if call_idx[0] < len(lines):
+                line = lines[call_idx[0]]
+                call_idx[0] += 1
+                return line
+            return b""
+
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = mock_readline
+        daemon.proc = mock_proc
+
+        with patch("onemancompany.core.claude_session._mark_session_used"):
+            resp = await daemon.send_prompt("hello", timeout=5)
+        assert resp["model"] == "claude-3"
+
+
+# ---------------------------------------------------------------------------
+# ClaudeDaemon.stop — stderr task cancel (lines 642-646)
+# ---------------------------------------------------------------------------
+
+class TestDaemonStopStderrCancel:
+    @pytest.mark.asyncio
+    async def test_stop_cancels_stderr_task(self, tmp_path, monkeypatch):
+        import onemancompany.core.claude_session as cs_mod
+        from onemancompany.core.claude_session import ClaudeDaemon
+        monkeypatch.setattr(cs_mod, "EMPLOYEES_DIR", tmp_path)
+        (tmp_path / "emp1").mkdir()
+
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", True)
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+        mock_proc.pid = 12345
+        mock_proc.terminate = MagicMock()
+        mock_proc.wait = AsyncMock()
+        daemon.proc = mock_proc
+
+        # Use a real asyncio.Task-like object that can be awaited
+        async def _noop():
+            pass
+
+        loop = asyncio.get_event_loop()
+        real_task = loop.create_task(_noop())
+        await real_task  # let it finish first
+
+        # Now create a task that raises CancelledError when awaited
+        async def _wait_forever():
+            await asyncio.sleep(1000)
+
+        real_task2 = loop.create_task(_wait_forever())
+        real_task2.cancel()
+        daemon._stderr_task = real_task2
+        await daemon.stop()
+
+
+# ---------------------------------------------------------------------------
+# _get_or_start_daemon (lines 673-751)
+# ---------------------------------------------------------------------------
+
+class TestGetOrStartDaemon:
+    @pytest.mark.asyncio
+    async def test_returns_existing_alive_daemon(self, monkeypatch):
+        import onemancompany.core.claude_session as cs_mod
+        daemon = MagicMock()
+        type(daemon).alive = PropertyMock(return_value=True)
+        cs_mod._daemons["emp1:proj1"] = daemon
+
+        result = await cs_mod._get_or_start_daemon("emp1", "proj1")
+        assert result is daemon
+        cs_mod._daemons.pop("emp1:proj1", None)
+
+    @pytest.mark.asyncio
+    async def test_cleans_up_dead_daemon(self, tmp_path, monkeypatch):
+        import onemancompany.core.claude_session as cs_mod
+        monkeypatch.setattr(cs_mod, "EMPLOYEES_DIR", tmp_path)
+        (tmp_path / "emp1").mkdir()
+
+        old_daemon = MagicMock()
+        type(old_daemon).alive = PropertyMock(return_value=False)
+        old_daemon.stop = AsyncMock()
+        cs_mod._daemons["emp1:proj1"] = old_daemon
+
+        new_daemon = MagicMock()
+        type(new_daemon).alive = PropertyMock(return_value=True)
+        new_daemon.start = AsyncMock()
+
+        with patch.object(cs_mod, "get_or_create_session", return_value=("sid_new", True)), \
+             patch("onemancompany.tools.mcp.config_builder.write_mcp_config", return_value=Path("/tmp/mcp.json")), \
+             patch("onemancompany.core.config.load_employee_profile_yaml", return_value={}), \
+             patch("onemancompany.core.config.employee_configs", {}), \
+             patch.object(cs_mod, "ClaudeDaemon", return_value=new_daemon):
+            result = await cs_mod._get_or_start_daemon("emp1", "proj1", work_dir=str(tmp_path))
+        assert result is new_daemon
+        old_daemon.stop.assert_called_once()
+        cs_mod._daemons.pop("emp1:proj1", None)
+
+    @pytest.mark.asyncio
+    async def test_restart_on_dead_after_start(self, tmp_path, monkeypatch):
+        """Cover lines 721-751: daemon dies after start, restart with new session."""
+        import onemancompany.core.claude_session as cs_mod
+        monkeypatch.setattr(cs_mod, "EMPLOYEES_DIR", tmp_path)
+        (tmp_path / "emp1").mkdir()
+
+        # Remove stale daemon
+        cs_mod._daemons.pop("emp1:proj1", None)
+
+        dead_daemon = MagicMock()
+        type(dead_daemon).alive = PropertyMock(return_value=False)
+        dead_daemon.start = AsyncMock()
+        dead_daemon.stop = AsyncMock()
+
+        alive_daemon = MagicMock()
+        type(alive_daemon).alive = PropertyMock(return_value=True)
+        alive_daemon.start = AsyncMock()
+
+        daemon_call_count = [0]
+
+        def make_daemon(*a, **kw):
+            daemon_call_count[0] += 1
+            if daemon_call_count[0] == 1:
+                return dead_daemon
+            return alive_daemon
+
+        with patch.object(cs_mod, "get_or_create_session", return_value=("sid_new", True)), \
+             patch("onemancompany.tools.mcp.config_builder.write_mcp_config", return_value=Path("/tmp/mcp.json")), \
+             patch("onemancompany.core.config.load_employee_profile_yaml", return_value={}), \
+             patch("onemancompany.core.config.employee_configs", {}), \
+             patch.object(cs_mod, "ClaudeDaemon", side_effect=make_daemon):
+            result = await cs_mod._get_or_start_daemon("emp1", "proj1", work_dir=str(tmp_path))
+        assert result is alive_daemon
+        dead_daemon.stop.assert_called_once()
+        cs_mod._daemons.pop("emp1:proj1", None)
+
+
+# ---------------------------------------------------------------------------
+# cleanup_orphan_sessions — skip non-dir (line 827) + no PID (line 834)
+# ---------------------------------------------------------------------------
+
+class TestCleanupOrphanSessionsEdge:
+    def test_skip_non_dir(self, tmp_path, monkeypatch):
+        import onemancompany.core.claude_session as cs_mod
+        monkeypatch.setattr(cs_mod, "EMPLOYEES_DIR", tmp_path)
+        (tmp_path / "a_file.txt").write_text("not a dir")
+        count = cs_mod.cleanup_orphan_sessions()
+        assert count == 0
+
+    def test_skip_no_pid(self, tmp_path, monkeypatch):
+        import onemancompany.core.claude_session as cs_mod
+        monkeypatch.setattr(cs_mod, "EMPLOYEES_DIR", tmp_path)
+        (tmp_path / "00010").mkdir()
+        cs_mod._save_sessions("00010", {
+            "proj1": {"session_id": "sid1"},  # no running_pid
+        })
+        count = cs_mod.cleanup_orphan_sessions()
+        assert count == 0
