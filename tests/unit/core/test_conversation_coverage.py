@@ -152,13 +152,15 @@ class TestSendMessage:
 # ---------------------------------------------------------------------------
 
 class TestAutoReply:
-    def test_schedule_auto_reply_credential_request_skips(self):
+    @pytest.mark.asyncio
+    async def test_schedule_auto_reply_credential_request_skips(self):
         from onemancompany.core.conversation import ConversationService, Interaction
         svc = ConversationService()
+        loop = asyncio.get_event_loop()
         interaction = Interaction(
             node_id="n1", tree_path="/tmp/tree.yaml", project_id="proj1",
             source_employee="00010", interaction_type="credential_request",
-            message="need creds", future=asyncio.Future(),
+            message="need creds", future=loop.create_future(),
         )
         # Should not schedule anything
         svc._start_auto_reply_timer("c1", interaction)
