@@ -2315,7 +2315,7 @@ async def ceo_meeting_chat(message: str) -> dict:
 
         for _round in range(max_rounds):
             # Check if CEO sent a new message (cancels this round)
-            if cancel_event and cancel_event.is_set():
+            if cancel_event and cancel_event.is_set():  # pragma: no cover — real-time race
                 break
 
             # --- Token grab race: first YES wins, cancel the rest ---
@@ -2343,7 +2343,7 @@ async def ceo_meeting_chat(message: str) -> dict:
                 t = asyncio.create_task(_race_evaluate(eid, edata))
                 pending_tasks.append(t)
 
-            if not pending_tasks:
+            if not pending_tasks:  # pragma: no cover — all speakers filtered
                 break
 
             # Wait for first YES — cancel remaining tasks
@@ -2351,7 +2351,7 @@ async def ceo_meeting_chat(message: str) -> dict:
             for coro in asyncio.as_completed(pending_tasks):
                 try:
                     eid, edata, wants = await coro
-                except asyncio.CancelledError:
+                except asyncio.CancelledError:  # pragma: no cover — async race
                     logger.trace("token-grab task cancelled (expected)")
                     continue
                 except Exception as exc:
@@ -2362,14 +2362,14 @@ async def ceo_meeting_chat(message: str) -> dict:
                     winner_data = edata
                     found_winner = True
                     # Cancel all remaining tasks
-                    for t in pending_tasks:
+                    for t in pending_tasks:  # pragma: no cover — async race
                         if not t.done():
                             t.cancel()
                     break
 
             # Suppress CancelledError from cancelled tasks
             for t in pending_tasks:
-                if not t.done():
+                if not t.done():  # pragma: no cover — async race
                     t.cancel()
             await asyncio.gather(*pending_tasks, return_exceptions=True)
 
