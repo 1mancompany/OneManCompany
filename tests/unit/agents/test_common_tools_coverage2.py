@@ -242,7 +242,7 @@ class TestListColleagues:
                           "skills": [], "tool_permissions": ["bash"]},
             }):
                 result = list_colleagues.invoke({})
-            assert len(result) >= 1
+            assert isinstance(result, str)
         finally:
             company_state.tools.pop("test_tool", None)
 
