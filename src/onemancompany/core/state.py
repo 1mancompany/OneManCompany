@@ -105,7 +105,7 @@ def get_active_tasks() -> list[TaskEntry]:
                     completed_at=node.completed_at or "",
                 ))
             except Exception as e:
-                logger.warning("Failed to load task tree {}: {}", tree_path, e)
+                logger.warning("Failed to load task tree {}: {}", tp, e)
     return result
 
 
