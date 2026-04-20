@@ -270,7 +270,7 @@ class TestProjectCompleteTrigger:
         with patch("onemancompany.core.product_triggers.event_bus") as mock_bus:
             mock_bus.publish = AsyncMock()
             with patch("onemancompany.core.product_triggers.run_product_check", new_callable=AsyncMock), \
-                 patch("onemancompany.core.product_triggers.dispatch_owner_review", new_callable=AsyncMock):
+                 patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock):
                 await handle_project_complete(event)
 
         loaded = prod.load_product(p["slug"])
@@ -305,7 +305,7 @@ class TestProjectCompleteTrigger:
             },
         )
         with patch("onemancompany.core.product_triggers.run_product_check", new_callable=AsyncMock) as mock_check, \
-             patch("onemancompany.core.product_triggers.dispatch_owner_review", new_callable=AsyncMock):
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock):
             await handle_project_complete(event)
             mock_check.assert_called_once_with(p["slug"])
 
@@ -397,7 +397,7 @@ class TestKRTrigger:
 class TestRunProductCheck:
     @pytest.fixture(autouse=True)
     def _mock_owner_review(self):
-        with patch("onemancompany.core.product_triggers.dispatch_owner_review", new_callable=AsyncMock):
+        with patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock):
             yield
 
     @pytest.mark.asyncio
