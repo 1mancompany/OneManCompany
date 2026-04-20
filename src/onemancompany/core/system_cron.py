@@ -184,15 +184,21 @@ class SystemCronManager:
         self._tasks.clear()
         logger.info("All system crons stopped")
 
-    def start(self, name: str) -> dict:
-        """Start a single system cron by name. Removes from disabled set."""
+    def start(self, name: str, run_immediately: bool = False) -> dict:
+        """Start a single system cron by name. Removes from disabled set.
+
+        If run_immediately=True, triggers one execution before entering the loop.
+        """
         defn = self._registry.get(name)
         if not defn:
             return {"status": "error", "message": f"Unknown system cron: {name}"}
         existing = self._tasks.get(name)
         if existing and not existing.done():
             existing.cancel()
-        task = asyncio.create_task(self._loop(defn), name=f"system_cron:{name}")
+        task = asyncio.create_task(
+            self._loop(defn, run_first=run_immediately),
+            name=f"system_cron:{name}",
+        )
         self._tasks[name] = task
         if name in self._disabled:
             self._disabled.discard(name)
@@ -244,14 +250,19 @@ class SystemCronManager:
             })
         return result
 
-    async def _loop(self, cron_def: SystemCronDef) -> None:
+    async def _loop(self, cron_def: SystemCronDef, run_first: bool = False) -> None:
         """Main loop for a single system cron."""
         from onemancompany.core.events import event_bus
 
         logger.info("[system_cron] Started '{}' every {}", cron_def.name, cron_def.current_interval)
         try:
+            first_iteration = True
             while True:
-                await asyncio.sleep(cron_def.current_interval_seconds)
+                if first_iteration and run_first:
+                    first_iteration = False
+                    # Skip initial sleep — run immediately
+                else:
+                    await asyncio.sleep(cron_def.current_interval_seconds)
                 try:
                     events = await cron_def.handler()
                     cron_def.last_run = datetime.now()
