@@ -505,6 +505,112 @@ class TestResolveTaskStatus:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Export / Import
+# ---------------------------------------------------------------------------
+
+
+class TestProductExportImport:
+    def test_export_product(self):
+        """Export returns portable bundle with product, KRs, issues."""
+        p = prod.create_product(name="ExportTest", owner_id="00004", description="test desc")
+        prod.add_key_result(p["slug"], title="KR1", target=100, unit="users")
+        prod.create_issue(slug=p["slug"], title="Issue1", created_by="ceo", priority=IssuePriority.P1)
+
+        bundle = prod.export_product(p["slug"])
+        assert bundle is not None
+        assert bundle["format"] == "omc-product-v1"
+        assert bundle["product"]["name"] == "ExportTest"
+        assert bundle["product"]["description"] == "test desc"
+        assert len(bundle["product"]["key_results"]) == 1
+        assert bundle["product"]["key_results"][0]["title"] == "KR1"
+        assert bundle["product"]["key_results"][0]["target"] == 100
+        assert bundle["product"]["key_results"][0]["unit"] == "users"
+        assert len(bundle["issues"]) == 1
+        assert bundle["issues"][0]["title"] == "Issue1"
+
+    def test_export_missing_product(self):
+        assert prod.export_product("nonexistent") is None
+
+    def test_import_product(self):
+        bundle = {
+            "format": "omc-product-v1",
+            "product": {
+                "name": "Imported Product",
+                "description": "imported desc",
+                "key_results": [
+                    {"title": "KR1", "target": 100, "unit": "users"},
+                    {"title": "KR2", "target": 50},
+                ],
+            },
+            "issues": [
+                {"title": "Issue A", "priority": "P0", "labels": ["urgent"]},
+                {"title": "Issue B", "description": "desc B"},
+            ],
+        }
+        result = prod.import_product(bundle, owner_id="00004", auto_activate=True)
+        assert result["issues_created"] == 2
+        assert result["krs_created"] == 2
+        assert result["auto_activated"] is True
+
+        # Verify created
+        product = prod.load_product(result["slug"])
+        assert product["name"] == "Imported Product"
+        assert product["status"] == ProductStatus.ACTIVE
+        assert len(product["key_results"]) == 2
+        issues = prod.list_issues(result["slug"])
+        assert len(issues) == 2
+
+    def test_import_invalid_format(self):
+        with pytest.raises(ValueError, match="Invalid format"):
+            prod.import_product({"format": "wrong"})
+
+    def test_import_no_name(self):
+        with pytest.raises(ValueError, match="name"):
+            prod.import_product({"format": "omc-product-v1", "product": {}})
+
+    def test_import_planning_when_no_owner(self):
+        bundle = {
+            "format": "omc-product-v1",
+            "product": {"name": "No Owner Product", "key_results": []},
+            "issues": [],
+        }
+        result = prod.import_product(bundle, owner_id="", auto_activate=True)
+        assert result["auto_activated"] is False
+        product = prod.load_product(result["slug"])
+        assert product["status"] == ProductStatus.PLANNING
+
+    def test_roundtrip_export_import(self):
+        """Export a product, then import it — the imported copy should match."""
+        p = prod.create_product(name="RoundTrip", owner_id="00004", description="round trip test")
+        prod.add_key_result(p["slug"], title="Users", target=500, unit="DAU")
+        prod.create_issue(slug=p["slug"], title="Bug X", created_by="ceo", priority=IssuePriority.P1, labels=["bug"])
+        prod.create_issue(slug=p["slug"], title="Feat Y", created_by="ceo", priority=IssuePriority.P2, story_points=3)
+
+        bundle = prod.export_product(p["slug"])
+        result = prod.import_product(bundle, owner_id="00010", auto_activate=False)
+        assert result["issues_created"] == 2
+        assert result["krs_created"] == 1
+
+        imported = prod.load_product(result["slug"])
+        assert imported["name"] == "RoundTrip"
+        assert imported["description"] == "round trip test"
+        assert len(imported["key_results"]) == 1
+        assert imported["key_results"][0]["title"] == "Users"
+
+    def test_import_invalid_priority_falls_back(self):
+        """Invalid priority string falls back to P2."""
+        bundle = {
+            "format": "omc-product-v1",
+            "product": {"name": "BadPrio", "key_results": []},
+            "issues": [{"title": "Oops", "priority": "INVALID"}],
+        }
+        result = prod.import_product(bundle, owner_id="00004")
+        issues = prod.list_issues(result["slug"])
+        assert len(issues) == 1
+        assert issues[0]["priority"] == IssuePriority.P2
+
+
 class TestSlugifyEdgeCases:
     def test_long_name_truncated(self):
         """Line 59: slug longer than max_len gets truncated."""

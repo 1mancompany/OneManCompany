@@ -536,6 +536,86 @@ def build_product_context(product_slug: str) -> str:
     return "\n".join(parts)
 
 
+def export_product(slug: str) -> dict | None:
+    """Export product as a portable bundle."""
+    product = load_product(slug)
+    if not product:
+        return None
+    issues = list_issues(slug)
+    return {
+        "format": "omc-product-v1",
+        "product": {
+            "name": product.get("name", ""),
+            "description": product.get("description", ""),
+            "key_results": [
+                {"title": kr["title"], "target": kr["target"], "current": kr.get("current", 0), "unit": kr.get("unit", "")}
+                for kr in product.get("key_results", [])
+            ],
+        },
+        "issues": [
+            {
+                "title": issue["title"],
+                "description": issue.get("description", ""),
+                "priority": issue.get("priority", "P2"),
+                "labels": issue.get("labels", []),
+                "story_points": issue.get("story_points"),
+                "sprint": issue.get("sprint"),
+                "status": issue.get("status", "backlog"),
+            }
+            for issue in issues
+        ],
+    }
+
+
+def import_product(bundle: dict, owner_id: str = "", auto_activate: bool = True) -> dict:
+    """Import product from a portable bundle. Returns result dict."""
+    if bundle.get("format") != "omc-product-v1":
+        raise ValueError("Invalid format. Expected 'omc-product-v1'")
+
+    product_data = bundle.get("product", {})
+    name = product_data.get("name")
+    if not name:
+        raise ValueError("Product name is required")
+
+    status = ProductStatus.ACTIVE if auto_activate and owner_id else ProductStatus.PLANNING
+    product = create_product(
+        name=name,
+        owner_id=owner_id,
+        description=product_data.get("description", ""),
+        status=status,
+    )
+    slug = product["slug"]
+
+    for kr_data in product_data.get("key_results", []):
+        add_key_result(slug, title=kr_data["title"], target=kr_data.get("target", 1), unit=kr_data.get("unit", ""))
+
+    issue_ids = []
+    for issue_data in bundle.get("issues", []):
+        try:
+            priority = IssuePriority(issue_data.get("priority", "P2"))
+        except ValueError:
+            priority = IssuePriority.P2
+        issue = create_issue(
+            slug=slug,
+            title=issue_data["title"],
+            description=issue_data.get("description", ""),
+            priority=priority,
+            labels=issue_data.get("labels", []),
+            story_points=issue_data.get("story_points"),
+            sprint=issue_data.get("sprint"),
+            created_by="import",
+        )
+        issue_ids.append(issue["id"])
+
+    return {
+        "slug": slug,
+        "product_id": product["id"],
+        "issues_created": len(issue_ids),
+        "krs_created": len(product_data.get("key_results", [])),
+        "auto_activated": status == ProductStatus.ACTIVE,
+    }
+
+
 def find_slug_by_product_id(product_id: str) -> str | None:
     """Find product slug by product ID."""
     for p in list_products():

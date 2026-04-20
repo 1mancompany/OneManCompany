@@ -7307,6 +7307,42 @@ class AppController {
     document.getElementById('submit-create-product')?.addEventListener('click', () => {
       this._submitCreateProduct();
     });
+
+    // Import product from JSON file
+    document.getElementById('import-product-btn')?.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const bundle = JSON.parse(text);
+          const ownerId = prompt('Enter owner employee ID (e.g. 00004):');
+          if (!ownerId) return;
+          bundle.owner_id = ownerId;
+          bundle.auto_activate = true;
+          const res = await fetch('/api/product/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(bundle),
+          });
+          const result = await res.json();
+          if (result.status === 'imported') {
+            this.updateProjectsPanel();
+            this._refreshProductSelector();
+            alert(`Imported "${bundle.product.name}" — ${result.issues_created} issues, ${result.krs_created} KRs. Auto-activated.`);
+          } else {
+            alert('Import failed: ' + (result.detail || 'Unknown error'));
+          }
+        } catch (err) {
+          console.error('Import failed:', err);
+          alert('Import failed: ' + err.message);
+        }
+      });
+      input.click();
+    });
   }
 
   _addKrRow() {
@@ -7555,6 +7591,24 @@ class AppController {
       });
       header.appendChild(activateBtn);
     }
+
+    // Export button (always visible)
+    const exportBtn = document.createElement('button');
+    exportBtn.className = 'btn-small';
+    exportBtn.style.marginLeft = '4px';
+    exportBtn.textContent = 'Export';
+    exportBtn.addEventListener('click', async () => {
+      const res = await fetch(`/api/product/${encodeURIComponent(slug)}/export`);
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${slug}-export.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+    header.appendChild(exportBtn);
 
     container.appendChild(header);
 
