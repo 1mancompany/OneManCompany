@@ -156,7 +156,7 @@ async def handle_project_complete(event: CompanyEvent) -> None:
     if not resolved_issue_ids:
         logger.debug("[PRODUCT_TRIGGER] No resolved issues for project {}, skip version release", project_id)
         await run_product_check(slug)
-        await dispatch_owner_review(slug, reason=f"Project {project_id} completed, please review and update KR progress")
+        await notify_owner(slug, reason=f"Project {project_id} completed, please review and update KR progress")
         return
 
     # Release a new version
@@ -186,135 +186,77 @@ async def handle_project_complete(event: CompanyEvent) -> None:
 
     # After version release, run product check + notify owner
     await run_product_check(slug)
-    await dispatch_owner_review(slug, reason=f"Project completed, version {version_record['version']} released")
+    await notify_owner(slug, reason=f"Project completed, version {version_record['version']} released")
 
 
-async def dispatch_owner_review(product_slug: str, reason: str = "") -> str | None:
-    """Dispatch a review task to the product owner when something needs attention.
+async def notify_owner(product_slug: str, reason: str = "") -> bool:
+    """Send a message to the product owner about something that needs attention.
 
-    Event-driven, not periodic. Only fires when there's an actual reason.
-    Anti-spam: skips if owner already has an active review task for this product,
-    or if last review was completed less than 1 hour ago.
+    Does NOT create a project. The owner decides what action to take
+    (create a project, continue existing work, update KRs, etc.).
 
-    Returns project_id if dispatched, None if skipped.
+    Anti-spam: max one notification per hour per product.
+    Returns True if message was sent, False if skipped.
     """
     product = prod.load_product(product_slug)
     if not product or product.get("status") != "active":
-        return None
+        return False
 
     owner_id = product.get("owner_id", "")
     if not owner_id:
-        return None
+        return False
 
-    # Anti-spam: check for existing active review projects
-    from onemancompany.core.project_archive import list_projects
-    all_projects = list_projects()
-    active_reviews = [
-        p for p in all_projects
-        if p.get("product_id") == product["id"]
-        and p.get("status") == "active"
-        and "review" in p.get("name", "").lower()
-    ]
-    if active_reviews:
-        logger.debug("[PRODUCT_TRIGGER] Owner already has active review for '{}', skip", product_slug)
-        return None
-
-    # Anti-spam: check cooldown (last completed review < 1 hour ago)
+    # Anti-spam: check cooldown via product metadata
     from datetime import datetime, timezone
-    completed_reviews = [
-        p for p in all_projects
-        if p.get("product_id") == product["id"]
-        and p.get("status") == "archived"
-        and "review" in p.get("name", "").lower()
-    ]
-    if completed_reviews:
-        latest = max(completed_reviews, key=lambda p: p.get("created_at", ""))
+    last_notified = product.get("_last_owner_notify", "")
+    if last_notified:
         try:
-            created = datetime.fromisoformat(latest["created_at"])
-            if created.tzinfo is None:
-                created = created.replace(tzinfo=timezone.utc)
+            last_dt = datetime.fromisoformat(last_notified)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
             now = datetime.now(timezone.utc)
-            if (now - created).total_seconds() < 3600:
-                logger.debug("[PRODUCT_TRIGGER] Review cooldown for '{}', skip", product_slug)
-                return None
+            if (now - last_dt).total_seconds() < 3600:
+                logger.debug("[PRODUCT_TRIGGER] Owner notify cooldown for '{}', skip", product_slug)
+                return False
         except (ValueError, KeyError) as e:
-            logger.debug("[PRODUCT_TRIGGER] Could not parse review timestamp: {}", e)
+            logger.debug("[PRODUCT_TRIGGER] Could not parse notify timestamp: {}", e)
 
-    # Build review task
+    # Build notification message
     context = prod.build_product_context(product_slug)
     all_issues = prod.list_issues(product_slug)
     backlog = [i for i in all_issues if i.get("status") == IssueStatus.BACKLOG.value]
     in_progress = [i for i in all_issues if i.get("status") == IssueStatus.IN_PROGRESS.value]
     done = [i for i in all_issues if i.get("status") == IssueStatus.DONE.value]
 
-    task_description = f"""## Product Owner Review — {product['name']}
+    message = (
+        f"[Product Review Needed — {product['name']}]\n"
+        f"Reason: {reason}\n\n"
+        f"Status: {len(backlog)} backlog, {len(in_progress)} in progress, {len(done)} done\n\n"
+        f"Please check:\n"
+        f"1. Update KR progress based on completed work\n"
+        f"2. Review and prioritize backlog issues\n"
+        f"3. Assign unhandled work to the right people\n"
+    )
 
-Reason: {reason}
-
-{context}
-
-### Current Status
-- Backlog: {len(backlog)} issues
-- In progress: {len(in_progress)} issues
-- Done: {len(done)} issues
-
-### Your Tasks (follow in order)
-
-1. **Update KR progress** — Review completed work and update KR current values using `update_kr_progress_tool`. Check each KR against actual deliverables.
-
-2. **Review backlog** — Are priorities correct? Any issues that should be higher priority? Any missing issues?
-
-3. **Assign unhandled work** — If there are backlog issues with no assignee, find the right person and assign them.
-
-4. **Plan next steps** — What should be worked on next to advance the KRs?
-
-### Rules
-- **Update KRs first** — This is the most important step. KR progress drives product health.
-- **Skip if already handled** — Don't duplicate work someone is already doing.
-- **Be concise** — Brief summary of what you checked and what action you took.
-"""
-
-    # Dispatch to owner via _create_project_for_issue pattern
+    # Send via 1-on-1 message to owner
     try:
-        from pathlib import Path
-        from onemancompany.core.config import CEO_ID, EA_ID, TASK_TREE_FILENAME
-        from onemancompany.core.project_archive import async_create_project_from_task, get_project_dir
-        from onemancompany.core.task_lifecycle import NodeType, TaskPhase
+        from onemancompany.core import store as _store
+        await _store.append_oneonone(owner_id, {
+            "sender": "system",
+            "role": "system",
+            "text": message,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
 
-        project_id, iter_id = await async_create_project_from_task(
-            task_description,
-            routed_to=owner_id,
-            product_id=product["id"],
-        )
-        pdir = get_project_dir(project_id)
-        ctx_id = f"{project_id}/{iter_id}" if iter_id else project_id
+        # Update cooldown timestamp
+        prod.update_product(product_slug, _last_owner_notify=datetime.now(timezone.utc).isoformat())
 
-        from onemancompany.core.task_tree import TaskTree
-        from onemancompany.core.vessel import _save_project_tree
-
-        tree = TaskTree(project_id=ctx_id, mode="standard")
-        ceo_root = tree.create_root(employee_id=CEO_ID, description=task_description)
-        ceo_root.node_type = NodeType.CEO_PROMPT.value
-        ceo_root.set_status(TaskPhase.PROCESSING)
-        owner_node = tree.add_child(
-            parent_id=ceo_root.id,
-            employee_id=owner_id,
-            description=task_description,
-            acceptance_criteria=["KR progress updated", "Backlog reviewed"],
-        )
-        _save_project_tree(pdir, tree)
-
-        from onemancompany.core.agent_loop import employee_manager
-        tree_path = str(Path(pdir) / TASK_TREE_FILENAME)
-        employee_manager.schedule_node(owner_id, owner_node.id, tree_path)
-        employee_manager._schedule_next(owner_id)
-
-        logger.info("[PRODUCT_TRIGGER] Dispatched owner review for '{}' → project {} (reason: {})",
-                    product_slug, project_id, reason)
-        return project_id
+        logger.info("[PRODUCT_TRIGGER] Notified owner {} for product '{}' (reason: {})",
+                    owner_id, product_slug, reason)
+        return True
     except Exception:
-        logger.exception("[PRODUCT_TRIGGER] Failed to dispatch owner review for '{}'", product_slug)
-        return None
+        logger.exception("[PRODUCT_TRIGGER] Failed to notify owner for '{}'", product_slug)
+        return False
 
 
 def sync_issue_statuses(product_slug: str) -> list[dict]:
@@ -511,9 +453,9 @@ async def run_product_check(product_slug: str) -> dict:
 
     if needs_review:
         reason = "; ".join(review_reasons)
-        review_id = await dispatch_owner_review(product_slug, reason=reason)
-        if review_id:
-            actions_taken.append(f"Owner review dispatched: {reason}")
+        notified = await notify_owner(product_slug, reason=reason)
+        if notified:
+            actions_taken.append(f"Owner notified: {reason}")
 
     if actions_taken:
         logger.info("[PRODUCT_CHECK] Product '{}': {}", product_slug, "; ".join(actions_taken))
