@@ -190,13 +190,14 @@ async def handle_project_complete(event: CompanyEvent) -> None:
 
 
 async def notify_owner(product_slug: str, reason: str = "") -> bool:
-    """Send a message to the product owner about something that needs attention.
+    """Push a review task to the product owner on an existing product project.
 
-    Does NOT create a project. The owner decides what action to take
-    (create a project, continue existing work, update KRs, etc.).
+    If the product has an active project, adds a child task to its tree.
+    If no active project exists, creates one.
+    Owner gets the task with product context and tools to take action.
 
     Anti-spam: max one notification per hour per product.
-    Returns True if message was sent, False if skipped.
+    Returns True if task was pushed, False if skipped.
     """
     product = prod.load_product(product_slug)
     if not product or product.get("status") != "active":
@@ -221,41 +222,86 @@ async def notify_owner(product_slug: str, reason: str = "") -> bool:
         except (ValueError, KeyError) as e:
             logger.debug("[PRODUCT_TRIGGER] Could not parse notify timestamp: {}", e)
 
-    # Build notification message
+    # Build task description
     context = prod.build_product_context(product_slug)
     all_issues = prod.list_issues(product_slug)
     backlog = [i for i in all_issues if i.get("status") == IssueStatus.BACKLOG.value]
     in_progress = [i for i in all_issues if i.get("status") == IssueStatus.IN_PROGRESS.value]
     done = [i for i in all_issues if i.get("status") == IssueStatus.DONE.value]
 
-    message = (
-        f"[Product Review Needed — {product['name']}]\n"
-        f"Reason: {reason}\n\n"
+    task_desc = (
+        f"Product review needed: {reason}\n\n"
+        f"{context}\n\n"
         f"Status: {len(backlog)} backlog, {len(in_progress)} in progress, {len(done)} done\n\n"
-        f"Please check:\n"
+        f"Please:\n"
         f"1. Update KR progress based on completed work\n"
         f"2. Review and prioritize backlog issues\n"
         f"3. Assign unhandled work to the right people\n"
+        f"4. Decide next steps — create issues or continue existing projects\n"
     )
 
-    # Send via 1-on-1 message to owner
     try:
-        from onemancompany.core import store as _store
-        await _store.append_oneonone(owner_id, {
-            "sender": "system",
-            "role": "system",
-            "text": message,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        from pathlib import Path
+        from onemancompany.core.config import CEO_ID, TASK_TREE_FILENAME
+        from onemancompany.core.project_archive import list_projects, get_project_dir
+        from onemancompany.core.task_tree import get_tree
+        from onemancompany.core.vessel import _save_project_tree
+
+        # Find existing active project for this product
+        all_projects = list_projects()
+        active_product_projects = [
+            p for p in all_projects
+            if p.get("product_id") == product["id"] and p.get("status") == "active"
+        ]
+
+        if active_product_projects:
+            # Add task to existing project's tree
+            proj = active_product_projects[0]
+            pdir = get_project_dir(proj["project_id"])
+            tree_path = Path(pdir) / TASK_TREE_FILENAME
+            if not tree_path.exists():
+                logger.debug("[PRODUCT_TRIGGER] Tree not found for project {}", proj["project_id"])
+                return False
+
+            tree = get_tree(str(tree_path))
+            # Find a suitable parent (EA node or root)
+            ea_node = tree.get_ea_node()
+            parent_id = ea_node.id if ea_node else tree.root_id
+
+            child = tree.add_child(
+                parent_id=parent_id,
+                employee_id=owner_id,
+                description=task_desc,
+                acceptance_criteria=[],
+                title=f"Product review: {reason[:50]}",
+            )
+            _save_project_tree(pdir, tree)
+
+            # Schedule owner to execute
+            from onemancompany.core.agent_loop import employee_manager
+            employee_manager.schedule_node(owner_id, child.id, str(tree_path))
+            employee_manager._schedule_next(owner_id)
+
+            logger.info("[PRODUCT_TRIGGER] Pushed review task to owner {} on project {} (reason: {})",
+                        owner_id, proj["project_id"], reason)
+        else:
+            # No active project — create one
+            project_id = await _create_project_for_issue(product_slug, {
+                "id": f"review_{product_slug}",
+                "title": f"Product review: {product['name']}",
+                "description": task_desc,
+                "priority": IssuePriority.P2.value,
+            })
+            if not project_id:
+                return False
+            logger.info("[PRODUCT_TRIGGER] Created review project {} for owner {} (reason: {})",
+                        project_id, owner_id, reason)
 
         # Update cooldown timestamp
         prod.update_product(product_slug, _last_owner_notify=datetime.now(timezone.utc).isoformat())
-
-        logger.info("[PRODUCT_TRIGGER] Notified owner {} for product '{}' (reason: {})",
-                    owner_id, product_slug, reason)
         return True
     except Exception:
-        logger.exception("[PRODUCT_TRIGGER] Failed to notify owner for '{}'", product_slug)
+        logger.exception("[PRODUCT_TRIGGER] Failed to push review task for '{}'", product_slug)
         return False
 
 
