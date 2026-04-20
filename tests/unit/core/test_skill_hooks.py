@@ -464,7 +464,12 @@ class TestRunHooksComprehensive:
         register_skill_hooks("00004", "cmd-skill", {
             "task_start": [{"command": "echo '{}'"}],
         })
-        results = await run_hooks("00004", HookEvent.TASK_START, task_id="t1")
+        # Mock subprocess to avoid event loop cleanup issues in CI
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b'{}', b''))
+        mock_proc.returncode = 0
+        with patch("asyncio.create_subprocess_shell", new_callable=AsyncMock, return_value=mock_proc):
+            results = await run_hooks("00004", HookEvent.TASK_START, task_id="t1")
         assert len(results) == 1
         assert results[0].exit_code == 0
 

@@ -24,8 +24,7 @@ jobs:
 
       - name: Run unit tests with coverage
         run: |
-          python -m pytest tests/unit/ --tb=short \
-            -W ignore::RuntimeWarning \
+          python -m pytest tests/unit/ -x --tb=short \
             --cov=onemancompany.core \
             --cov=onemancompany.agents \
             --cov-report=term-missing \

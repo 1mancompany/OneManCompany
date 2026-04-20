@@ -39,7 +39,7 @@ jobs:
         run: python -c "from onemancompany.api.routes import router; print('OK')"
 
       - name: Unit tests
-        run: python -m pytest tests/unit/ -q -W ignore::RuntimeWarning
+        run: python -m pytest tests/unit/ -x -q
 
       - uses: actions/setup-node@v4
         with:
