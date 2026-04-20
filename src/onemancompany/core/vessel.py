@@ -1532,6 +1532,18 @@ class EmployeeManager:
             except Exception:
                 logger.warning("Task start hooks failed for {}", employee_id)
 
+            # --- Truncate oversized prompts to avoid context-limit errors ---
+            MAX_PROMPT_CHARS = 100_000  # ~25K tokens, safe for most models
+            if len(task_with_ctx) > MAX_PROMPT_CHARS:
+                logger.warning(
+                    "[TASK] Truncating oversized prompt for employee={} node={}: {} → {} chars",
+                    employee_id, entry.node_id, len(task_with_ctx), MAX_PROMPT_CHARS,
+                )
+                # Keep the beginning (company context + product context) and end (task description)
+                # Truncate from the middle (progress log, workflow context — least critical)
+                half = MAX_PROMPT_CHARS // 2
+                task_with_ctx = task_with_ctx[:half] + "\n\n[... context truncated ...]\n\n" + task_with_ctx[-half:]
+
             # Universal timeout — asyncio.wait_for wraps ALL executor types.
             task_timeout = node.timeout_seconds or 3600
             # For SubprocessExecutor: set its internal timeout slightly longer

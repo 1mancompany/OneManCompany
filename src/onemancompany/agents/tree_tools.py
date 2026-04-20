@@ -529,6 +529,15 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
 
         node.acceptance_result = {"passed": False, "notes": reason}
 
+        # --- Max retry guard: prevent infinite reject→retry loops ---
+        MAX_REJECT_RETRIES = 3
+        if retry and node.retry_count >= MAX_REJECT_RETRIES:
+            logger.warning(
+                "Node {} has been retried {} times (max {}), forcing abandon",
+                node_id, node.retry_count, MAX_REJECT_RETRIES,
+            )
+            retry = False
+
         if retry:
             from onemancompany.core.vessel import employee_manager as em
             if node.employee_id not in em.executors:
@@ -537,6 +546,7 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
             # Reset to pending and re-schedule — keep original description, add rejection as directive
             node.load_content(project_dir)
             node.set_status(TaskPhase.PENDING)
+            node.retry_count += 1
             node.result = ""
             from datetime import datetime
             new_directives = list(node.directives)
