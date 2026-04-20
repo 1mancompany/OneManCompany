@@ -800,3 +800,24 @@ class TestBuildProductContextEdgeCases:
             prod.create_issue(slug=p["slug"], title=f"Issue {i}", created_by="ceo")
         ctx = prod.build_product_context(p["slug"])
         assert "and 2 more" in ctx
+
+
+# ---------------------------------------------------------------------------
+# Delete Product
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteProduct:
+    def test_delete_product(self):
+        p = prod.create_product(name="ToDelete", owner_id="00004")
+        prod.create_issue(slug=p["slug"], title="Issue1", created_by="ceo")
+        assert prod.load_product(p["slug"]) is not None
+
+        result = prod.delete_product(p["slug"])
+        assert result is True
+        assert prod.load_product(p["slug"]) is None
+        assert prod.list_issues(p["slug"]) == []
+
+    def test_delete_nonexistent(self):
+        result = prod.delete_product("nonexistent")
+        assert result is False

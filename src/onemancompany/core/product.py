@@ -616,6 +616,22 @@ def import_product(bundle: dict, owner_id: str = "", auto_activate: bool = True)
     }
 
 
+def delete_product(slug: str) -> bool:
+    """Delete a product and all its issues/versions. Returns True if deleted."""
+    product_dir = _product_dir(slug)
+    if not product_dir.exists():
+        logger.warning("delete_product: slug={} not found", slug)
+        return False
+
+    import shutil
+    with _get_slug_lock(slug):
+        shutil.rmtree(product_dir)
+
+    mark_dirty(DirtyCategory.PRODUCTS)
+    logger.info("[PRODUCT] Deleted product '{}'", slug)
+    return True
+
+
 def find_slug_by_product_id(product_id: str) -> str | None:
     """Find product slug by product ID."""
     for p in list_products():

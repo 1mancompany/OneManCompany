@@ -5782,6 +5782,17 @@ body.resize-dragging {
   color: var(--pixel-cyan);
 }
 
+.btn-danger {
+  color: #ff4444;
+  border-color: #500;
+}
+
+.btn-danger:hover {
+  background: #ff4444;
+  color: var(--bg-dark);
+  border-color: #ff4444;
+}
+
 .btn-primary {
   background: var(--pixel-cyan);
   color: var(--bg-dark);

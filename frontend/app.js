@@ -7610,6 +7610,26 @@ class AppController {
     });
     header.appendChild(exportBtn);
 
+    // Delete button
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn-small btn-danger';
+    deleteBtn.style.marginLeft = '4px';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', async () => {
+      if (!confirm(`Delete product "${product.name}" and ALL its data? This cannot be undone.`)) return;
+      try {
+        const res = await fetch(`/api/product/${encodeURIComponent(slug)}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(`Server error: ${res.status}`);
+        document.getElementById('product-modal').classList.add('hidden');
+        this.updateProjectsPanel();
+        this._refreshProductSelector();
+      } catch (err) {
+        console.error('Delete failed:', err);
+        alert('Delete failed: ' + err.message);
+      }
+    });
+    header.appendChild(deleteBtn);
+
     container.appendChild(header);
 
     // Objective
