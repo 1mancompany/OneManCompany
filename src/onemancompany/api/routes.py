@@ -6255,12 +6255,26 @@ async def list_ceo_sessions():
     from onemancompany.core.conversation import get_conversation_service
     from onemancompany.core.models import ConversationType
 
+    from onemancompany.core.project_archive import load_named_project
+
     service = get_conversation_service()
     convs = service.list_by_phase(type=ConversationType.PROJECT.value)
     sessions = []
     for conv in convs:
+        pid = conv.project_id or ""
+        # Skip non-project conversations: default, empty, system projects
+        if not pid or pid == "default" or pid.startswith("_sys"):
+            continue
+        # Skip conversations for deleted/nonexistent projects
+        base_pid = pid.split("/")[0]
+        proj = load_named_project(base_pid)
+        if not proj:
+            continue
+        # Skip archived projects (they're done)
+        if proj.get("status") == "archived":
+            continue
         sessions.append({
-            "project_id": conv.project_id or conv.id,
+            "project_id": pid,
             "pending_count": service.get_pending_count(conv.id),
             "history_count": len(service.get_messages(conv.id)),
             "conv_id": conv.id,

@@ -502,7 +502,7 @@ def list_named_projects() -> list[dict]:
 
 
 def archive_project(project_id: str) -> None:
-    """Mark a named project as archived."""
+    """Mark a named project as archived and close its conversation."""
     proj = load_named_project(project_id)
     if not proj:
         return
@@ -512,6 +512,24 @@ def archive_project(project_id: str) -> None:
     lock = _get_project_lock(project_id)
     with lock, open_utf(path, "w") as f:
         yaml.dump(proj, f, allow_unicode=True, default_flow_style=False)
+
+    # Close project conversation so it disappears from CEO console
+    try:
+        from onemancompany.core.conversation import get_conversation_service
+        from onemancompany.core.models import ConversationType
+        service = get_conversation_service()
+        for conv in service.list_by_phase(type=ConversationType.PROJECT.value):
+            conv_pid = (conv.project_id or "").split("/")[0]
+            if conv_pid == project_id:
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(service.close(conv.id))
+                except RuntimeError:
+                    logger.debug("[archive] No event loop for async close of conv {}", conv.id)
+                logger.debug("[archive] Closed conversation {} for project {}", conv.id, project_id)
+    except Exception as e:
+        logger.debug("[archive] Could not close conversation for {}: {}", project_id, e)
 
 
 def get_project_workspace(project_id: str) -> str:

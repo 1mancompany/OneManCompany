@@ -59,7 +59,9 @@ class TestListSessions:
             return [Message(sender="x", role="system", text="hi", timestamp="t")]
         svc.get_messages.side_effect = _messages
 
-        with patch("onemancompany.core.conversation.get_conversation_service", return_value=svc):
+        with patch("onemancompany.core.conversation.get_conversation_service", return_value=svc), \
+             patch("onemancompany.core.project_archive.load_named_project",
+                   side_effect=lambda pid: {"status": "active"} if pid in ("proj_a", "proj_b") else None):
             result = await list_ceo_sessions()
             assert len(result["sessions"]) == 2
             assert result["sessions"][0]["project_id"] == "proj_b"
