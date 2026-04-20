@@ -6431,7 +6431,7 @@ async def list_system_crons() -> list[dict]:
 @router.post("/api/system/crons/{name}/start")
 async def start_system_cron(name: str) -> dict:
     from onemancompany.core.system_cron import system_cron_manager
-    return system_cron_manager.start(name)
+    return system_cron_manager.start(name, run_immediately=True)
 
 
 @router.post("/api/system/crons/{name}/stop")
