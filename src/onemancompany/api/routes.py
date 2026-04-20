@@ -7024,6 +7024,19 @@ async def api_get_product(slug: str) -> dict:
     return data
 
 
+@router.delete("/api/product/{slug}")
+async def api_delete_product(slug: str) -> dict:
+    """Delete a product and all its data."""
+    from onemancompany.core import product as prod
+
+    try:
+        result = prod.delete_product(slug)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    return {"status": "deleted", **result}
+
+
 @router.put("/api/product/{slug}")
 async def api_update_product(slug: str, request: Request) -> dict:
     """Update product fields."""

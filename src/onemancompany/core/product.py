@@ -616,6 +616,59 @@ def import_product(bundle: dict, owner_id: str = "", auto_activate: bool = True)
     }
 
 
+def delete_product(slug: str) -> dict:
+    """Delete a product, its issues/versions, and all linked projects.
+
+    Returns summary dict with counts of deleted items.
+    Raises ValueError if product not found.
+    """
+    product = load_product(slug)
+    if not product:
+        raise ValueError(f"Product '{slug}' not found")
+
+    product_id = product.get("id", "")
+
+    # Delete linked projects
+    deleted_projects = 0
+    if product_id:
+        from onemancompany.core.project_archive import list_projects
+        from onemancompany.core.config import PROJECTS_DIR
+        import shutil as _shutil
+
+        for proj in list_projects():
+            if proj.get("product_id") == product_id:
+                proj_dir = PROJECTS_DIR / proj["project_id"]
+                if proj_dir.exists():
+                    # Cancel running tasks for this project
+                    try:
+                        from onemancompany.core.agent_loop import employee_manager
+                        employee_manager.abort_project(proj["project_id"])
+                    except Exception as e:
+                        logger.debug("[PRODUCT] Could not abort project {}: {}", proj["project_id"], e)
+                    _shutil.rmtree(proj_dir)
+                    deleted_projects += 1
+                    logger.debug("[PRODUCT] Deleted linked project {}", proj["project_id"])
+
+    # Count issues before deletion
+    issues = list_issues(slug)
+    deleted_issues = len(issues)
+
+    # Delete product directory (product.yaml, issues/, versions/)
+    import shutil
+    product_dir = _product_dir(slug)
+    with _get_slug_lock(slug):
+        shutil.rmtree(product_dir)
+
+    mark_dirty(DirtyCategory.PRODUCTS)
+    logger.info("[PRODUCT] Deleted product '{}': {} issues, {} projects removed", slug, deleted_issues, deleted_projects)
+    return {
+        "deleted": True,
+        "slug": slug,
+        "issues_deleted": deleted_issues,
+        "projects_deleted": deleted_projects,
+    }
+
+
 def find_slug_by_product_id(product_id: str) -> str | None:
     """Find product slug by product ID."""
     for p in list_products():

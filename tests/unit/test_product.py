@@ -800,3 +800,47 @@ class TestBuildProductContextEdgeCases:
             prod.create_issue(slug=p["slug"], title=f"Issue {i}", created_by="ceo")
         ctx = prod.build_product_context(p["slug"])
         assert "and 2 more" in ctx
+
+
+# ---------------------------------------------------------------------------
+# Delete Product
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteProduct:
+    def test_delete_product(self):
+        p = prod.create_product(name="ToDelete", owner_id="00004")
+        prod.create_issue(slug=p["slug"], title="Issue1", created_by="ceo")
+        assert prod.load_product(p["slug"]) is not None
+
+        result = prod.delete_product(p["slug"])
+        assert result["deleted"] is True
+        assert result["issues_deleted"] == 1
+        assert prod.load_product(p["slug"]) is None
+        assert prod.list_issues(p["slug"]) == []
+
+    def test_delete_nonexistent(self):
+        with pytest.raises(ValueError, match="not found"):
+            prod.delete_product("nonexistent")
+
+    def test_delete_cleans_linked_projects(self, tmp_path, monkeypatch):
+        """Deleting a product also removes linked projects."""
+        from unittest.mock import patch, MagicMock
+        p = prod.create_product(name="WithProjects", owner_id="00004")
+        product_id = p["id"]
+
+        # Create a fake project dir linked to this product
+        from onemancompany.core.config import PROJECTS_DIR
+        fake_proj_dir = PROJECTS_DIR / "fake-proj-123"
+        fake_proj_dir.mkdir(parents=True, exist_ok=True)
+        (fake_proj_dir / "project.yaml").write_text("test: true")
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[
+            {"project_id": "fake-proj-123", "product_id": product_id, "status": "active"},
+        ]):
+            with patch("onemancompany.core.agent_loop.employee_manager") as mock_em:
+                mock_em.abort_project = MagicMock()
+                result = prod.delete_product(p["slug"])
+
+        assert result["projects_deleted"] == 1
+        assert not fake_proj_dir.exists()
