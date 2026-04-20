@@ -7029,15 +7029,12 @@ async def api_delete_product(slug: str) -> dict:
     """Delete a product and all its data."""
     from onemancompany.core import product as prod
 
-    product = prod.load_product(slug)
-    if not product:
-        raise HTTPException(status_code=404, detail=f"Product '{slug}' not found")
+    try:
+        result = prod.delete_product(slug)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
-    success = prod.delete_product(slug)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to delete product")
-
-    return {"status": "deleted", "slug": slug}
+    return {"status": "deleted", **result}
 
 
 @router.put("/api/product/{slug}")
