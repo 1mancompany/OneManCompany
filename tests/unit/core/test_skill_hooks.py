@@ -461,10 +461,22 @@ class TestRunHooksComprehensive:
     @pytest.mark.asyncio
     async def test_run_hooks_with_command_hook(self):
         """Command hooks are executed via run_hooks."""
+        from onemancompany.core import skill_hooks as _sh_mod
+
         register_skill_hooks("00004", "cmd-skill", {
             "task_start": [{"command": "echo '{}'"}],
         })
-        results = await run_hooks("00004", HookEvent.TASK_START, task_id="t1")
+        # Mock subprocess to avoid event loop cleanup issues in CI
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b'{}', b''))
+        mock_proc.returncode = 0
+        mock_create = AsyncMock(return_value=mock_proc)
+        original = _sh_mod.asyncio.create_subprocess_shell
+        _sh_mod.asyncio.create_subprocess_shell = mock_create
+        try:
+            results = await run_hooks("00004", HookEvent.TASK_START, task_id="t1")
+        finally:
+            _sh_mod.asyncio.create_subprocess_shell = original
         assert len(results) == 1
         assert results[0].exit_code == 0
 
