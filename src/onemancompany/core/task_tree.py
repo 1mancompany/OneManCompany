@@ -87,6 +87,10 @@ class TaskNode:
     # Used by the global HOLDING timeout to auto-fail stale tasks.
     hold_started_at: str = ""
 
+    # How many times this node has been rejected and retried by the parent.
+    # Used to cap infinite retry loops (e.g. EA keeps retrying a failing child).
+    retry_count: int = 0
+
     # --- Content externalization tracking (not part of equality/repr) ---
     _content_dirty: bool = field(default=False, init=False, repr=False, compare=False)
     _content_loaded: bool = field(default=False, init=False, repr=False, compare=False)
@@ -205,6 +209,7 @@ class TaskNode:
             "depends_on": list(self.depends_on),
             "hold_reason": self.hold_reason,
             "hold_started_at": self.hold_started_at,
+            "retry_count": self.retry_count,
             "directives_count": len(self.directives),
         }
 
