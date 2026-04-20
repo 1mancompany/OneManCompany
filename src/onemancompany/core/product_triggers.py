@@ -194,9 +194,8 @@ async def notify_owner(product_slug: str, reason: str = "") -> bool:
 
     If the product has an active project, adds a child task to its tree.
     If no active project exists, creates one.
-    Owner gets the task with product context and tools to take action.
+    Skips if owner already has a pending review task (no duplicates).
 
-    Anti-spam: max one notification per hour per product.
     Returns True if task was pushed, False if skipped.
     """
     product = prod.load_product(product_slug)
@@ -206,21 +205,6 @@ async def notify_owner(product_slug: str, reason: str = "") -> bool:
     owner_id = product.get("owner_id", "")
     if not owner_id:
         return False
-
-    # Anti-spam: check cooldown via product metadata
-    from datetime import datetime, timezone
-    last_notified = product.get("_last_owner_notify", "")
-    if last_notified:
-        try:
-            last_dt = datetime.fromisoformat(last_notified)
-            if last_dt.tzinfo is None:
-                last_dt = last_dt.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
-            if (now - last_dt).total_seconds() < 3600:
-                logger.debug("[PRODUCT_TRIGGER] Owner notify cooldown for '{}', skip", product_slug)
-                return False
-        except (ValueError, KeyError) as e:
-            logger.debug("[PRODUCT_TRIGGER] Could not parse notify timestamp: {}", e)
 
     # Build task description
     context = prod.build_product_context(product_slug)
@@ -233,11 +217,12 @@ async def notify_owner(product_slug: str, reason: str = "") -> bool:
         f"Product review needed: {reason}\n\n"
         f"{context}\n\n"
         f"Status: {len(backlog)} backlog, {len(in_progress)} in progress, {len(done)} done\n\n"
-        f"Please:\n"
-        f"1. Update KR progress based on completed work\n"
-        f"2. Review and prioritize backlog issues\n"
-        f"3. Assign unhandled work to the right people\n"
-        f"4. Decide next steps — create issues or continue existing projects\n"
+        f"Follow the product-review skill checklist strictly:\n"
+        f"1. Update KR progress using update_kr_progress_tool\n"
+        f"2. Review and close/reprioritize issues\n"
+        f"3. Assign unhandled backlog to the right people\n"
+        f"4. Create issues for gaps — do NOT create projects directly\n\n"
+        f"[skill: product-review]"
     )
 
     try:
@@ -264,6 +249,17 @@ async def notify_owner(product_slug: str, reason: str = "") -> bool:
                 return False
 
             tree = get_tree(str(tree_path))
+
+            # Check if owner already has a pending/processing review task — skip if so
+            from onemancompany.core.task_lifecycle import TaskPhase
+            for node in tree.all_nodes():
+                if (node.employee_id == owner_id
+                        and node.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value)
+                        and "review" in (node.title or node.description or "").lower()):
+                    logger.debug("[PRODUCT_TRIGGER] Owner {} already has pending review task {}, skip",
+                                 owner_id, node.id)
+                    return False
+
             # Find a suitable parent (EA node or root)
             ea_node = tree.get_ea_node()
             parent_id = ea_node.id if ea_node else tree.root_id
@@ -297,8 +293,6 @@ async def notify_owner(product_slug: str, reason: str = "") -> bool:
             logger.info("[PRODUCT_TRIGGER] Created review project {} for owner {} (reason: {})",
                         project_id, owner_id, reason)
 
-        # Update cooldown timestamp
-        prod.update_product(product_slug, _last_owner_notify=datetime.now(timezone.utc).isoformat())
         return True
     except Exception:
         logger.exception("[PRODUCT_TRIGGER] Failed to push review task for '{}'", product_slug)
