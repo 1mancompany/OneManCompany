@@ -7296,6 +7296,53 @@ async def api_product_detail(slug: str) -> dict:
     }
 
 
+@router.get("/api/product/{slug}/export")
+async def api_export_product(slug: str) -> dict:
+    """Export a product with all its OKR and issues as a portable JSON bundle."""
+    from onemancompany.core import product as prod
+
+    bundle = prod.export_product(slug)
+    if not bundle:
+        raise HTTPException(status_code=404, detail=f"Product '{slug}' not found")
+    return bundle
+
+
+@router.post("/api/product/import")
+async def api_import_product(request: Request) -> dict:
+    """Import a product from a JSON bundle. Creates product, KRs, issues, then auto-starts."""
+    from onemancompany.core import product as prod
+    from onemancompany.core.models import ProductStatus
+    from onemancompany.core.product_triggers import run_product_check
+
+    body = await request.json()
+
+    owner_id = body.get("owner_id", "")
+    auto_activate = body.get("auto_activate", True)
+
+    try:
+        result = prod.import_product(body, owner_id=owner_id, auto_activate=auto_activate)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # Auto-activate: run product check to dispatch work
+    if result["auto_activated"]:
+        await run_product_check(result["slug"])
+
+    # Publish event
+    await event_bus.publish(
+        CompanyEvent(
+            type=EventType.PRODUCT_CREATED,
+            payload={"product_slug": result["slug"]},
+            agent=SYSTEM_AGENT,
+        )
+    )
+
+    return {
+        "status": "imported",
+        **result,
+    }
+
+
 @router.post("/api/product/{slug}/planning")
 async def api_start_product_planning(slug: str) -> dict:
     """Start or resume a planning conversation for a product."""
