@@ -148,8 +148,8 @@ class TestPromote:
         assert len(result["conflicts"]) > 0
         conflict = result["conflicts"][0]
         assert conflict["file"] == "shared.txt"
-        assert "main version" in conflict["ours"]
-        assert "branch version" in conflict["theirs"]
+        assert "main version" in conflict["product_version"]
+        assert "branch version" in conflict["your_version"]
 
     def test_conflict_resolution_then_retry(self, setup) -> None:
         ws, wt = setup

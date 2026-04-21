@@ -125,7 +125,7 @@ def _parse_conflicts(workspace_dir: Path) -> list[dict]:
         ):
             ours += match.group(1)
             theirs += match.group(2)
-        conflicts.append({"file": fname, "ours": ours, "theirs": theirs})
+        conflicts.append({"file": fname, "your_version": theirs, "product_version": ours})
     return conflicts
 
 
