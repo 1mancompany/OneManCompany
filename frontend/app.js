@@ -272,6 +272,11 @@ class AppController {
 
       this._refreshCeoProjectList();
 
+      // Hide typing indicator when agent replies (non-CEO sender)
+      if (p.sender !== 'ceo') {
+        this._hideCeoTyping();
+      }
+
       // Route to terminal if viewing this channel — project path
       if (this._currentCeoProject && this._currentCeoProject === p.project_id && this._ceoTerm) {
         this._ceoTerm.appendMessage({
@@ -332,7 +337,7 @@ class AppController {
       },
       'ceo_task_submitted': (p) => ({ text: `📋 Task: ${p.task}`, cls: 'ceo', agent: 'CEO' }),
       'agent_thinking':     (p) => ({ text: `💭 ${p.message}`, cls: (msg.agent || '').toLowerCase(), agent: msg.agent }),
-      'agent_done':         (p) => ({ text: `✅ ${p.role} done: ${p.summary}`, cls: (p.role || '').toLowerCase(), agent: p.role }),
+      'agent_done':         (p) => { this._hideCeoTyping(); return { text: `✅ ${p.role} done: ${p.summary}`, cls: (p.role || '').toLowerCase(), agent: p.role }; },
       'employee_hired':     (p) => ({ text: `🎉 New hire: ${p.name} (${p.role})`, cls: 'hr', agent: 'HR' }),
       'employee_fired':     (p) => ({ text: `🚪 Departure: ${p.name}${p.nickname ? '(' + p.nickname + ')' : ''} — ${p.reason || ''}`, cls: 'hr', agent: 'HR' }),
       'employee_rehired':   (p) => ({ text: `🔄 Rehired: ${p.name}${p.nickname ? '(' + p.nickname + ')' : ''} (${p.role})`, cls: 'hr', agent: 'CEO' }),
@@ -2254,6 +2259,9 @@ class AppController {
     const doSend = async () => {
       const text = (input?.value || '').trim();
       if (!text) return;
+
+      // Show typing indicator while waiting for agent response
+      this._showCeoTyping();
 
       // Execute slash command if input starts with /command
       if (text.startsWith('/')) {
@@ -7271,6 +7279,17 @@ class AppController {
     } catch (e) {
       console.debug('[_refreshProductSelector] failed:', e);
     }
+  }
+
+  // ===== CEO Typing Indicator =====
+  _showCeoTyping() {
+    const el = document.getElementById('ceo-typing-indicator');
+    if (el) el.classList.remove('hidden');
+  }
+
+  _hideCeoTyping() {
+    const el = document.getElementById('ceo-typing-indicator');
+    if (el) el.classList.add('hidden');
   }
 
   // ===== Create Product Modal =====
