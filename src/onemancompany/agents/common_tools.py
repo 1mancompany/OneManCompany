@@ -378,8 +378,8 @@ async def bash(
         return _limit_result({
             "status": "ok",
             "returncode": proc.returncode,
-            "stdout": proc.stdout[:5000] if proc.stdout else "",
-            "stderr": proc.stderr[:2000] if proc.stderr else "",
+            "stdout": proc.stdout or "",
+            "stderr": proc.stderr or "",
         }, "bash")
     except subprocess.TimeoutExpired:
         return _tool_error(f"Command timed out after {timeout_seconds}s", hint="Increase timeout_seconds or simplify the command.")
