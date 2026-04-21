@@ -6173,6 +6173,291 @@ body.resize-dragging {
   align-items: center;
 }
 
+/* ================================================================
+   Kanban Board
+   ================================================================ */
+
+.kanban-board {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 0;
+  min-height: 200px;
+}
+
+.kanban-column {
+  flex: 1;
+  min-width: 130px;
+  max-width: 200px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+
+.kanban-column-header {
+  padding: 6px 8px;
+  font-size: calc(6px + var(--font-boost));
+  color: var(--pixel-cyan);
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  font-weight: bold;
+}
+
+.kanban-card-list {
+  padding: 4px;
+  min-height: 40px;
+}
+
+.kanban-card-list.kanban-drop-target {
+  background: rgba(0,255,255,0.05);
+  outline: 1px dashed var(--pixel-cyan);
+}
+
+.kanban-card {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-dim);
+  border-radius: 2px;
+  padding: 4px 6px;
+  margin-bottom: 4px;
+  cursor: grab;
+  font-size: calc(5px + var(--font-boost));
+  transition: opacity 0.15s;
+}
+
+.kanban-card.dragging {
+  opacity: 0.4;
+}
+
+.kanban-card.priority-p0 { border-left-color: #ff4444; }
+.kanban-card.priority-p1 { border-left-color: #ff8800; }
+.kanban-card.priority-p2 { border-left-color: var(--pixel-yellow); }
+.kanban-card.priority-p3 { border-left-color: var(--text-dim); }
+
+.kanban-card.kanban-blocked {
+  background: rgba(255,68,68,0.08);
+}
+
+.kanban-priority {
+  font-size: calc(4px + var(--font-boost));
+  padding: 0 3px;
+  border-radius: 1px;
+  margin-right: 4px;
+}
+
+.kanban-card-title {
+  color: var(--pixel-white);
+  word-break: break-word;
+}
+
+.kanban-card-meta {
+  color: var(--text-dim);
+  font-size: calc(4px + var(--font-boost));
+  margin-top: 3px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.kanban-sp {
+  background: rgba(255,255,255,0.08);
+  padding: 0 3px;
+  border-radius: 1px;
+}
+
+.kanban-blocked-icon {
+  font-size: calc(5px + var(--font-boost));
+}
+
+/* ================================================================
+   Roadmap Timeline
+   ================================================================ */
+
+.roadmap-section {
+  margin-bottom: 16px;
+}
+
+.roadmap-section h3 {
+  color: var(--pixel-cyan);
+  font-size: calc(7px + var(--font-boost));
+  margin: 0 0 8px 0;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+.roadmap-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.roadmap-sprint-bar {
+  background: rgba(0,255,255,0.05);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--pixel-cyan);
+  border-radius: 2px;
+  padding: 6px 8px;
+}
+
+.roadmap-sprint-bar.roadmap-status-active {
+  border-left-color: var(--pixel-green);
+  background: rgba(0,255,0,0.05);
+}
+
+.roadmap-sprint-bar.roadmap-status-closed {
+  border-left-color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.roadmap-bar-label {
+  color: var(--pixel-white);
+  font-size: calc(6px + var(--font-boost));
+  font-weight: bold;
+}
+
+.roadmap-bar-dates {
+  color: var(--text-dim);
+  font-size: calc(5px + var(--font-boost));
+  margin-top: 2px;
+}
+
+.roadmap-status-badge {
+  display: inline-block;
+  font-size: calc(4px + var(--font-boost));
+  padding: 0 4px;
+  border-radius: 2px;
+  margin-top: 3px;
+  color: var(--pixel-cyan);
+  border: 1px solid var(--border);
+}
+
+.roadmap-status-badge.roadmap-status-active { color: var(--pixel-green); border-color: var(--pixel-green); }
+.roadmap-status-badge.roadmap-status-closed { color: var(--text-dim); border-color: var(--text-dim); }
+
+.roadmap-goal {
+  color: var(--text-dim);
+  font-size: calc(5px + var(--font-boost));
+  font-style: italic;
+  margin-top: 2px;
+}
+
+.roadmap-version-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  font-size: calc(6px + var(--font-boost));
+}
+
+.roadmap-version-tag {
+  color: var(--pixel-green);
+  font-weight: bold;
+  min-width: 60px;
+}
+
+.roadmap-version-date {
+  color: var(--text-dim);
+  min-width: 80px;
+}
+
+.roadmap-version-count {
+  color: var(--pixel-white);
+}
+
+.roadmap-milestone-group {
+  margin-bottom: 10px;
+}
+
+.roadmap-milestone-header {
+  color: var(--pixel-yellow);
+  font-size: calc(6px + var(--font-boost));
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.roadmap-issue-row {
+  padding: 2px 8px;
+  font-size: calc(5px + var(--font-boost));
+  color: var(--pixel-white);
+  border-left: 2px solid var(--text-dim);
+  margin-left: 8px;
+}
+
+.roadmap-issue-row.priority-p0 { border-left-color: #ff4444; }
+.roadmap-issue-row.priority-p1 { border-left-color: #ff8800; }
+
+.roadmap-issue-pri {
+  color: var(--text-dim);
+  margin-right: 4px;
+}
+
+.roadmap-issue-status {
+  color: var(--text-dim);
+  font-size: calc(4px + var(--font-boost));
+  margin-left: 6px;
+}
+
+/* ================================================================
+   Activity Feed
+   ================================================================ */
+
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.activity-item {
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+
+.activity-icon {
+  font-size: calc(7px + var(--font-boost));
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.activity-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.activity-type {
+  color: var(--pixel-cyan);
+  font-size: calc(5px + var(--font-boost));
+  font-weight: bold;
+  text-transform: capitalize;
+}
+
+.activity-actor {
+  color: var(--text-dim);
+  font-size: calc(4px + var(--font-boost));
+}
+
+.activity-detail {
+  color: var(--pixel-white);
+  font-size: calc(5px + var(--font-boost));
+  margin-top: 1px;
+  word-break: break-word;
+}
+
+.activity-ts {
+  color: var(--text-dim);
+  font-size: calc(4px + var(--font-boost));
+  margin-top: 1px;
+}
+
 /* Product Detail Button in panel */
 .product-detail-btn {
   margin-left: auto;

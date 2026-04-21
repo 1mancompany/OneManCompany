@@ -18,6 +18,7 @@ from pathlib import Path
 from loguru import logger
 
 from onemancompany.core.config import (
+    ACTIVITY_LOG_DIR_NAME,
     ISSUES_DIR_NAME,
     PRODUCT_YAML_FILENAME,
     PRODUCTS_DIR,
@@ -660,6 +661,143 @@ def complete_review(slug: str, review_id: str) -> dict:
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.debug("[PRODUCT] Review completed: {}", review_id)
     return data
+
+
+# ---------------------------------------------------------------------------
+# Kanban Board
+# ---------------------------------------------------------------------------
+
+
+def kanban_board(slug: str) -> dict:
+    """Return issues grouped by IssueStatus columns + blocked IDs.
+
+    Raises ValueError if product not found.
+    """
+    product = load_product(slug)
+    if not product:
+        raise ValueError(f"Product '{slug}' not found")
+
+    all_issues = list_issues(slug)
+    columns: dict[str, list[dict]] = {s.value: [] for s in IssueStatus}
+    blocked_ids: list[str] = []
+
+    for issue in all_issues:
+        status = issue.get("status", IssueStatus.BACKLOG.value)
+        if status in columns:
+            columns[status].append(issue)
+        if is_blocked(slug, issue["id"]):
+            blocked_ids.append(issue["id"])
+
+    return {"columns": columns, "blocked_ids": blocked_ids}
+
+
+# ---------------------------------------------------------------------------
+# Roadmap Timeline
+# ---------------------------------------------------------------------------
+
+
+def roadmap_timeline(slug: str) -> dict:
+    """Return sprints, versions, and milestoned issues for timeline display.
+
+    Raises ValueError if product not found.
+    """
+    product = load_product(slug)
+    if not product:
+        raise ValueError(f"Product '{slug}' not found")
+
+    sprints = list_sprints(slug)
+    sprint_summaries = []
+    for s in sprints:
+        issue_count = len(list_issues(slug, sprint=s["id"]))
+        sprint_summaries.append({
+            "id": s["id"],
+            "name": s["name"],
+            "start_date": s["start_date"],
+            "end_date": s["end_date"],
+            "status": s["status"],
+            "goal": s.get("goal", ""),
+            "issue_count": issue_count,
+        })
+
+    versions = list_versions(slug)
+    version_summaries = []
+    for v in versions:
+        version_summaries.append({
+            "version": v["version"],
+            "released_at": v["released_at"],
+            "resolved_count": len(v.get("resolved_issue_ids", [])),
+            "changelog": v.get("changelog", ""),
+        })
+
+    all_issues = list_issues(slug)
+    milestoned = [
+        {
+            "issue_id": i["id"],
+            "title": i["title"],
+            "priority": i.get("priority", "P2"),
+            "milestone_version": i["milestone_version"],
+            "status": i.get("status", "backlog"),
+        }
+        for i in all_issues
+        if i.get("milestone_version")
+    ]
+
+    return {
+        "sprints": sprint_summaries,
+        "versions": version_summaries,
+        "milestoned_issues": milestoned,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Product Activity Log
+# ---------------------------------------------------------------------------
+
+_MAX_ACTIVITY_ENTRIES = 500
+
+
+def _activity_dir(slug: str) -> Path:
+    return _product_dir(slug) / ACTIVITY_LOG_DIR_NAME
+
+
+def append_product_activity(
+    slug: str,
+    *,
+    event_type: str,
+    actor: str,
+    detail: str,
+) -> None:
+    """Append an activity entry to the product's activity log."""
+    adir = _activity_dir(slug)
+    adir.mkdir(parents=True, exist_ok=True)
+    log_path = adir / "log.yaml"
+
+    entry = {
+        "ts": datetime.now().isoformat(),
+        "event_type": event_type,
+        "actor": actor,
+        "detail": detail,
+    }
+
+    with _get_slug_lock(slug):
+        log = _read_yaml(log_path) or []
+        if not isinstance(log, list):
+            log = []
+        log.append(entry)
+        if len(log) > _MAX_ACTIVITY_ENTRIES:
+            log = log[-_MAX_ACTIVITY_ENTRIES:]
+        _write_yaml(log_path, log)
+
+
+def list_product_activity(slug: str, *, limit: int = 50) -> list[dict]:
+    """Return product activity entries, newest first."""
+    log_path = _activity_dir(slug) / "log.yaml"
+    log = _read_yaml(log_path)
+    if not log or not isinstance(log, list):
+        return []
+    # Newest first
+    log.reverse()
+    return log[:limit]
 
 
 # ---------------------------------------------------------------------------

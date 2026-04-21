@@ -7645,3 +7645,48 @@ async def api_complete_review(slug: str, review_id: str) -> dict:
         return prod.complete_review(slug, review_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Kanban Board
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/product/{slug}/kanban")
+async def api_kanban_board(slug: str) -> dict:
+    """Return issues grouped by status columns for kanban view."""
+    from onemancompany.core import product as prod
+
+    try:
+        return prod.kanban_board(slug)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Roadmap Timeline
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/product/{slug}/roadmap")
+async def api_roadmap_timeline(slug: str) -> dict:
+    """Return sprints, versions, and milestoned issues for timeline view."""
+    from onemancompany.core import product as prod
+
+    try:
+        return prod.roadmap_timeline(slug)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Product Activity Feed
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/product/{slug}/activity")
+async def api_product_activity(slug: str, limit: int = 50) -> list[dict]:
+    """Return product-scoped activity feed, newest first."""
+    from onemancompany.core import product as prod
+
+    return prod.list_product_activity(slug, limit=limit)

@@ -701,6 +701,37 @@ async def handle_sprint_closed(event: CompanyEvent) -> None:
     logger.info("[PRODUCT_TRIGGER] Auto-created review for sprint {} in {}", sprint_id, slug)
 
 
+def _log_product_activity(event: CompanyEvent) -> None:
+    """Log a product event to the product-scoped activity feed."""
+    slug = event.payload.get("product_slug", "")
+    if not slug:
+        return
+    detail = event.payload.get("detail", "")
+    if not detail:
+        # Build a default detail string from event type + payload
+        etype = event.type.value
+        title = event.payload.get("title", "")
+        issue_id = event.payload.get("issue_id", "")
+        sprint_id = event.payload.get("sprint_id", "")
+        if title:
+            detail = f"{etype}: {title}"
+        elif issue_id:
+            detail = f"{etype}: {issue_id}"
+        elif sprint_id:
+            detail = f"{etype}: {sprint_id}"
+        else:
+            detail = etype
+    try:
+        prod.append_product_activity(
+            slug,
+            event_type=event.type.value,
+            actor=event.agent,
+            detail=detail,
+        )
+    except Exception:
+        logger.debug("[PRODUCT_TRIGGER] Failed to log activity for {}", slug)
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -718,10 +749,27 @@ def register_product_triggers() -> "asyncio.Task":
 
     queue = event_bus.subscribe()
 
+    # Event types that should be auto-logged to product activity feed
+    _ACTIVITY_EVENT_TYPES = {
+        EventType.ISSUE_CREATED,
+        EventType.ISSUE_CLOSED,
+        EventType.ISSUE_ASSIGNED,
+        EventType.SPRINT_CREATED,
+        EventType.SPRINT_CLOSED,
+        EventType.VERSION_RELEASED,
+        EventType.REVIEW_CREATED,
+        EventType.REVIEW_COMPLETED,
+        EventType.KR_UPDATED,
+    }
+
     async def _dispatch_loop() -> None:
         while True:
             event = await queue.get()
             try:
+                # Auto-log product events to activity feed
+                if event.type in _ACTIVITY_EVENT_TYPES:
+                    _log_product_activity(event)
+
                 if event.type == EventType.ISSUE_CREATED:
                     await handle_issue_created(event)
                 elif event.type == EventType.ISSUE_ASSIGNED:
