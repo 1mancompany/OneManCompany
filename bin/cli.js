@@ -325,10 +325,19 @@ ${green("What gets installed automatically:")}
   if (fs.existsSync(path.join(installDir, ".git"))) {
     if (wantUpdate) {
       info(`Updating existing installation at ${installDir}`);
+      const tag = `v${cliVersion}`;
       try {
-        run("git pull --ff-only", { cwd: installDir });
+        // Fetch and checkout the tag matching this npm package version
+        run(`git fetch --depth 1 origin tag ${tag}`, { cwd: installDir });
+        run(`git checkout ${tag}`, { cwd: installDir });
       } catch {
-        warn("git pull failed — continuing with current version");
+        // No matching tag (dev version) — pull latest main
+        try {
+          run("git checkout main", { cwd: installDir });
+          run("git pull --ff-only", { cwd: installDir });
+        } catch {
+          warn("git update failed — continuing with current version");
+        }
       }
     } else {
       info(`Using existing installation at ${installDir}`);
@@ -339,16 +348,25 @@ ${green("What gets installed automatically:")}
     info(`Cloning OneManCompany into ${installDir}...`);
     // Skip LFS files (demo videos etc.) — not needed for running the app
     const cloneEnv = { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" };
-    run(`git clone --depth 1 ${REPO_URL} "${installDir}"`, { env: cloneEnv });
+    // Clone the git tag matching the npm package version (e.g. v0.4.98).
+    // If no matching tag exists (dev version), fall back to main branch.
+    const tag = `v${cliVersion}`;
+    let clonedTag = false;
+    if (cliVersion !== "unknown") {
+      try {
+        run(`git clone --depth 1 --branch ${tag} ${REPO_URL} "${installDir}"`, { env: cloneEnv });
+        clonedTag = true;
+      } catch {
+        // Tag doesn't exist — this is a dev version, clone main
+      }
+    }
+    if (!clonedTag) {
+      run(`git clone --depth 1 ${REPO_URL} "${installDir}"`, { env: cloneEnv });
+    }
   }
 
-  // ── Read actual version from repo (may differ from npm package) ──────
+  // ── Determine display version ──────────────────────────────────────────
   let appVersion = cliVersion;
-  try {
-    const pyproject = fs.readFileSync(path.join(installDir, "pyproject.toml"), "utf-8");
-    const verMatch = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
-    if (verMatch) appVersion = verMatch[1];
-  } catch {}
 
   // ── Banner (after real version is known) ───────────────────────────
   console.log();
