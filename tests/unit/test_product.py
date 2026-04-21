@@ -1,4 +1,4 @@
-"""Unit tests for product management CRUD — products, key results, and issues."""
+"""Unit tests for product management CRUD — products, key results, issues, and sprints."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from onemancompany.core.models import (
     IssuePriority,
     IssueResolution,
     ProductStatus,
+    SprintStatus,
 )
 from onemancompany.core.task_lifecycle import TaskPhase
 
@@ -854,3 +855,251 @@ class TestDeleteProduct:
 
         assert result["projects_deleted"] == 1
         assert not fake_proj_dir.exists()
+
+
+# ---------------------------------------------------------------------------
+# Sprint CRUD
+# ---------------------------------------------------------------------------
+
+
+class TestSprintCRUD:
+    def test_create_sprint(self):
+        p = prod.create_product(name="SprintProd", owner_id="00010")
+        s = prod.create_sprint(
+            slug=p["slug"],
+            name="Sprint 1",
+            goal="Build MVP",
+            start_date="2026-04-21",
+            end_date="2026-05-05",
+        )
+        assert s["id"].startswith("sprint_")
+        assert s["name"] == "Sprint 1"
+        assert s["goal"] == "Build MVP"
+        assert s["status"] == SprintStatus.PLANNING.value
+        assert s["start_date"] == "2026-04-21"
+        assert s["end_date"] == "2026-05-05"
+        assert s["velocity"] is None
+        assert s["capacity"] is None
+
+    def test_load_sprint(self):
+        p = prod.create_product(name="LoadSprint", owner_id="00010")
+        s = prod.create_sprint(slug=p["slug"], name="S1", start_date="2026-04-21", end_date="2026-05-05")
+        loaded = prod.load_sprint(p["slug"], s["id"])
+        assert loaded["id"] == s["id"]
+        assert loaded["name"] == "S1"
+
+    def test_list_sprints(self):
+        p = prod.create_product(name="ListSprint", owner_id="00010")
+        prod.create_sprint(slug=p["slug"], name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        prod.create_sprint(slug=p["slug"], name="S2", start_date="2026-04-16", end_date="2026-04-30")
+        sprints = prod.list_sprints(p["slug"])
+        assert len(sprints) == 2
+
+    def test_list_sprints_filter_by_status(self):
+        p = prod.create_product(name="FilterSprint", owner_id="00010")
+        s1 = prod.create_sprint(slug=p["slug"], name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        prod.update_sprint(p["slug"], s1["id"], status=SprintStatus.ACTIVE.value)
+        prod.create_sprint(slug=p["slug"], name="S2", start_date="2026-04-16", end_date="2026-04-30")
+        active = prod.list_sprints(p["slug"], status=SprintStatus.ACTIVE.value)
+        assert len(active) == 1
+        assert active[0]["name"] == "S1"
+
+    def test_update_sprint(self):
+        p = prod.create_product(name="UpdateSprint", owner_id="00010")
+        s = prod.create_sprint(slug=p["slug"], name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        updated = prod.update_sprint(p["slug"], s["id"], name="Sprint Alpha", capacity=20)
+        assert updated["name"] == "Sprint Alpha"
+        assert updated["capacity"] == 20
+
+    def test_load_sprint_not_found(self):
+        p = prod.create_product(name="NoSprint", owner_id="00010")
+        assert prod.load_sprint(p["slug"], "sprint_nonexist") is None
+
+
+class TestActiveSprint:
+    def test_get_active_sprint_none(self):
+        p = prod.create_product(name="NoActive", owner_id="00010")
+        assert prod.get_active_sprint(p["slug"]) is None
+
+    def test_get_active_sprint(self):
+        p = prod.create_product(name="HasActive", owner_id="00010")
+        s = prod.create_sprint(slug=p["slug"], name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        prod.update_sprint(p["slug"], s["id"], status=SprintStatus.ACTIVE.value)
+        active = prod.get_active_sprint(p["slug"])
+        assert active["id"] == s["id"]
+
+    def test_only_one_active_sprint(self):
+        """Activating a sprint when one is already active raises."""
+        p = prod.create_product(name="OneActive", owner_id="00010")
+        s1 = prod.create_sprint(slug=p["slug"], name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        prod.update_sprint(p["slug"], s1["id"], status=SprintStatus.ACTIVE.value)
+        s2 = prod.create_sprint(slug=p["slug"], name="S2", start_date="2026-04-16", end_date="2026-04-30")
+        with pytest.raises(ValueError, match="already has an active sprint"):
+            prod.update_sprint(p["slug"], s2["id"], status=SprintStatus.ACTIVE.value)
+
+
+class TestCloseSprint:
+    def _setup_sprint_with_issues(self):
+        """Helper: product with active sprint and issues."""
+        p = prod.create_product(name="CloseProd", owner_id="00010")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        prod.update_sprint(slug, s["id"], status=SprintStatus.ACTIVE.value)
+        # Create issues in this sprint
+        i1 = prod.create_issue(slug=slug, title="Done task", created_by="00010", story_points=5, sprint=s["id"])
+        i2 = prod.create_issue(slug=slug, title="Also done", created_by="00010", story_points=3, sprint=s["id"])
+        i3 = prod.create_issue(slug=slug, title="Not done", created_by="00010", story_points=8, sprint=s["id"])
+        # Close first two
+        prod.close_issue(slug, i1["id"], resolution=IssueResolution.FIXED)
+        prod.close_issue(slug, i2["id"], resolution=IssueResolution.FIXED)
+        return slug, s["id"], i1["id"], i2["id"], i3["id"]
+
+    def test_close_sprint_velocity(self):
+        slug, sprint_id, _, _, _ = self._setup_sprint_with_issues()
+        result = prod.close_sprint(slug, sprint_id)
+        assert result["velocity"] == 8  # 5 + 3
+        assert result["status"] == SprintStatus.CLOSED.value
+
+    def test_close_sprint_completion_rate(self):
+        slug, sprint_id, _, _, _ = self._setup_sprint_with_issues()
+        result = prod.close_sprint(slug, sprint_id)
+        # 2 done out of 3
+        assert abs(result["completion_rate"] - 66.67) < 1
+
+    def test_close_sprint_carry_over_to_backlog(self):
+        """Unfinished issues go to backlog when no next sprint exists."""
+        slug, sprint_id, _, _, i3_id = self._setup_sprint_with_issues()
+        prod.close_sprint(slug, sprint_id)
+        issue3 = prod.load_issue(slug, i3_id)
+        assert issue3["sprint"] == ""
+        assert issue3["status"] == IssueStatus.BACKLOG.value
+        assert issue3.get("carried_over") is True
+
+    def test_close_sprint_carry_over_to_next(self):
+        """Unfinished issues move to next planning sprint."""
+        slug, sprint_id, _, _, i3_id = self._setup_sprint_with_issues()
+        # Create next sprint in planning
+        next_s = prod.create_sprint(slug=slug, name="S2", start_date="2026-04-16", end_date="2026-04-30")
+        prod.close_sprint(slug, sprint_id)
+        issue3 = prod.load_issue(slug, i3_id)
+        assert issue3["sprint"] == next_s["id"]
+        assert issue3.get("carried_over") is True
+
+    def test_close_sprint_carry_over_count(self):
+        slug, sprint_id, _, _, _ = self._setup_sprint_with_issues()
+        result = prod.close_sprint(slug, sprint_id)
+        assert result["carry_over_count"] == 1
+
+    def test_close_sprint_retrospective_generated(self):
+        slug, sprint_id, _, _, _ = self._setup_sprint_with_issues()
+        result = prod.close_sprint(slug, sprint_id)
+        assert result["retrospective"] is not None
+        assert "velocity" in result["retrospective"].lower() or "完成" in result["retrospective"]
+
+    def test_close_sprint_sets_closed_at(self):
+        slug, sprint_id, _, _, _ = self._setup_sprint_with_issues()
+        result = prod.close_sprint(slug, sprint_id)
+        assert result["closed_at"] is not None
+
+    def test_close_already_closed_raises(self):
+        slug, sprint_id, _, _, _ = self._setup_sprint_with_issues()
+        prod.close_sprint(slug, sprint_id)
+        with pytest.raises(ValueError, match="not active"):
+            prod.close_sprint(slug, sprint_id)
+
+
+class TestSprintVelocity:
+    def test_velocity_only_counts_done_issues(self):
+        p = prod.create_product(name="VelProd", owner_id="00010")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        prod.update_sprint(slug, s["id"], status=SprintStatus.ACTIVE.value)
+        i1 = prod.create_issue(slug=slug, title="Done", created_by="00010", story_points=5, sprint=s["id"])
+        prod.create_issue(slug=slug, title="Open", created_by="00010", story_points=10, sprint=s["id"])
+        prod.close_issue(slug, i1["id"], resolution=IssueResolution.FIXED)
+        vel = prod.get_sprint_velocity(slug, s["id"])
+        assert vel == 5
+
+    def test_velocity_zero_when_no_story_points(self):
+        p = prod.create_product(name="VelZero", owner_id="00010")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        prod.update_sprint(slug, s["id"], status=SprintStatus.ACTIVE.value)
+        i1 = prod.create_issue(slug=slug, title="Done no pts", created_by="00010", sprint=s["id"])
+        prod.close_issue(slug, i1["id"], resolution=IssueResolution.FIXED)
+        vel = prod.get_sprint_velocity(slug, s["id"])
+        assert vel == 0
+
+
+class TestSuggestCapacity:
+    def test_no_history_returns_none(self):
+        p = prod.create_product(name="NoHist", owner_id="00010")
+        assert prod.suggest_capacity(p["slug"]) is None
+
+    def test_fewer_than_3_returns_none(self):
+        p = prod.create_product(name="TwoHist", owner_id="00010")
+        slug = p["slug"]
+        for i in range(2):
+            s = prod.create_sprint(slug=slug, name=f"S{i}", start_date="2026-04-01", end_date="2026-04-15")
+            prod.update_sprint(slug, s["id"], status=SprintStatus.ACTIVE.value)
+            prod.close_sprint(slug, s["id"])
+        assert prod.suggest_capacity(slug) is None
+
+    def test_sliding_average_with_3_sprints(self):
+        p = prod.create_product(name="ThreeHist", owner_id="00010")
+        slug = p["slug"]
+        velocities = [10, 20, 30]
+        for i, v in enumerate(velocities):
+            s = prod.create_sprint(slug=slug, name=f"S{i}", start_date="2026-04-01", end_date="2026-04-15")
+            prod.update_sprint(slug, s["id"], status=SprintStatus.ACTIVE.value)
+            # Create an issue with story_points = v, close it
+            issue = prod.create_issue(slug=slug, title=f"T{i}", created_by="00010", story_points=v, sprint=s["id"])
+            prod.close_issue(slug, issue["id"], resolution=IssueResolution.FIXED)
+            prod.close_sprint(slug, s["id"])
+        suggested = prod.suggest_capacity(slug)
+        assert suggested == 20  # average of 10, 20, 30
+
+
+class TestSprintRetrospective:
+    def test_retrospective_content(self):
+        p = prod.create_product(name="RetroProd", owner_id="00010")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", goal="Build MVP", start_date="2026-04-01", end_date="2026-04-15")
+        prod.update_sprint(slug, s["id"], status=SprintStatus.ACTIVE.value)
+        i1 = prod.create_issue(slug=slug, title="Task A", created_by="00010", story_points=5, sprint=s["id"])
+        prod.close_issue(slug, i1["id"], resolution=IssueResolution.FIXED)
+        retro = prod.build_sprint_retrospective(slug, s["id"])
+        assert "Sprint 1" in retro or "S1" in retro
+        assert "velocity" in retro.lower() or "5" in retro
+
+    def test_retrospective_with_carry_over(self):
+        """Retrospective includes carried-over issues section."""
+        p = prod.create_product(name="RetroCarry", owner_id="00010")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        prod.update_sprint(slug, s["id"], status=SprintStatus.ACTIVE.value)
+        prod.create_issue(slug=slug, title="Unfinished work", created_by="00010", story_points=3, sprint=s["id"])
+        retro = prod.build_sprint_retrospective(slug, s["id"])
+        assert "Carried Over" in retro
+        assert "Unfinished work" in retro
+
+    def test_retrospective_nonexistent_sprint(self):
+        """build_sprint_retrospective returns empty string for missing sprint."""
+        p = prod.create_product(name="RetroNone", owner_id="00010")
+        assert prod.build_sprint_retrospective(p["slug"], "sprint_nonexist") == ""
+
+
+class TestSprintErrorPaths:
+    def test_create_sprint_product_not_found(self):
+        with pytest.raises(ValueError, match="not found"):
+            prod.create_sprint(slug="nonexist", name="S1", start_date="2026-04-01", end_date="2026-04-15")
+
+    def test_update_sprint_not_found(self):
+        p = prod.create_product(name="UpdErr", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.update_sprint(p["slug"], "sprint_nonexist", name="X")
+
+    def test_close_sprint_not_found(self):
+        p = prod.create_product(name="CloseErr", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.close_sprint(p["slug"], "sprint_nonexist")

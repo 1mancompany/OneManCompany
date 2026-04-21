@@ -835,3 +835,110 @@ class TestRegisterProductTriggers:
         # Both handlers were attempted despite the first one raising
         mock_ic.assert_called_once()
         mock_ia.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Sprint-related trigger tests
+# ---------------------------------------------------------------------------
+
+
+class TestSprintExpiryCheck:
+    @pytest.mark.asyncio
+    async def test_expired_sprint_triggers_action(self):
+        """When active sprint is past end_date, an action is logged."""
+        from onemancompany.core.product_triggers import run_product_check
+        p = _make_product(name="SprintExpiry")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-01-01", end_date="2026-01-15")
+        prod.update_sprint(slug, s["id"], status="active")
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=True):
+            result = await run_product_check(slug)
+
+        action_str = " ".join(result.get("actions", []))
+        assert "expired" in action_str.lower() or "Sprint" in action_str
+
+    @pytest.mark.asyncio
+    async def test_active_sprint_not_expired_no_action(self):
+        """Active sprint within date range should not trigger expiry action."""
+        from onemancompany.core.product_triggers import run_product_check
+        p = _make_product(name="SprintCurrent")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-01-01", end_date="2099-12-31")
+        prod.update_sprint(slug, s["id"], status="active")
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=False):
+            result = await run_product_check(slug)
+
+        action_str = " ".join(result.get("actions", []))
+        assert "expired" not in action_str.lower()
+
+    @pytest.mark.asyncio
+    async def test_invalid_end_date_no_crash(self):
+        """Sprint with invalid end_date should not crash the health check."""
+        from onemancompany.core.product_triggers import run_product_check
+        p = _make_product(name="BadDate")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-01-01", end_date="not-a-date")
+        prod.update_sprint(slug, s["id"], status="active")
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=False):
+            result = await run_product_check(slug)
+
+        # Should not crash, and should not falsely report expiry
+        assert not result.get("skipped")
+
+
+class TestBacklogGrooming:
+    @pytest.mark.asyncio
+    async def test_grooming_reminder_when_threshold_reached(self):
+        """5+ P2/P3 unscheduled issues triggers grooming action."""
+        from onemancompany.core.product_triggers import run_product_check
+        p = _make_product(name="GroomProd")
+        slug = p["slug"]
+        for i in range(5):
+            _make_issue(slug, priority=IssuePriority.P2, title=f"Low {i}")
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=True):
+            result = await run_product_check(slug)
+
+        action_str = " ".join(result.get("actions", []))
+        assert "grooming" in action_str.lower() or "unscheduled" in action_str.lower()
+
+    @pytest.mark.asyncio
+    async def test_no_grooming_below_threshold(self):
+        """Fewer than 5 P2/P3 unscheduled issues should not trigger grooming."""
+        from onemancompany.core.product_triggers import run_product_check
+        p = _make_product(name="NoGroom")
+        slug = p["slug"]
+        for i in range(4):
+            _make_issue(slug, priority=IssuePriority.P3, title=f"Low {i}")
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=False):
+            result = await run_product_check(slug)
+
+        action_str = " ".join(result.get("actions", []))
+        assert "grooming" not in action_str.lower() and "unscheduled" not in action_str.lower()
+
+    @pytest.mark.asyncio
+    async def test_scheduled_issues_excluded(self):
+        """Issues with sprint assigned should not count toward grooming threshold."""
+        from onemancompany.core.product_triggers import run_product_check
+        p = _make_product(name="ScheduledProd")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        # 5 P2 issues but all assigned to a sprint
+        for i in range(5):
+            _make_issue(slug, priority=IssuePriority.P2, title=f"Scheduled {i}", sprint=s["id"])
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=False):
+            result = await run_product_check(slug)
+
+        action_str = " ".join(result.get("actions", []))
+        assert "grooming" not in action_str.lower() and "unscheduled" not in action_str.lower()

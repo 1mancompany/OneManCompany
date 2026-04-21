@@ -162,6 +162,8 @@ class EventType(str, Enum):
     ISSUE_ASSIGNED = "issue_assigned"
     KR_UPDATED = "kr_updated"
     VERSION_RELEASED = "version_released"
+    SPRINT_CREATED = "sprint_created"
+    SPRINT_CLOSED = "sprint_closed"
 
 
 class ProductStatus(str, Enum):
@@ -195,6 +197,13 @@ class IssueResolution(str, Enum):
     WONTFIX = "wontfix"
     DUPLICATE = "duplicate"
     BY_DESIGN = "by_design"
+
+
+class SprintStatus(str, Enum):
+    """Sprint lifecycle status."""
+    PLANNING = "planning"
+    ACTIVE = "active"
+    CLOSED = "closed"
 
 
 # ---------------------------------------------------------------------------

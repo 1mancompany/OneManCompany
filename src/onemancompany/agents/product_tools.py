@@ -298,6 +298,129 @@ async def update_kr_progress_tool(
 
 
 # ---------------------------------------------------------------------------
+# Sprint tools
+# ---------------------------------------------------------------------------
+
+
+@tool
+async def create_sprint_tool(
+    product_slug: str,
+    name: str,
+    start_date: str,
+    end_date: str,
+    goal: str = "",
+    capacity: str = "",
+) -> str:
+    """Create a new sprint for a product.
+
+    Args:
+        product_slug: The product slug
+        name: Sprint name (e.g. "Sprint 3")
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        goal: Sprint goal description
+        capacity: Optional capacity in story points
+    """
+    try:
+        cap = int(capacity) if capacity else None
+        sprint = prod.create_sprint(
+            slug=product_slug,
+            name=name,
+            start_date=start_date,
+            end_date=end_date,
+            goal=goal,
+            capacity=cap,
+        )
+        logger.debug("create_sprint_tool: {} in {}", sprint["id"], product_slug)
+        return f"Created sprint '{name}' ({sprint['id']}) for {product_slug}: {start_date} → {end_date}"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
+async def close_sprint_tool(
+    product_slug: str,
+    sprint_id: str = "",
+) -> str:
+    """Close the active sprint for a product. Calculates velocity, carries over unfinished issues, generates retrospective.
+
+    Args:
+        product_slug: The product slug
+        sprint_id: Sprint ID to close. If empty, closes the active sprint.
+    """
+    try:
+        if not sprint_id:
+            active = prod.get_active_sprint(product_slug)
+            if not active:
+                return f"No active sprint found for {product_slug}"
+            sprint_id = active["id"]
+        result = prod.close_sprint(product_slug, sprint_id)
+        vel = result.get("velocity", 0)
+        rate = result.get("completion_rate", 0)
+        carry = result.get("carry_over_count", 0)
+        logger.debug("close_sprint_tool: {} closed — vel={}", sprint_id, vel)
+        return (
+            f"Sprint closed: velocity={vel} pts, completion={rate}%, "
+            f"carry_over={carry} issues\n\n{result.get('retrospective', '')}"
+        )
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
+async def get_sprint_info_tool(
+    product_slug: str,
+    sprint_id: str = "",
+) -> str:
+    """Get sprint information. Defaults to the active sprint if no ID given.
+
+    Args:
+        product_slug: The product slug
+        sprint_id: Sprint ID. If empty, returns the active sprint.
+    """
+    try:
+        if sprint_id:
+            sprint = prod.load_sprint(product_slug, sprint_id)
+        else:
+            sprint = prod.get_active_sprint(product_slug)
+
+        if not sprint:
+            # List all sprints as fallback
+            all_sprints = prod.list_sprints(product_slug)
+            if not all_sprints:
+                return f"No sprints found for {product_slug}"
+            lines = [f"No active sprint. All sprints for {product_slug}:"]
+            for s in all_sprints:
+                lines.append(f"- [{s['status']}] {s['name']} ({s['id']}) {s['start_date']}→{s['end_date']}")
+            return "\n".join(lines)
+
+        # Show sprint details
+        issues = prod.list_issues(product_slug, sprint=sprint["id"])
+        done = [i for i in issues if i.get("status") in ("done", "released")]
+        vel = sum(i.get("story_points") or 0 for i in done)
+        total_pts = sum(i.get("story_points") or 0 for i in issues)
+
+        lines = [
+            f"**{sprint['name']}** ({sprint['id']})",
+            f"Status: {sprint['status']}",
+            f"Goal: {sprint.get('goal') or 'N/A'}",
+            f"Period: {sprint['start_date']} → {sprint['end_date']}",
+            f"Issues: {len(done)}/{len(issues)} done",
+            f"Points: {vel}/{total_pts}",
+        ]
+        if sprint.get("capacity"):
+            lines.append(f"Capacity: {sprint['capacity']} pts")
+
+        suggestion = prod.suggest_capacity(product_slug)
+        if suggestion is not None:
+            lines.append(f"Suggested capacity (avg last 3): {suggestion} pts")
+
+        return "\n".join(lines)
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+# ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
 
@@ -309,4 +432,7 @@ PRODUCT_TOOLS = [
     get_product_context_tool,
     list_product_issues_tool,
     update_kr_progress_tool,
+    create_sprint_tool,
+    close_sprint_tool,
+    get_sprint_info_tool,
 ]

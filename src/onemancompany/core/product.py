@@ -1,7 +1,8 @@
-"""Product management — product records, key results, and issues.
+"""Product management — product records, key results, issues, and sprints.
 
 Products stored at: PRODUCTS_DIR/{slug}/product.yaml
 Issues stored at:   PRODUCTS_DIR/{slug}/issues/{issue_id}.yaml
+Sprints stored at:  PRODUCTS_DIR/{slug}/sprints/{sprint_id}.yaml
 
 All YAML I/O through store._read_yaml / _write_yaml.
 Disk is the single source of truth — no in-memory caching.
@@ -20,6 +21,7 @@ from onemancompany.core.config import (
     ISSUES_DIR_NAME,
     PRODUCT_YAML_FILENAME,
     PRODUCTS_DIR,
+    SPRINTS_DIR_NAME,
     VERSIONS_DIR_NAME,
     DirtyCategory,
 )
@@ -28,6 +30,7 @@ from onemancompany.core.models import (
     IssuePriority,
     IssueStatus,
     ProductStatus,
+    SprintStatus,
 )
 from onemancompany.core.store import _read_yaml, _write_yaml, mark_dirty
 
@@ -330,6 +333,7 @@ def list_issues(
     status: IssueStatus | None = None,
     priority: IssuePriority | None = None,
     labels: list[str] | None = None,
+    sprint: str | None = None,
 ) -> list[dict]:
     """List issues for a product, optionally filtered."""
     issues_path = _issues_dir(slug)
@@ -351,6 +355,8 @@ def list_issues(
             issue_labels = set(data.get("labels", []))
             if not set(labels).intersection(issue_labels):
                 continue
+        if sprint is not None and data.get("sprint") != sprint:
+            continue
         results.append(data)
     return results
 
@@ -806,3 +812,237 @@ def sync_issue_statuses(slug: str) -> list[dict]:
             logger.debug("[PRODUCT] Issue {} status derived: {} → {}", issue["id"], current, derived.value)
 
     return changed
+
+
+# ---------------------------------------------------------------------------
+# Sprint management
+# ---------------------------------------------------------------------------
+
+_DONE_STATUSES = {IssueStatus.DONE.value, IssueStatus.RELEASED.value}
+
+
+def _sprints_dir(slug: str) -> Path:
+    return PRODUCTS_DIR / slug / SPRINTS_DIR_NAME
+
+
+def create_sprint(
+    *,
+    slug: str,
+    name: str,
+    start_date: str,
+    end_date: str,
+    goal: str = "",
+    capacity: int | None = None,
+) -> dict:
+    """Create a sprint for a product. Returns the sprint dict."""
+    product = load_product(slug)
+    if not product:
+        raise ValueError(f"Product '{slug}' not found")
+
+    sprint_id = _gen_id("sprint_")
+    now = datetime.now().isoformat()
+
+    data = {
+        "id": sprint_id,
+        "product_id": product["id"],
+        "name": name,
+        "goal": goal,
+        "status": SprintStatus.PLANNING.value,
+        "start_date": start_date,
+        "end_date": end_date,
+        "capacity": capacity,
+        "velocity": None,
+        "carry_over_count": 0,
+        "completion_rate": None,
+        "retrospective": None,
+        "created_at": now,
+        "closed_at": None,
+    }
+
+    sdir = _sprints_dir(slug)
+    sdir.mkdir(parents=True, exist_ok=True)
+    with _get_slug_lock(slug):
+        _write_yaml(sdir / f"{sprint_id}.yaml", data)
+    mark_dirty(DirtyCategory.PRODUCTS)
+    logger.debug("[PRODUCT] Sprint created: {} in {}", sprint_id, slug)
+    return data
+
+
+def load_sprint(slug: str, sprint_id: str) -> dict | None:
+    """Load a single sprint by ID."""
+    path = _sprints_dir(slug) / f"{sprint_id}.yaml"
+    if not path.exists():
+        return None
+    return _read_yaml(path)
+
+
+def list_sprints(slug: str, status: str | None = None) -> list[dict]:
+    """List all sprints for a product, optionally filtered by status."""
+    sdir = _sprints_dir(slug)
+    if not sdir.exists():
+        return []
+    sprints = []
+    for f in sorted(sdir.iterdir()):
+        if f.suffix == ".yaml":
+            data = _read_yaml(f)
+            if data and (status is None or data.get("status") == status):
+                sprints.append(data)
+    return sprints
+
+
+def update_sprint(slug: str, sprint_id: str, **fields) -> dict:
+    """Update sprint fields. Enforces single-active-sprint constraint."""
+    sprint = load_sprint(slug, sprint_id)
+    if not sprint:
+        raise ValueError(f"Sprint '{sprint_id}' not found in '{slug}'")
+
+    # Enforce: only one active sprint per product
+    new_status = fields.get("status")
+    if new_status == SprintStatus.ACTIVE.value:
+        existing_active = get_active_sprint(slug)
+        if existing_active and existing_active["id"] != sprint_id:
+            raise ValueError(f"Product '{slug}' already has an active sprint: {existing_active['id']}")
+
+    sprint.update(fields)
+    with _get_slug_lock(slug):
+        _write_yaml(_sprints_dir(slug) / f"{sprint_id}.yaml", sprint)
+    mark_dirty(DirtyCategory.PRODUCTS)
+    return sprint
+
+
+def get_active_sprint(slug: str) -> dict | None:
+    """Return the current active sprint for a product, or None."""
+    active = list_sprints(slug, status=SprintStatus.ACTIVE.value)
+    return active[0] if active else None
+
+
+def get_sprint_velocity(slug: str, sprint_id: str) -> int:
+    """Calculate velocity: sum of story_points for done/released issues in this sprint."""
+    issues = list_issues(slug, sprint=sprint_id)
+    total = 0
+    for issue in issues:
+        if issue.get("status") in _DONE_STATUSES:
+            total += issue.get("story_points") or 0
+    return total
+
+
+def close_sprint(slug: str, sprint_id: str) -> dict:
+    """Close a sprint: calculate velocity, carry-over, generate retrospective."""
+    sprint = load_sprint(slug, sprint_id)
+    if not sprint:
+        raise ValueError(f"Sprint '{sprint_id}' not found in '{slug}'")
+    if sprint.get("status") != SprintStatus.ACTIVE.value:
+        raise ValueError(f"Sprint '{sprint_id}' is not active")
+
+    # 1. Calculate velocity
+    velocity = get_sprint_velocity(slug, sprint_id)
+
+    # 2. Identify unfinished issues
+    all_issues = list_issues(slug, sprint=sprint_id)
+    done_count = sum(1 for i in all_issues if i.get("status") in _DONE_STATUSES)
+    total_count = len(all_issues)
+    unfinished = [i for i in all_issues if i.get("status") not in _DONE_STATUSES]
+
+    # 3. Carry-over: find next planning sprint
+    planning_sprints = list_sprints(slug, status=SprintStatus.PLANNING.value)
+    next_sprint = planning_sprints[0] if planning_sprints else None
+
+    for issue in unfinished:
+        if next_sprint:
+            update_issue(slug, issue["id"], sprint=next_sprint["id"], carried_over=True)
+        else:
+            update_issue(slug, issue["id"], sprint="", status=IssueStatus.BACKLOG.value, carried_over=True)
+
+    # 4. Completion rate
+    completion_rate = round((done_count / total_count) * 100, 2) if total_count > 0 else 0.0
+
+    # 5. Retrospective
+    retrospective = build_sprint_retrospective(slug, sprint_id)
+
+    # 6. Update sprint record
+    now = datetime.now().isoformat()
+    updated = update_sprint(
+        slug, sprint_id,
+        status=SprintStatus.CLOSED.value,
+        velocity=velocity,
+        carry_over_count=len(unfinished),
+        completion_rate=completion_rate,
+        retrospective=retrospective,
+        closed_at=now,
+    )
+
+    logger.debug(
+        "[PRODUCT] Sprint {} closed — velocity={}, completion={}%, carry_over={}",
+        sprint_id, velocity, completion_rate, len(unfinished),
+    )
+    return updated
+
+
+def suggest_capacity(slug: str) -> int | None:
+    """Suggest sprint capacity based on sliding average of last 3 closed sprints.
+
+    Returns None if fewer than 3 closed sprints exist.
+    """
+    closed = list_sprints(slug, status=SprintStatus.CLOSED.value)
+    if len(closed) < 3:
+        return None
+    # Take last 3 by closed_at
+    recent = sorted(closed, key=lambda s: s.get("closed_at") or "")[-3:]
+    velocities = [s.get("velocity") or 0 for s in recent]
+    return round(sum(velocities) / len(velocities))
+
+
+def build_sprint_retrospective(slug: str, sprint_id: str) -> str:
+    """Generate a sprint retrospective report string."""
+    sprint = load_sprint(slug, sprint_id)
+    if not sprint:
+        return ""
+
+    issues = list_issues(slug, sprint=sprint_id)
+    done = [i for i in issues if i.get("status") in _DONE_STATUSES]
+    unfinished = [i for i in issues if i.get("status") not in _DONE_STATUSES]
+    velocity = sum(i.get("story_points") or 0 for i in done)
+    total_points = sum(i.get("story_points") or 0 for i in issues)
+    total_count = len(issues)
+    done_count = len(done)
+
+    # Compare with previous sprint velocity
+    closed = list_sprints(slug, status=SprintStatus.CLOSED.value)
+    closed_sorted = sorted(closed, key=lambda s: s.get("closed_at") or "")
+    prev_velocity = None
+    for cs in closed_sorted:
+        if cs["id"] != sprint_id and cs.get("velocity") is not None:
+            prev_velocity = cs["velocity"]
+
+    lines = [
+        f"## Sprint Retrospective: {sprint['name']}",
+        f"**Goal**: {sprint.get('goal') or 'N/A'}",
+        f"**Period**: {sprint.get('start_date')} → {sprint.get('end_date')}",
+        "",
+        f"### Metrics",
+        f"- **Velocity**: {velocity} story points",
+        f"- **Completion**: {done_count}/{total_count} issues ({round(done_count / total_count * 100, 1) if total_count else 0}%)",
+        f"- **Story points completed**: {velocity}/{total_points}",
+        f"- **Carry-over**: {len(unfinished)} issues",
+    ]
+
+    if prev_velocity is not None:
+        delta = velocity - prev_velocity
+        direction = "↑" if delta > 0 else ("↓" if delta < 0 else "→")
+        lines.append(f"- **vs Previous Sprint**: {direction} {abs(delta)} points ({prev_velocity} → {velocity})")
+
+    if done:
+        lines.append("")
+        lines.append("### Completed")
+        for i in done:
+            pts = f" ({i.get('story_points') or 0}pts)" if i.get("story_points") else ""
+            lines.append(f"- ✓ {i['title']}{pts}")
+
+    if unfinished:
+        lines.append("")
+        lines.append("### Carried Over")
+        for i in unfinished:
+            pts = f" ({i.get('story_points') or 0}pts)" if i.get("story_points") else ""
+            lines.append(f"- ○ {i['title']}{pts}")
+
+    return "\n".join(lines)
