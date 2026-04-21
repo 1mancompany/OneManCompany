@@ -795,6 +795,9 @@ class AppController {
     // Create Product modal
     this._initCreateProductModal();
 
+    // Product selector feedback
+    this._initProductSelector();
+
     hrBtn?.addEventListener('click', () => {
       hrBtn.disabled = true;
       this.logEntry('CEO', '🔄 Triggering quarterly review...', 'ceo');
@@ -7262,6 +7265,20 @@ class AppController {
   }
 
   // ===== Product Selector =====
+  _initProductSelector() {
+    const sel = document.getElementById('ceo-product-select');
+    if (!sel) return;
+    sel.addEventListener('change', () => {
+      if (sel.value) {
+        sel.style.borderColor = 'var(--pixel-cyan)';
+        sel.style.color = 'var(--pixel-white)';
+      } else {
+        sel.style.borderColor = '';
+        sel.style.color = '';
+      }
+    });
+  }
+
   async _refreshProductSelector() {
     try {
       const data = await fetch('/api/products').then(r => r.json());

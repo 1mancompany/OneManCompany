@@ -655,7 +655,7 @@ async def ceo_submit_task(
 
 @router.post("/api/task/{project_id}/followup")
 async def task_followup(project_id: str, body: dict) -> dict:
-    """CEO adds follow-up instructions to an existing task, dispatched to EA with context."""
+    """CEO adds follow-up instructions to an existing task, dispatched to assignee (product owner or EA) with context."""
     from datetime import datetime as _dt
 
     from onemancompany.core.agent_loop import get_agent_loop
@@ -699,7 +699,23 @@ async def task_followup(project_id: str, body: dict) -> dict:
             for fname in deliverables:
                 work_summary_lines.append(f"  {fname}")
 
-    # Build follow-up task for EA
+    # Determine assignee: product owner if product-linked, else EA
+    assignee_id = EA_ID
+    product_id = doc.get("product_id", "")
+    if product_id:
+        from onemancompany.core.product import find_slug_by_product_id, load_product
+        product_slug = find_slug_by_product_id(product_id)
+        if product_slug:
+            product = load_product(product_slug)
+            if product and product.get("owner_id"):
+                assignee_id = product["owner_id"]
+                logger.debug("[FOLLOWUP] Product-linked project {}, routing to owner {}",
+                             project_id, assignee_id)
+        if assignee_id == EA_ID:
+            logger.debug("[FOLLOWUP] No product owner found for project {}, falling back to EA",
+                         project_id)
+
+    # Build follow-up task for assignee
     context_parts = [
         f"CEO has added follow-up instructions to a completed task:\n",
         f"Original task: {original_task}\n",
@@ -721,11 +737,11 @@ async def task_followup(project_id: str, body: dict) -> dict:
     else:
         tree = TaskTree(project_id=project_id)
 
-    ea_loop = get_agent_loop(EA_ID)
-    if not ea_loop:
-        raise HTTPException(status_code=503, detail="EA agent not available")
+    assignee_loop = get_agent_loop(assignee_id)
+    if not assignee_loop:
+        raise HTTPException(status_code=503, detail=f"Agent {assignee_id} not available")
 
-    schedule_node_id = ""  # will be set to the EA node to schedule
+    schedule_node_id = ""  # will be set to the assignee node to schedule
 
     if tree.root_id:
         # Add a new subtree from CEO root — old subtree stays intact
@@ -741,39 +757,39 @@ async def task_followup(project_id: str, body: dict) -> dict:
         followup_node.node_type = NodeType.CEO_FOLLOWUP
         followup_node.status = TaskPhase.ACCEPTED.value
 
-        # Create a new EA node under the followup node for execution
-        ea_child = tree.add_child(
+        # Create execution node under the followup node
+        exec_child = tree.add_child(
             parent_id=followup_node.id,
-            employee_id=EA_ID,
+            employee_id=assignee_id,
             description=followup_task,
             acceptance_criteria=[],
         )
-        schedule_node_id = ea_child.id
+        schedule_node_id = exec_child.id
 
         # Keep CEO root in PROCESSING while new subtree runs
         if root and root.node_type == NodeType.CEO_PROMPT:
             root.status = TaskPhase.PROCESSING.value
     else:
-        # No root yet — create CEO root + EA child
+        # No root yet — create CEO root + assignee child
         ceo_root = tree.create_root(employee_id=CEO_ID, description=instructions)
         ceo_root.node_type = NodeType.CEO_PROMPT
         ceo_root.set_status(TaskPhase.PROCESSING)
-        ea_child = tree.add_child(
+        exec_child = tree.add_child(
             parent_id=ceo_root.id,
-            employee_id=EA_ID,
+            employee_id=assignee_id,
             description=instructions,
             acceptance_criteria=[],
         )
-        schedule_node_id = ea_child.id
+        schedule_node_id = exec_child.id
 
     _save_project_tree(pdir, tree)
 
-    # Schedule the EA node for execution
+    # Schedule the assignee node for execution
     if schedule_node_id:
         tree_path = str(Path(pdir) / TASK_TREE_FILENAME)
         from onemancompany.core.agent_loop import employee_manager
-        employee_manager.schedule_node(EA_ID, schedule_node_id, tree_path)
-        employee_manager._schedule_next(EA_ID)
+        employee_manager.schedule_node(assignee_id, schedule_node_id, tree_path)
+        employee_manager._schedule_next(assignee_id)
 
     # Update project.yaml status back to in_progress
     doc["status"] = "in_progress"
