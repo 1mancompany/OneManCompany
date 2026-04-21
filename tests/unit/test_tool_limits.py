@@ -54,3 +54,11 @@ class TestMaybePersistResult:
 
     def test_empty_string_unchanged(self):
         assert maybe_persist_result("", "test") == ""
+
+    def test_large_result_no_project_dir(self, tmp_path, monkeypatch):
+        """When project_dir is None, falls back to DATA_ROOT/tool_results."""
+        monkeypatch.setattr("onemancompany.core.config.DATA_ROOT", tmp_path)
+        large = "x" * (DEFAULT_MAX_RESULT_SIZE + 100)
+        result = maybe_persist_result(large, "test_tool")
+        assert "Output too large" in result
+        assert (tmp_path / "tool_results").exists()

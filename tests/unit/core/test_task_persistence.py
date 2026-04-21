@@ -245,3 +245,19 @@ class TestRecoverScheduleFromTrees:
 
         loaded = SystemTaskTree.load(sys_path, "emp1")
         assert len(loaded.get_all_nodes()) == 1, "Finished nodes must be preserved on save"
+
+
+class TestRecoverCorruptSystemTree:
+    """Cover exception branch when system_tasks.yaml is corrupt (lines 140-142)."""
+
+    def test_corrupt_system_tasks_skipped(self, tmp_path):
+        from unittest.mock import MagicMock
+        from onemancompany.core.task_persistence import recover_schedule_from_trees
+
+        emp_dir = tmp_path / "employees" / "00099"
+        emp_dir.mkdir(parents=True)
+        (emp_dir / "system_tasks.yaml").write_text("{{{{not: valid: yaml: [}")
+
+        mock_em = MagicMock()
+        # projects_dir empty, employees_dir has corrupt file
+        recover_schedule_from_trees(mock_em, tmp_path / "projects", tmp_path / "employees")

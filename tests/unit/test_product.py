@@ -1184,9 +1184,18 @@ class TestAddIssueLink:
         with pytest.raises(ValueError, match="self"):
             prod.add_issue_link(slug, i1["id"], i1["id"], IssueRelation.BLOCKS)
 
-    def test_add_link_issue_not_found(self):
-        """Linking to a nonexistent issue raises."""
+    def test_add_link_source_not_found(self):
+        """Linking from a nonexistent source issue raises."""
         p = prod.create_product(name="MissLink", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="A", created_by="ceo")
+
+        with pytest.raises(ValueError, match="not found"):
+            prod.add_issue_link(slug, "issue_nonexist", i1["id"], IssueRelation.BLOCKS)
+
+    def test_add_link_target_not_found(self):
+        """Linking to a nonexistent target issue raises."""
+        p = prod.create_product(name="MissLink2", owner_id="00010")
         slug = p["slug"]
         i1 = prod.create_issue(slug=slug, title="A", created_by="ceo")
 
@@ -1218,6 +1227,25 @@ class TestRemoveIssueLink:
         # Should not raise
         prod.remove_issue_link(slug, i1["id"], i2["id"])
         assert prod.get_issue_links(slug, i1["id"]) == []
+
+    def test_remove_link_missing_issue_file(self):
+        """Removing a link when issue file is missing doesn't crash."""
+        p = prod.create_product(name="RmMiss", owner_id="00010")
+        slug = p["slug"]
+        # Remove link on nonexistent issue IDs — should silently skip
+        prod.remove_issue_link(slug, "issue_ghost1", "issue_ghost2")
+
+    def test_get_issue_links_missing_issue(self):
+        """get_issue_links returns [] for nonexistent issue."""
+        p = prod.create_product(name="LinkMiss", owner_id="00010")
+        assert prod.get_issue_links(p["slug"], "issue_nope") == []
+
+    def test_add_link_entry_missing_issue_file(self):
+        """_add_link_entry silently skips when issue yaml doesn't exist."""
+        p = prod.create_product(name="AddMiss", owner_id="00010")
+        slug = p["slug"]
+        # Calling internal _add_link_entry on nonexistent issue — should not crash
+        prod._add_link_entry(slug, "issue_ghost", "issue_target", IssueRelation.BLOCKS.value)
 
 
 class TestIsBlocked:
@@ -1636,6 +1664,46 @@ class TestCircularDependencyDetection:
         # A blocked_by B → target(B) blocks issue(A) → B blocks A → circular with existing A blocks B
         with pytest.raises(ValueError, match="[Cc]ircular"):
             prod.add_issue_link(slug, a_id, b_id, IssueRelation.BLOCKED_BY)
+
+    def test_cycle_check_skips_missing_issues(self):
+        """Cycle check handles links pointing to deleted/missing issues gracefully."""
+        slug, issues = self._make_issues("cycle", 4)
+        a, b, c, d = [i["id"] for i in issues]
+        # A blocks B, B blocks C, C blocks D
+        prod.add_issue_link(slug, a, b, IssueRelation.BLOCKS)
+        prod.add_issue_link(slug, b, c, IssueRelation.BLOCKS)
+        prod.add_issue_link(slug, c, d, IssueRelation.BLOCKS)
+        # Delete C's yaml so the cycle checker encounters a missing issue mid-walk
+        import os
+        c_path = prod._issues_dir(slug) / f"{c}.yaml"
+        os.remove(c_path)
+        # D blocks A would be circular IF C existed. But C is gone, so walk stops.
+        # Still, add_issue_link validates both issues exist, so call _check_block_cycle directly.
+        prod._check_block_cycle(slug, a, b)  # walks B→C(missing)→stops, no cycle found
+
+    def test_cycle_check_handles_diamond_graph(self):
+        """Diamond: A→B, A→C, B→D, C→D. Adding D→A is circular."""
+        slug, issues = self._make_issues("cycle", 4)
+        a, b, c, d = [i["id"] for i in issues]
+        prod.add_issue_link(slug, a, b, IssueRelation.BLOCKS)
+        prod.add_issue_link(slug, a, c, IssueRelation.BLOCKS)
+        prod.add_issue_link(slug, b, d, IssueRelation.BLOCKS)
+        prod.add_issue_link(slug, c, d, IssueRelation.BLOCKS)
+        with pytest.raises(ValueError, match="[Cc]ircular"):
+            prod.add_issue_link(slug, d, a, IssueRelation.BLOCKS)
+
+    def test_cycle_check_visited_dedup(self):
+        """Diamond graph without cycle — BFS deduplicates via visited set."""
+        slug, issues = self._make_issues("cycle", 5)
+        a, b, c, d, e = [i["id"] for i in issues]
+        # A→C, A→D, C→E, D→E (diamond converging on E)
+        prod.add_issue_link(slug, a, c, IssueRelation.BLOCKS)
+        prod.add_issue_link(slug, a, d, IssueRelation.BLOCKS)
+        prod.add_issue_link(slug, c, e, IssueRelation.BLOCKS)
+        prod.add_issue_link(slug, d, e, IssueRelation.BLOCKS)
+        # B blocks A — not circular, but BFS from A will visit E twice (via C and D)
+        # The second visit hits the 'visited' skip (line 507)
+        prod.add_issue_link(slug, b, a, IssueRelation.BLOCKS)  # should NOT raise
 
 
 class TestEnumValidationInRoutes:
