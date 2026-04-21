@@ -289,11 +289,15 @@ ${green("What gets installed automatically:")}
   let cliVersion = "unknown";
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"));
-    if (pkg.version) cliVersion = pkg.version;
-  } catch {}
+    if (pkg.version && /^\d+\.\d+\.\d+$/.test(pkg.version)) cliVersion = pkg.version;
+  } catch { warn("Failed to read package version"); }
 
-  // ── Check git ─────────────────────────────────────────────────────────
-  if (!commandExists("git")) {
+  // ── Check prerequisites ────────────────────────────────────────────────
+  // Git is only needed if bundled source is missing (fallback clone path)
+  const npmPkgRoot = path.join(__dirname, "..");
+  const sourceIsBundled = fs.existsSync(path.join(npmPkgRoot, "pyproject.toml"))
+    && fs.existsSync(path.join(npmPkgRoot, "src"));
+  if (!sourceIsBundled && !commandExists("git")) {
     fail(
       "Git is required but not found.\n" +
       (isWindows
@@ -320,39 +324,46 @@ ${green("What gets installed automatically:")}
     }
   }
 
-  // ── Clone or update ───────────────────────────────────────────────────
+  // ── Install or update ──────────────────────────────────────────────────
+  // The npm package bundles the full source. Copy it to installDir.
+  // Only fall back to git clone if source is missing (shouldn't happen).
+  const SOURCE_ITEMS = ["src", "frontend", "company", "pyproject.toml", "config.yaml", "uv.lock"];
   const wantUpdate = passthrough.includes("--update");
-  if (fs.existsSync(path.join(installDir, ".git"))) {
-    if (wantUpdate) {
-      info(`Updating existing installation at ${installDir}`);
-      try {
-        run("git pull --ff-only", { cwd: installDir });
-      } catch {
-        warn("git pull failed — continuing with current version");
+
+  function copyItems(items, destRoot) {
+    for (const item of items) {
+      const src = path.join(npmPkgRoot, item);
+      const dest = path.join(destRoot, item);
+      if (fs.existsSync(src)) {
+        if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
+        fs.cpSync(src, dest, { recursive: true });
       }
+    }
+  }
+
+  if (fs.existsSync(installDir)) {
+    if (wantUpdate && sourceIsBundled) {
+      info(`Updating installation to v${cliVersion}...`);
+      copyItems(SOURCE_ITEMS, installDir);
+    } else if (wantUpdate && !sourceIsBundled) {
+      warn("Update requested but bundled source not found — cannot update");
     } else {
       info(`Using existing installation at ${installDir}`);
     }
-  } else if (fs.existsSync(installDir)) {
-    info(`Directory ${installDir} exists (not a git repo) — using as-is`);
+  } else if (sourceIsBundled) {
+    info(`Installing OneManCompany v${cliVersion} into ${installDir}...`);
+    fs.mkdirSync(installDir, { recursive: true });
+    copyItems(SOURCE_ITEMS, installDir);
   } else {
+    // Fallback: no bundled source (broken package?) — clone from git
     info(`Cloning OneManCompany into ${installDir}...`);
-    // Skip LFS files (demo videos etc.) — not needed for running the app
     const cloneEnv = { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" };
     run(`git clone --depth 1 ${REPO_URL} "${installDir}"`, { env: cloneEnv });
   }
 
-  // ── Read actual version from repo (may differ from npm package) ──────
-  let appVersion = cliVersion;
-  try {
-    const pyproject = fs.readFileSync(path.join(installDir, "pyproject.toml"), "utf-8");
-    const verMatch = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
-    if (verMatch) appVersion = verMatch[1];
-  } catch {}
-
   // ── Banner (after real version is known) ───────────────────────────
   console.log();
-  const verTag = `v${appVersion}`;
+  const verTag = `v${cliVersion}`;
   const title = `OneManCompany — AI Company OS ${verTag}`;
   const pad = Math.max(0, 44 - title.length);
   console.log(cyan("╔═══════════════════════════════════════════════╗"));
@@ -531,7 +542,7 @@ ${green("What gets installed automatically:")}
 
   if (debugMode) {
     // ── Foreground mode: show logs, Ctrl+C to kill ──────────────────
-    info(`Starting OneManCompany v${appVersion} in debug mode (Ctrl+C to stop)...\n`);
+    info(`Starting OneManCompany v${cliVersion} in debug mode (Ctrl+C to stop)...\n`);
     const child = spawn(pythonBin, ["-m", "onemancompany.main", ...launchArgs], {
       cwd: installDir,
       stdio: "inherit",
@@ -547,7 +558,7 @@ ${green("What gets installed automatically:")}
     process.on("SIGTERM", () => { child.kill("SIGTERM"); });
   } else {
     // ── Background mode: detach and exit CLI ────────────────────────
-    info(`Starting OneManCompany v${appVersion} in background...`);
+    info(`Starting OneManCompany v${cliVersion} in background...`);
     const logFile = path.join(installDir, ".onemancompany", "server.log");
     // Ensure log directory exists
     const logDir = path.dirname(logFile);
@@ -570,7 +581,7 @@ ${green("What gets installed automatically:")}
     await new Promise((r) => setTimeout(r, 5000));
     if (isProcessRunning(child.pid)) {
       console.log();
-      console.log(green(`  ✓ OneManCompany v${appVersion} is running!`));
+      console.log(green(`  ✓ OneManCompany v${cliVersion} is running!`));
       console.log();
       console.log(`  ${cyan("→")} Open ${cyan("http://localhost:8000")} in your browser`);
       console.log(`  ${dim("  Logs:")} ${logFile}`);
