@@ -495,6 +495,7 @@ class TestRunProductCheck:
 
         p = _make_product(name="AllGood")
         issue = _make_issue(p["slug"], priority=IssuePriority.P0, title="Done Issue")
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
         prod.update_issue(p["slug"], issue["id"], status=IssueStatus.DONE.value)
 
         with patch("onemancompany.core.project_archive.list_projects", return_value=[]):
@@ -881,8 +882,9 @@ class TestSprintExpiryCheck:
         from onemancompany.core.product_triggers import run_product_check
         p = _make_product(name="BadDate")
         slug = p["slug"]
-        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-01-01", end_date="not-a-date")
-        prod.update_sprint(slug, s["id"], status="active")
+        # Create a valid sprint first, then corrupt the end_date directly on disk
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-01-01", end_date="2026-01-14")
+        prod.update_sprint(slug, s["id"], status="active", end_date="not-a-date")
 
         with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
              patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=False):

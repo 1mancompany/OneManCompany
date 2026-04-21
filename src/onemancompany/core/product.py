@@ -389,6 +389,12 @@ def update_issue(slug: str, issue_id: str, **fields) -> dict:
         data = _read_yaml(path)
         if not data:
             raise ValueError(f"Issue '{issue_id}' not found in product '{slug}'")
+        # Validate status transition if status is being changed
+        new_status = fields.get("status")
+        if new_status is not None:
+            current_status = data.get("status", IssueStatus.BACKLOG.value)
+            if new_status != current_status:
+                _validate_status_transition(current_status, new_status)
         for key, value in fields.items():
             if value is not None:
                 old_value = data.get(key)
@@ -440,6 +446,53 @@ def reopen_issue(slug: str, issue_id: str) -> dict:
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.debug("Reopened issue {} (reopened_count={})", issue_id, data["reopened_count"])
     return data
+
+
+def delete_issue(slug: str, issue_id: str) -> None:
+    """Delete an issue and clean up all links referencing it. Raises ValueError if not found."""
+    issue = load_issue(slug, issue_id)
+    if not issue:
+        raise ValueError(f"Issue '{issue_id}' not found in product '{slug}'")
+
+    # Clean up links from other issues pointing to this one
+    all_issues = list_issues(slug)
+    for other in all_issues:
+        if other["id"] == issue_id:
+            continue
+        links = other.get("issue_links", [])
+        if any(l["issue_id"] == issue_id for l in links):
+            _remove_link_entry(slug, other["id"], issue_id)
+
+    # Remove the issue file
+    with _get_slug_lock(slug):
+        path = _issues_dir(slug) / f"{issue_id}.yaml"
+        path.unlink(missing_ok=True)
+    mark_dirty(DirtyCategory.PRODUCTS)
+    logger.debug("Deleted issue {} from {}", issue_id, slug)
+
+
+# ---------------------------------------------------------------------------
+# Issue Status Transitions
+# ---------------------------------------------------------------------------
+
+_VALID_TRANSITIONS: dict[str, set[str]] = {
+    IssueStatus.BACKLOG.value: {IssueStatus.PLANNED.value, IssueStatus.IN_PROGRESS.value},
+    IssueStatus.PLANNED.value: {IssueStatus.IN_PROGRESS.value, IssueStatus.BACKLOG.value},
+    IssueStatus.IN_PROGRESS.value: {IssueStatus.IN_REVIEW.value, IssueStatus.DONE.value, IssueStatus.BACKLOG.value},
+    IssueStatus.IN_REVIEW.value: {IssueStatus.DONE.value, IssueStatus.IN_PROGRESS.value, IssueStatus.BACKLOG.value},
+    IssueStatus.DONE.value: {IssueStatus.RELEASED.value, IssueStatus.BACKLOG.value},
+    IssueStatus.RELEASED.value: {IssueStatus.BACKLOG.value},
+}
+
+
+def _validate_status_transition(current: str, target: str) -> None:
+    """Raise ValueError if the status transition is not allowed."""
+    allowed = _VALID_TRANSITIONS.get(current, set())
+    if target not in allowed:
+        raise ValueError(
+            f"Invalid transition: '{current}' → '{target}'. "
+            f"Allowed: {sorted(allowed)}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1249,6 +1302,17 @@ def create_sprint(
     if not product:
         raise ValueError(f"Product '{slug}' not found")
 
+    # Validate dates
+    try:
+        sd = datetime.strptime(start_date, "%Y-%m-%d")
+        ed = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError(f"Invalid date format: {exc}") from exc
+    if ed <= sd:
+        raise ValueError(
+            f"End date '{end_date}' must be after start date '{start_date}'"
+        )
+
     sprint_id = _gen_id("sprint_")
     now = datetime.now().isoformat()
 
@@ -1318,6 +1382,25 @@ def update_sprint(slug: str, sprint_id: str, **fields) -> dict:
         _write_yaml(_sprints_dir(slug) / f"{sprint_id}.yaml", sprint)
     mark_dirty(DirtyCategory.PRODUCTS)
     return sprint
+
+
+def start_sprint(slug: str, sprint_id: str) -> dict:
+    """Start a sprint (set status to active). Raises ValueError if already active elsewhere."""
+    return update_sprint(slug, sprint_id, status=SprintStatus.ACTIVE.value)
+
+
+def delete_sprint(slug: str, sprint_id: str) -> None:
+    """Delete a sprint. Cannot delete an active sprint. Raises ValueError if not found."""
+    sprint = load_sprint(slug, sprint_id)
+    if not sprint:
+        raise ValueError(f"Sprint '{sprint_id}' not found in '{slug}'")
+    if sprint.get("status") == SprintStatus.ACTIVE.value:
+        raise ValueError(f"Cannot delete active sprint '{sprint_id}'. Close it first.")
+    with _get_slug_lock(slug):
+        path = _sprints_dir(slug) / f"{sprint_id}.yaml"
+        path.unlink(missing_ok=True)
+    mark_dirty(DirtyCategory.PRODUCTS)
+    logger.debug("Deleted sprint {} from {}", sprint_id, slug)
 
 
 def get_active_sprint(slug: str) -> dict | None:
