@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 from onemancompany.core import product as prod
-from onemancompany.core.models import EventType, IssuePriority, IssueResolution, IssueStatus
+from onemancompany.core.models import EventType, IssuePriority, IssueRelation, IssueResolution, IssueStatus
 from onemancompany.core.events import CompanyEvent
 
 
@@ -942,3 +942,170 @@ class TestBacklogGrooming:
 
         action_str = " ".join(result.get("actions", []))
         assert "grooming" not in action_str.lower() and "unscheduled" not in action_str.lower()
+
+
+# ---------------------------------------------------------------------------
+# Stale review check
+# ---------------------------------------------------------------------------
+
+
+class TestStaleReviewCheck:
+    @pytest.mark.asyncio
+    async def test_stale_review_triggers_action(self):
+        """Open review older than 24h triggers owner notification."""
+        from onemancompany.core.product_triggers import run_product_check
+        from datetime import datetime, timedelta
+
+        p = _make_product(name="StaleRev")
+        slug = p["slug"]
+        review = prod.create_review(slug=slug, trigger="test", owner="00010")
+        # Manually backdate the review
+        from onemancompany.core.store import _read_yaml, _write_yaml
+        rpath = prod._reviews_dir(slug) / f"{review['id']}.yaml"
+        rdata = _read_yaml(rpath)
+        rdata["created_at"] = (datetime.now() - timedelta(hours=25)).isoformat()
+        _write_yaml(rpath, rdata)
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=True):
+            result = await run_product_check(slug)
+
+        action_str = " ".join(result.get("actions", []))
+        assert "stale" in action_str.lower() or "review" in action_str.lower()
+
+    @pytest.mark.asyncio
+    async def test_fresh_review_no_action(self):
+        """Open review less than 24h old should not trigger stale action."""
+        from onemancompany.core.product_triggers import run_product_check
+
+        p = _make_product(name="FreshRev")
+        slug = p["slug"]
+        prod.create_review(slug=slug, trigger="test", owner="00010")
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=False):
+            result = await run_product_check(slug)
+
+        action_str = " ".join(result.get("actions", []))
+        assert "stale" not in action_str.lower()
+
+    @pytest.mark.asyncio
+    async def test_completed_review_not_stale(self):
+        """Completed reviews should not trigger stale check."""
+        from onemancompany.core.product_triggers import run_product_check
+        from datetime import datetime, timedelta
+
+        p = _make_product(name="CompletedRev")
+        slug = p["slug"]
+        review = prod.create_review(slug=slug, trigger="test", owner="00010")
+        # Check all items and complete
+        for item in review["items"]:
+            prod.update_review_item(slug, review["id"], item["key"], checked=True)
+        prod.complete_review(slug, review["id"])
+        # Backdate to make it old
+        from onemancompany.core.store import _read_yaml, _write_yaml
+        rpath = prod._reviews_dir(slug) / f"{review['id']}.yaml"
+        rdata = _read_yaml(rpath)
+        rdata["created_at"] = (datetime.now() - timedelta(hours=48)).isoformat()
+        _write_yaml(rpath, rdata)
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=False):
+            result = await run_product_check(slug)
+
+        action_str = " ".join(result.get("actions", []))
+        assert "stale" not in action_str.lower()
+
+
+# ---------------------------------------------------------------------------
+# Blocked issue check
+# ---------------------------------------------------------------------------
+
+
+class TestBlockedIssueCheck:
+    @pytest.mark.asyncio
+    async def test_long_blocked_issue_triggers_action(self):
+        """Issue blocked by another for >7 days triggers a warning action."""
+        from onemancompany.core.product_triggers import run_product_check
+        from datetime import datetime, timedelta
+
+        p = _make_product(name="BlockedCheck")
+        slug = p["slug"]
+        blocker = _make_issue(slug, priority=IssuePriority.P1, title="Blocker Issue")
+        blocked = _make_issue(slug, priority=IssuePriority.P1, title="Blocked Issue")
+        prod.add_issue_link(slug, blocked["id"], blocker["id"], IssueRelation.BLOCKED_BY)
+
+        # Backdate the blocked_by link's created_at (not the issue's)
+        from onemancompany.core.store import _read_yaml, _write_yaml
+        bpath = prod._issues_dir(slug) / f"{blocked['id']}.yaml"
+        bdata = _read_yaml(bpath)
+        for link in bdata.get("issue_links", []):
+            if link["relation"] == IssueRelation.BLOCKED_BY.value:
+                link["created_at"] = (datetime.now() - timedelta(days=8)).isoformat()
+        _write_yaml(bpath, bdata)
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
+             patch("onemancompany.core.product_triggers._create_project_for_issue", new_callable=AsyncMock, return_value=""), \
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=True):
+            result = await run_product_check(slug)
+
+        action_str = " ".join(result.get("actions", []))
+        assert "blocked" in action_str.lower()
+
+    @pytest.mark.asyncio
+    async def test_recently_blocked_no_action(self):
+        """Issue blocked for <7 days should not trigger blocked action."""
+        from onemancompany.core.product_triggers import run_product_check
+
+        p = _make_product(name="RecentBlock")
+        slug = p["slug"]
+        blocker = _make_issue(slug, priority=IssuePriority.P2, title="Blocker")
+        blocked = _make_issue(slug, priority=IssuePriority.P2, title="Blocked")
+        prod.add_issue_link(slug, blocked["id"], blocker["id"], IssueRelation.BLOCKED_BY)
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=False):
+            result = await run_product_check(slug)
+
+        action_str = " ".join(result.get("actions", []))
+        assert "blocked for" not in action_str.lower()
+
+
+# ---------------------------------------------------------------------------
+# Sprint closed auto-review
+# ---------------------------------------------------------------------------
+
+
+class TestSprintClosedAutoReview:
+    @pytest.mark.asyncio
+    async def test_close_sprint_creates_review(self):
+        """Closing a sprint should auto-create a review checklist via trigger."""
+        from onemancompany.core.product_triggers import handle_sprint_closed
+
+        p = _make_product(name="SprintAutoRev")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        prod.update_sprint(slug, s["id"], status="active")
+
+        event = CompanyEvent(
+            type=EventType.SPRINT_CLOSED,
+            payload={"product_slug": slug, "sprint_id": s["id"]},
+        )
+        await handle_sprint_closed(event)
+
+        reviews = prod.list_reviews(slug)
+        assert len(reviews) == 1
+        assert reviews[0]["trigger"] == "sprint_closed"
+        assert reviews[0]["trigger_ref"] == s["id"]
+
+    @pytest.mark.asyncio
+    async def test_sprint_closed_no_product_skips(self):
+        """handle_sprint_closed with no product_slug does nothing."""
+        from onemancompany.core.product_triggers import handle_sprint_closed
+
+        event = CompanyEvent(
+            type=EventType.SPRINT_CLOSED,
+            payload={"product_slug": "", "sprint_id": "s1"},
+        )
+        await handle_sprint_closed(event)
+        # No review created — just verify no crash

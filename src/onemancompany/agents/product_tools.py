@@ -11,7 +11,7 @@ from langchain_core.tools import tool
 from loguru import logger
 
 from onemancompany.core import product as prod
-from onemancompany.core.models import IssueResolution, IssuePriority, IssueStatus
+from onemancompany.core.models import IssueRelation, IssueResolution, IssuePriority, IssueStatus
 
 
 # ---------------------------------------------------------------------------
@@ -21,6 +21,7 @@ from onemancompany.core.models import IssueResolution, IssuePriority, IssueStatu
 _RESOLUTION_MAP = {r.value: r for r in IssueResolution}
 _PRIORITY_MAP = {p.value: p for p in IssuePriority}
 _STATUS_MAP = {s.value: s for s in IssueStatus}
+_RELATION_MAP = {r.value: r for r in IssueRelation}
 
 
 def _resolve_caller_id() -> str:
@@ -421,6 +422,147 @@ async def get_sprint_info_tool(
 
 
 # ---------------------------------------------------------------------------
+# Issue link tools
+# ---------------------------------------------------------------------------
+
+
+@tool
+async def link_issues_tool(
+    product_slug: str,
+    issue_id: str,
+    target_id: str,
+    relation: str,
+) -> str:
+    """Link two issues with a dependency or relation.
+
+    Args:
+        product_slug: The product slug
+        issue_id: Source issue ID
+        target_id: Target issue ID
+        relation: blocks, blocked_by, or relates_to
+    """
+    rel = _RELATION_MAP.get(relation)
+    if rel is None:
+        return f"Error: invalid relation '{relation}'. Must be one of: {', '.join(_RELATION_MAP)}"
+    try:
+        prod.add_issue_link(product_slug, issue_id, target_id, rel)
+        logger.debug("link_issues_tool: {} —{}→ {}", issue_id, relation, target_id)
+        return f"Linked {issue_id} —{relation}→ {target_id}"
+    except ValueError as e:
+        return f"Error: {e}"
+
+
+@tool
+async def unlink_issues_tool(
+    product_slug: str,
+    issue_id: str,
+    target_id: str,
+) -> str:
+    """Remove all links between two issues.
+
+    Args:
+        product_slug: The product slug
+        issue_id: First issue ID
+        target_id: Second issue ID
+    """
+    prod.remove_issue_link(product_slug, issue_id, target_id)
+    logger.debug("unlink_issues_tool: {} ↔ {}", issue_id, target_id)
+    return f"Unlinked {issue_id} ↔ {target_id}"
+
+
+@tool
+async def check_blocked_issues_tool(
+    product_slug: str,
+) -> str:
+    """List all issues that are currently blocked by unfinished dependencies.
+
+    Args:
+        product_slug: The product slug
+    """
+    all_issues = prod.list_issues(product_slug)
+    blocked = []
+    for issue in all_issues:
+        if issue.get("status") in (IssueStatus.DONE.value, IssueStatus.RELEASED.value):
+            continue
+        if prod.is_blocked(product_slug, issue["id"]):
+            blockers = [
+                l["issue_id"] for l in issue.get("issue_links", [])
+                if l["relation"] == IssueRelation.BLOCKED_BY.value
+            ]
+            blocked.append(f"- [{issue.get('priority', '?')}] {issue['title']} ({issue['id']}) blocked by: {', '.join(blockers)}")
+    if not blocked:
+        return "No blocked issues found"
+    return f"Blocked issues ({len(blocked)}):\n" + "\n".join(blocked)
+
+
+@tool
+async def manage_review_tool(
+    product_slug: str,
+    action: str,
+    review_id: str = "",
+    item_key: str = "",
+    checked: str = "",
+) -> str:
+    """Manage product review checklists: list, view, check items, or complete.
+
+    Args:
+        product_slug: The product slug
+        action: list, view, check, uncheck, or complete
+        review_id: Review ID (required for view/check/uncheck/complete)
+        item_key: Checklist item key (required for check/uncheck)
+        checked: 'true' or 'false' (for check/uncheck, overrides action)
+    """
+    try:
+        if action == "list":
+            reviews = prod.list_reviews(product_slug)
+            if not reviews:
+                return "No reviews found"
+            lines = []
+            for r in reviews:
+                checked_count = sum(1 for i in r.get("items", []) if i.get("checked"))
+                total = len(r.get("items", []))
+                lines.append(f"- [{r['status']}] {r['id']} ({r['trigger']}) {checked_count}/{total} items checked")
+            return "\n".join(lines)
+
+        if not review_id:
+            return "Error: review_id is required for this action"
+
+        if action == "view":
+            review = prod.load_review(product_slug, review_id)
+            if not review:
+                return f"Review '{review_id}' not found"
+            lines = [
+                f"**Review {review['id']}**",
+                f"Status: {review['status']}",
+                f"Trigger: {review['trigger']} ({review.get('trigger_ref', '')})",
+                f"Owner: {review['owner']}",
+                "",
+                "Checklist:",
+            ]
+            for item in review.get("items", []):
+                mark = "✓" if item.get("checked") else "○"
+                lines.append(f"  {mark} [{item['key']}] {item['label']}")
+            return "\n".join(lines)
+
+        if action in ("check", "uncheck"):
+            if not item_key:
+                return "Error: item_key is required for check/uncheck"
+            is_checked = action == "check"
+            if checked:
+                is_checked = checked.lower() == "true"
+            prod.update_review_item(product_slug, review_id, item_key, checked=is_checked)
+            return f"{'Checked' if is_checked else 'Unchecked'} item '{item_key}' in review {review_id}"
+
+        if action == "complete":
+            review = prod.complete_review(product_slug, review_id)
+            return f"Review {review_id} completed at {review['completed_at']}"
+
+        return f"Error: unknown action '{action}'. Use: list, view, check, uncheck, complete"
+    except ValueError as e:
+        return f"Error: {e}"
+
+
+# ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
 
@@ -435,4 +577,8 @@ PRODUCT_TOOLS = [
     create_sprint_tool,
     close_sprint_tool,
     get_sprint_info_tool,
+    link_issues_tool,
+    unlink_issues_tool,
+    check_blocked_issues_tool,
+    manage_review_tool,
 ]

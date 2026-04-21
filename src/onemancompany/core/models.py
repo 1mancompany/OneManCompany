@@ -164,6 +164,8 @@ class EventType(str, Enum):
     VERSION_RELEASED = "version_released"
     SPRINT_CREATED = "sprint_created"
     SPRINT_CLOSED = "sprint_closed"
+    REVIEW_CREATED = "review_created"
+    REVIEW_COMPLETED = "review_completed"
 
 
 class ProductStatus(str, Enum):
@@ -197,6 +199,13 @@ class IssueResolution(str, Enum):
     WONTFIX = "wontfix"
     DUPLICATE = "duplicate"
     BY_DESIGN = "by_design"
+
+
+class IssueRelation(str, Enum):
+    """Relationship type between two issues."""
+    BLOCKS = "blocks"
+    BLOCKED_BY = "blocked_by"
+    RELATES_TO = "relates_to"
 
 
 class SprintStatus(str, Enum):

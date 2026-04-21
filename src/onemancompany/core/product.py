@@ -21,11 +21,13 @@ from onemancompany.core.config import (
     ISSUES_DIR_NAME,
     PRODUCT_YAML_FILENAME,
     PRODUCTS_DIR,
+    REVIEWS_DIR_NAME,
     SPRINTS_DIR_NAME,
     VERSIONS_DIR_NAME,
     DirtyCategory,
 )
 from onemancompany.core.models import (
+    IssueRelation,
     IssueResolution,
     IssuePriority,
     IssueStatus,
@@ -299,7 +301,7 @@ def create_issue(
         "labels": labels or [],
         "assignee_id": assignee_id,
         "linked_task_ids": [],
-        "linked_issue_ids": [],
+        "issue_links": [],
         "milestone_version": milestone_version,
         "created_at": now,
         "created_by": created_by,
@@ -321,10 +323,26 @@ def create_issue(
 
 
 def load_issue(slug: str, issue_id: str) -> dict | None:
-    """Load a single issue by ID. Returns None if not found."""
+    """Load a single issue by ID. Returns None if not found.
+
+    Auto-migrates old ``linked_issue_ids`` format to ``issue_links``.
+    """
     path = _issues_dir(slug) / f"{issue_id}.yaml"
     data = _read_yaml(path)
-    return data if data else None
+    if not data:
+        return None
+
+    # Auto-migrate: linked_issue_ids → issue_links
+    if "linked_issue_ids" in data and "issue_links" not in data:
+        old_ids = data.pop("linked_issue_ids", [])
+        data["issue_links"] = [
+            {"issue_id": iid, "relation": IssueRelation.RELATES_TO.value}
+            for iid in old_ids
+        ]
+        _write_yaml(path, data)
+        logger.debug("Migrated linked_issue_ids → issue_links for {}", issue_id)
+
+    return data
 
 
 def list_issues(
@@ -421,6 +439,226 @@ def reopen_issue(slug: str, issue_id: str) -> dict | None:
         _write_yaml(path, data)
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.debug("Reopened issue {} (reopened_count={})", issue_id, data["reopened_count"])
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Issue Links
+# ---------------------------------------------------------------------------
+
+_REVERSE_RELATION = {
+    IssueRelation.BLOCKS.value: IssueRelation.BLOCKED_BY.value,
+    IssueRelation.BLOCKED_BY.value: IssueRelation.BLOCKS.value,
+    IssueRelation.RELATES_TO.value: IssueRelation.RELATES_TO.value,
+}
+
+
+def add_issue_link(
+    slug: str,
+    issue_id: str,
+    target_id: str,
+    relation: IssueRelation,
+) -> None:
+    """Add a bidirectional link between two issues.
+
+    Raises ValueError on self-reference or if either issue is not found.
+    Idempotent — re-adding the same link is a no-op.
+    """
+    if issue_id == target_id:
+        raise ValueError("Cannot link an issue to itself (self-reference)")
+
+    issue = load_issue(slug, issue_id)
+    if not issue:
+        raise ValueError(f"Issue '{issue_id}' not found in '{slug}'")
+    target = load_issue(slug, target_id)
+    if not target:
+        raise ValueError(f"Issue '{target_id}' not found in '{slug}'")
+
+    rel_value = relation.value if hasattr(relation, "value") else relation
+    reverse_rel = _REVERSE_RELATION[rel_value]
+
+    # Add forward link (idempotent)
+    _add_link_entry(slug, issue_id, target_id, rel_value)
+    # Add reverse link
+    _add_link_entry(slug, target_id, issue_id, reverse_rel)
+
+    mark_dirty(DirtyCategory.PRODUCTS)
+    logger.debug("Linked {} —{}→ {}", issue_id, rel_value, target_id)
+
+
+def _add_link_entry(slug: str, issue_id: str, target_id: str, relation: str) -> None:
+    """Add a single link entry to an issue (idempotent)."""
+    with _get_slug_lock(slug):
+        path = _issues_dir(slug) / f"{issue_id}.yaml"
+        data = _read_yaml(path)
+        if not data:
+            return
+        links = data.setdefault("issue_links", [])
+        # Idempotent check
+        if any(l["issue_id"] == target_id and l["relation"] == relation for l in links):
+            return
+        links.append({
+            "issue_id": target_id,
+            "relation": relation,
+            "created_at": datetime.now().isoformat(),
+        })
+        _write_yaml(path, data)
+
+
+def remove_issue_link(slug: str, issue_id: str, target_id: str) -> None:
+    """Remove all links between two issues (both directions). Silently ignores missing links."""
+    _remove_link_entry(slug, issue_id, target_id)
+    _remove_link_entry(slug, target_id, issue_id)
+    mark_dirty(DirtyCategory.PRODUCTS)
+    logger.debug("Unlinked {} ↔ {}", issue_id, target_id)
+
+
+def _remove_link_entry(slug: str, issue_id: str, target_id: str) -> None:
+    """Remove all link entries from issue_id to target_id."""
+    with _get_slug_lock(slug):
+        path = _issues_dir(slug) / f"{issue_id}.yaml"
+        data = _read_yaml(path)
+        if not data:
+            return
+        links = data.get("issue_links", [])
+        data["issue_links"] = [l for l in links if l["issue_id"] != target_id]
+        _write_yaml(path, data)
+
+
+def get_issue_links(slug: str, issue_id: str) -> list[dict]:
+    """Return the issue_links list for an issue."""
+    issue = load_issue(slug, issue_id)
+    if not issue:
+        return []
+    return issue.get("issue_links", [])
+
+
+def is_blocked(slug: str, issue_id: str) -> bool:
+    """Check if an issue is blocked by any unfinished blocker."""
+    issue = load_issue(slug, issue_id)
+    if not issue:
+        return False
+    links = issue.get("issue_links", [])
+    for link in links:
+        if link["relation"] != IssueRelation.BLOCKED_BY.value:
+            continue
+        blocker = load_issue(slug, link["issue_id"])
+        if blocker and blocker.get("status") not in _DONE_STATUSES:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Review Checklist
+# ---------------------------------------------------------------------------
+
+_DEFAULT_REVIEW_ITEMS = [
+    {"key": "update_kr", "label": "更新 KR 进度", "checked": False},
+    {"key": "review_issues", "label": "Review open issues", "checked": False},
+    {"key": "assign_backlog", "label": "安排 backlog 优先级", "checked": False},
+    {"key": "create_issues", "label": "创建新 issues", "checked": False},
+]
+
+
+def _reviews_dir(slug: str) -> Path:
+    return _product_dir(slug) / REVIEWS_DIR_NAME
+
+
+def create_review(
+    slug: str,
+    *,
+    trigger: str,
+    trigger_ref: str = "",
+    owner: str,
+    items: list[dict] | None = None,
+) -> dict:
+    """Create a review checklist for a product. Returns the review dict."""
+    review_id = _gen_id("rev_")
+    now = datetime.now().isoformat()
+
+    data = {
+        "id": review_id,
+        "product_slug": slug,
+        "trigger": trigger,
+        "trigger_ref": trigger_ref,
+        "created_at": now,
+        "owner": owner,
+        "status": "open",
+        "items": items if items is not None else [dict(i) for i in _DEFAULT_REVIEW_ITEMS],
+        "completed_at": None,
+    }
+
+    rdir = _reviews_dir(slug)
+    rdir.mkdir(parents=True, exist_ok=True)
+    with _get_slug_lock(slug):
+        _write_yaml(rdir / f"{review_id}.yaml", data)
+    mark_dirty(DirtyCategory.PRODUCTS)
+    logger.debug("[PRODUCT] Review created: {} in {}", review_id, slug)
+    return data
+
+
+def load_review(slug: str, review_id: str) -> dict | None:
+    """Load a single review by ID."""
+    path = _reviews_dir(slug) / f"{review_id}.yaml"
+    if not path.exists():
+        return None
+    return _read_yaml(path)
+
+
+def list_reviews(slug: str, status: str | None = None) -> list[dict]:
+    """List all reviews for a product, optionally filtered by status."""
+    rdir = _reviews_dir(slug)
+    if not rdir.exists():
+        return []
+    reviews = []
+    for f in sorted(rdir.iterdir()):
+        if f.suffix == ".yaml":
+            data = _read_yaml(f)
+            if data and (status is None or data.get("status") == status):
+                reviews.append(data)
+    return reviews
+
+
+def update_review_item(slug: str, review_id: str, item_key: str, *, checked: bool) -> dict:
+    """Check or uncheck a review item. Returns updated review dict.
+
+    Raises ValueError if review or item key not found.
+    """
+    with _get_slug_lock(slug):
+        path = _reviews_dir(slug) / f"{review_id}.yaml"
+        data = _read_yaml(path)
+        if not data:
+            raise ValueError(f"Review '{review_id}' not found in '{slug}'")
+        for item in data.get("items", []):
+            if item["key"] == item_key:
+                item["checked"] = checked
+                _write_yaml(path, data)
+                mark_dirty(DirtyCategory.PRODUCTS)
+                return data
+    raise ValueError(f"Item key '{item_key}' not found in review '{review_id}'")
+
+
+def complete_review(slug: str, review_id: str) -> dict:
+    """Mark a review as completed. All items must be checked.
+
+    Raises ValueError if review not found, already completed, or has unchecked items.
+    """
+    with _get_slug_lock(slug):
+        path = _reviews_dir(slug) / f"{review_id}.yaml"
+        data = _read_yaml(path)
+        if not data:
+            raise ValueError(f"Review '{review_id}' not found in '{slug}'")
+        if data.get("status") == "completed":
+            raise ValueError(f"Review '{review_id}' is already completed")
+        unchecked = [i for i in data.get("items", []) if not i.get("checked")]
+        if unchecked:
+            keys = ", ".join(i["key"] for i in unchecked)
+            raise ValueError(f"Cannot complete review: unchecked items: {keys}")
+        data["status"] = "completed"
+        data["completed_at"] = datetime.now().isoformat()
+        _write_yaml(path, data)
+    mark_dirty(DirtyCategory.PRODUCTS)
+    logger.debug("[PRODUCT] Review completed: {}", review_id)
     return data
 
 

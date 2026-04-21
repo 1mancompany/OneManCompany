@@ -7336,6 +7336,12 @@ async def api_product_detail(slug: str) -> dict:
     active_sprint = prod.get_active_sprint(slug)
     suggested_capacity = prod.suggest_capacity(slug)
 
+    # Reviews
+    reviews = prod.list_reviews(slug)
+
+    # Blocked issues count
+    blocked_count = sum(1 for i in issues if prod.is_blocked(slug, i["id"]))
+
     return {
         "product": product,
         "issues": issues,
@@ -7344,6 +7350,8 @@ async def api_product_detail(slug: str) -> dict:
         "sprints": sprints,
         "active_sprint": active_sprint,
         "suggested_capacity": suggested_capacity,
+        "reviews": reviews,
+        "blocked_issues_count": blocked_count,
     }
 
 
@@ -7508,3 +7516,132 @@ async def api_suggest_sprint_capacity(slug: str) -> dict:
 
     suggestion = prod.suggest_capacity(slug)
     return {"suggested_capacity": suggestion}
+
+
+# ---------------------------------------------------------------------------
+# Issue Links
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/product/{slug}/issue/{issue_id}/link")
+async def api_add_issue_link(slug: str, issue_id: str, request: Request) -> dict:
+    """Add a link between two issues."""
+    from onemancompany.core import product as prod
+    from onemancompany.core.models import IssueRelation
+
+    body = await request.json()
+    target_id = body.get("target_id", "")
+    relation = body.get("relation", "")
+
+    if not target_id or not relation:
+        raise HTTPException(status_code=400, detail="target_id and relation are required")
+
+    rel_map = {r.value: r for r in IssueRelation}
+    rel = rel_map.get(relation)
+    if not rel:
+        raise HTTPException(status_code=400, detail=f"Invalid relation. Must be one of: {', '.join(rel_map)}")
+
+    try:
+        prod.add_issue_link(slug, issue_id, target_id, rel)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {"linked": True, "issue_id": issue_id, "target_id": target_id, "relation": relation}
+
+
+@router.delete("/api/product/{slug}/issue/{issue_id}/link/{target_id}")
+async def api_remove_issue_link(slug: str, issue_id: str, target_id: str) -> dict:
+    """Remove all links between two issues."""
+    from onemancompany.core import product as prod
+
+    prod.remove_issue_link(slug, issue_id, target_id)
+    return {"unlinked": True, "issue_id": issue_id, "target_id": target_id}
+
+
+@router.get("/api/product/{slug}/issue/{issue_id}/links")
+async def api_get_issue_links(slug: str, issue_id: str) -> list[dict]:
+    """Get all links for an issue."""
+    from onemancompany.core import product as prod
+
+    return prod.get_issue_links(slug, issue_id)
+
+
+@router.get("/api/product/{slug}/blocked-issues")
+async def api_blocked_issues(slug: str) -> list[dict]:
+    """List all blocked issues for a product."""
+    from onemancompany.core import product as prod
+
+    all_issues = prod.list_issues(slug)
+    blocked = []
+    for issue in all_issues:
+        if prod.is_blocked(slug, issue["id"]):
+            blocked.append(issue)
+    return blocked
+
+
+# ---------------------------------------------------------------------------
+# Reviews
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/product/{slug}/review")
+async def api_create_review(slug: str, request: Request) -> dict:
+    """Create a review checklist."""
+    from onemancompany.core import product as prod
+
+    body = await request.json()
+    trigger = body.get("trigger", "manual")
+    trigger_ref = body.get("trigger_ref", "")
+    owner = body.get("owner", "")
+
+    review = prod.create_review(
+        slug=slug,
+        trigger=trigger,
+        trigger_ref=trigger_ref,
+        owner=owner,
+    )
+    return review
+
+
+@router.get("/api/product/{slug}/reviews")
+async def api_list_reviews(slug: str, status: str = "") -> list[dict]:
+    """List reviews for a product, optionally filtered by status."""
+    from onemancompany.core import product as prod
+
+    return prod.list_reviews(slug, status=status or None)
+
+
+@router.get("/api/product/{slug}/review/{review_id}")
+async def api_get_review(slug: str, review_id: str) -> dict:
+    """Get a single review."""
+    from onemancompany.core import product as prod
+
+    review = prod.load_review(slug, review_id)
+    if not review:
+        raise HTTPException(status_code=404, detail=f"Review '{review_id}' not found")
+    return review
+
+
+@router.put("/api/product/{slug}/review/{review_id}/item/{item_key}")
+async def api_update_review_item(slug: str, review_id: str, item_key: str, request: Request) -> dict:
+    """Check or uncheck a review checklist item."""
+    from onemancompany.core import product as prod
+
+    body = await request.json()
+    checked = body.get("checked", False)
+
+    try:
+        return prod.update_review_item(slug, review_id, item_key, checked=checked)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/api/product/{slug}/review/{review_id}/complete")
+async def api_complete_review(slug: str, review_id: str) -> dict:
+    """Complete a review (all items must be checked)."""
+    from onemancompany.core import product as prod
+
+    try:
+        return prod.complete_review(slug, review_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
