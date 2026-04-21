@@ -11,6 +11,7 @@ from onemancompany.core.models import (
     IssueStatus,
     IssuePriority,
     IssueResolution,
+    IssueRelation,
     ProductStatus,
     SprintStatus,
 )
@@ -1103,3 +1104,303 @@ class TestSprintErrorPaths:
         p = prod.create_product(name="CloseErr", owner_id="00010")
         with pytest.raises(ValueError, match="not found"):
             prod.close_sprint(p["slug"], "sprint_nonexist")
+
+
+# ---------------------------------------------------------------------------
+# Issue Links
+# ---------------------------------------------------------------------------
+
+
+class TestAddIssueLink:
+    def test_add_blocks_link(self):
+        """Adding a 'blocks' link creates bidirectional entries."""
+        p = prod.create_product(name="LinkProd", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="Blocker", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="Blocked", created_by="ceo")
+
+        prod.add_issue_link(slug, i1["id"], i2["id"], IssueRelation.BLOCKS)
+
+        # i1 should have blocks→i2
+        links1 = prod.get_issue_links(slug, i1["id"])
+        assert len(links1) == 1
+        assert links1[0]["issue_id"] == i2["id"]
+        assert links1[0]["relation"] == IssueRelation.BLOCKS.value
+
+        # i2 should have blocked_by→i1
+        links2 = prod.get_issue_links(slug, i2["id"])
+        assert len(links2) == 1
+        assert links2[0]["issue_id"] == i1["id"]
+        assert links2[0]["relation"] == IssueRelation.BLOCKED_BY.value
+
+    def test_add_relates_to_link(self):
+        """relates_to is symmetric — both sides get relates_to."""
+        p = prod.create_product(name="RelateProd", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="A", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="B", created_by="ceo")
+
+        prod.add_issue_link(slug, i1["id"], i2["id"], IssueRelation.RELATES_TO)
+
+        links1 = prod.get_issue_links(slug, i1["id"])
+        links2 = prod.get_issue_links(slug, i2["id"])
+        assert links1[0]["relation"] == IssueRelation.RELATES_TO.value
+        assert links2[0]["relation"] == IssueRelation.RELATES_TO.value
+
+    def test_add_blocked_by_creates_reverse_blocks(self):
+        """Adding blocked_by on A→B creates blocks on B→A."""
+        p = prod.create_product(name="RevLink", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="A", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="B", created_by="ceo")
+
+        prod.add_issue_link(slug, i1["id"], i2["id"], IssueRelation.BLOCKED_BY)
+
+        links1 = prod.get_issue_links(slug, i1["id"])
+        assert links1[0]["relation"] == IssueRelation.BLOCKED_BY.value
+        links2 = prod.get_issue_links(slug, i2["id"])
+        assert links2[0]["relation"] == IssueRelation.BLOCKS.value
+
+    def test_idempotent_add(self):
+        """Adding the same link twice doesn't duplicate."""
+        p = prod.create_product(name="IdempotLink", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="A", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="B", created_by="ceo")
+
+        prod.add_issue_link(slug, i1["id"], i2["id"], IssueRelation.BLOCKS)
+        prod.add_issue_link(slug, i1["id"], i2["id"], IssueRelation.BLOCKS)
+
+        links = prod.get_issue_links(slug, i1["id"])
+        assert len(links) == 1
+
+    def test_self_reference_rejected(self):
+        """Cannot link an issue to itself."""
+        p = prod.create_product(name="SelfRef", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="A", created_by="ceo")
+
+        with pytest.raises(ValueError, match="self"):
+            prod.add_issue_link(slug, i1["id"], i1["id"], IssueRelation.BLOCKS)
+
+    def test_add_link_issue_not_found(self):
+        """Linking to a nonexistent issue raises."""
+        p = prod.create_product(name="MissLink", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="A", created_by="ceo")
+
+        with pytest.raises(ValueError, match="not found"):
+            prod.add_issue_link(slug, i1["id"], "issue_nonexist", IssueRelation.BLOCKS)
+
+
+class TestRemoveIssueLink:
+    def test_remove_link(self):
+        """Removing a link deletes both sides."""
+        p = prod.create_product(name="RmLink", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="A", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="B", created_by="ceo")
+
+        prod.add_issue_link(slug, i1["id"], i2["id"], IssueRelation.BLOCKS)
+        prod.remove_issue_link(slug, i1["id"], i2["id"])
+
+        assert prod.get_issue_links(slug, i1["id"]) == []
+        assert prod.get_issue_links(slug, i2["id"]) == []
+
+    def test_remove_nonexistent_silently_ignored(self):
+        """Removing a link that doesn't exist does nothing."""
+        p = prod.create_product(name="RmNone", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="A", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="B", created_by="ceo")
+
+        # Should not raise
+        prod.remove_issue_link(slug, i1["id"], i2["id"])
+        assert prod.get_issue_links(slug, i1["id"]) == []
+
+
+class TestIsBlocked:
+    def test_blocked_by_open_issue(self):
+        """Issue is blocked when it has a blocked_by link to an undone issue."""
+        p = prod.create_product(name="BlockProd", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="Blocker", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="Blocked", created_by="ceo")
+
+        prod.add_issue_link(slug, i2["id"], i1["id"], IssueRelation.BLOCKED_BY)
+        assert prod.is_blocked(slug, i2["id"]) is True
+
+    def test_not_blocked_when_blocker_done(self):
+        """Issue is not blocked when all blockers are done."""
+        p = prod.create_product(name="UnblockProd", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="Blocker", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="Blocked", created_by="ceo")
+
+        prod.add_issue_link(slug, i2["id"], i1["id"], IssueRelation.BLOCKED_BY)
+        prod.close_issue(slug, i1["id"], resolution=IssueResolution.FIXED)
+        assert prod.is_blocked(slug, i2["id"]) is False
+
+    def test_not_blocked_without_links(self):
+        """Issue with no links is not blocked."""
+        p = prod.create_product(name="NoLinkProd", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="Free", created_by="ceo")
+        assert prod.is_blocked(slug, i1["id"]) is False
+
+    def test_is_blocked_issue_not_found(self):
+        """is_blocked for nonexistent issue returns False."""
+        p = prod.create_product(name="GhostBlock", owner_id="00010")
+        assert prod.is_blocked(p["slug"], "issue_none") is False
+
+
+class TestLoadIssueMigration:
+    def test_migrate_linked_issue_ids_to_issue_links(self):
+        """Old format linked_issue_ids auto-migrates to issue_links on load."""
+        p = prod.create_product(name="MigProd", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="A", created_by="ceo")
+        # Manually write old format
+        from onemancompany.core.store import _read_yaml, _write_yaml
+        path = prod._issues_dir(slug) / f"{i1['id']}.yaml"
+        data = _read_yaml(path)
+        data["linked_issue_ids"] = ["issue_other1", "issue_other2"]
+        if "issue_links" in data:
+            del data["issue_links"]
+        _write_yaml(path, data)
+
+        # Now load — should auto-migrate
+        loaded = prod.load_issue(slug, i1["id"])
+        assert "issue_links" in loaded
+        assert len(loaded["issue_links"]) == 2
+        assert loaded["issue_links"][0]["relation"] == IssueRelation.RELATES_TO.value
+        # Old field should be removed
+        assert "linked_issue_ids" not in loaded
+
+
+# ---------------------------------------------------------------------------
+# Review Checklist
+# ---------------------------------------------------------------------------
+
+
+class TestReviewCRUD:
+    def test_create_review(self):
+        p = prod.create_product(name="ReviewProd", owner_id="00010")
+        slug = p["slug"]
+        review = prod.create_review(
+            slug=slug,
+            trigger="sprint_closed",
+            trigger_ref="sprint_1",
+            owner="00010",
+        )
+        assert review["id"].startswith("rev_")
+        assert review["status"] == "open"
+        assert review["trigger"] == "sprint_closed"
+        assert review["trigger_ref"] == "sprint_1"
+        assert review["owner"] == "00010"
+        assert len(review["items"]) > 0  # default checklist items
+        assert all(not item["checked"] for item in review["items"])
+
+    def test_load_review(self):
+        p = prod.create_product(name="LoadRev", owner_id="00010")
+        slug = p["slug"]
+        review = prod.create_review(slug=slug, trigger="manual", owner="00010")
+        loaded = prod.load_review(slug, review["id"])
+        assert loaded["id"] == review["id"]
+
+    def test_load_review_not_found(self):
+        p = prod.create_product(name="NoRev", owner_id="00010")
+        assert prod.load_review(p["slug"], "rev_nonexist") is None
+
+    def test_list_reviews(self):
+        p = prod.create_product(name="ListRev", owner_id="00010")
+        slug = p["slug"]
+        prod.create_review(slug=slug, trigger="a", owner="00010")
+        prod.create_review(slug=slug, trigger="b", owner="00010")
+        reviews = prod.list_reviews(slug)
+        assert len(reviews) == 2
+
+    def test_list_reviews_filter_by_status(self):
+        p = prod.create_product(name="FilterRev", owner_id="00010")
+        slug = p["slug"]
+        r1 = prod.create_review(slug=slug, trigger="a", owner="00010")
+        prod.create_review(slug=slug, trigger="b", owner="00010")
+        # Complete first review
+        for item in r1["items"]:
+            prod.update_review_item(slug, r1["id"], item["key"], checked=True)
+        prod.complete_review(slug, r1["id"])
+        open_reviews = prod.list_reviews(slug, status="open")
+        assert len(open_reviews) == 1
+
+    def test_list_reviews_empty(self):
+        p = prod.create_product(name="EmptyRev", owner_id="00010")
+        assert prod.list_reviews(p["slug"]) == []
+
+
+class TestReviewItemUpdate:
+    def test_check_item(self):
+        p = prod.create_product(name="CheckItem", owner_id="00010")
+        slug = p["slug"]
+        review = prod.create_review(slug=slug, trigger="test", owner="00010")
+        first_key = review["items"][0]["key"]
+
+        updated = prod.update_review_item(slug, review["id"], first_key, checked=True)
+        checked_item = next(i for i in updated["items"] if i["key"] == first_key)
+        assert checked_item["checked"] is True
+
+    def test_uncheck_item(self):
+        p = prod.create_product(name="UncheckItem", owner_id="00010")
+        slug = p["slug"]
+        review = prod.create_review(slug=slug, trigger="test", owner="00010")
+        first_key = review["items"][0]["key"]
+
+        prod.update_review_item(slug, review["id"], first_key, checked=True)
+        updated = prod.update_review_item(slug, review["id"], first_key, checked=False)
+        checked_item = next(i for i in updated["items"] if i["key"] == first_key)
+        assert checked_item["checked"] is False
+
+    def test_update_item_review_not_found(self):
+        p = prod.create_product(name="NoRevItem", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.update_review_item(p["slug"], "rev_none", "key", checked=True)
+
+    def test_update_item_key_not_found(self):
+        p = prod.create_product(name="BadKeyRev", owner_id="00010")
+        slug = p["slug"]
+        review = prod.create_review(slug=slug, trigger="test", owner="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.update_review_item(slug, review["id"], "bad_key", checked=True)
+
+
+class TestCompleteReview:
+    def test_complete_all_checked(self):
+        p = prod.create_product(name="CompRev", owner_id="00010")
+        slug = p["slug"]
+        review = prod.create_review(slug=slug, trigger="test", owner="00010")
+        for item in review["items"]:
+            prod.update_review_item(slug, review["id"], item["key"], checked=True)
+        completed = prod.complete_review(slug, review["id"])
+        assert completed["status"] == "completed"
+        assert completed["completed_at"] is not None
+
+    def test_complete_with_unchecked_raises(self):
+        p = prod.create_product(name="IncomplRev", owner_id="00010")
+        slug = p["slug"]
+        review = prod.create_review(slug=slug, trigger="test", owner="00010")
+        with pytest.raises(ValueError, match="unchecked"):
+            prod.complete_review(slug, review["id"])
+
+    def test_complete_review_not_found(self):
+        p = prod.create_product(name="NoCompRev", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.complete_review(p["slug"], "rev_none")
+
+    def test_complete_already_completed_raises(self):
+        p = prod.create_product(name="DupComp", owner_id="00010")
+        slug = p["slug"]
+        review = prod.create_review(slug=slug, trigger="test", owner="00010")
+        for item in review["items"]:
+            prod.update_review_item(slug, review["id"], item["key"], checked=True)
+        prod.complete_review(slug, review["id"])
+        with pytest.raises(ValueError, match="already completed"):
+            prod.complete_review(slug, review["id"])

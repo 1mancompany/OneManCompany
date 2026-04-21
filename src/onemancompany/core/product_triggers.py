@@ -12,6 +12,7 @@ from loguru import logger
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.models import (
     EventType,
+    IssueRelation,
     IssuePriority,
     IssueResolution,
     IssueStatus,
@@ -493,7 +494,45 @@ async def run_product_check(product_slug: str) -> dict:
     if len(unscheduled_low) >= _BACKLOG_GROOMING_THRESHOLD:
         actions_taken.append(f"{len(unscheduled_low)} P2/P3 issues unscheduled — backlog grooming needed")
 
-    # --- Step 5: Check if owner review is needed ---
+    # --- Step 5: Stale review check (open > 24h) ---
+    from datetime import datetime as _datetime, timedelta as _timedelta
+
+    open_reviews = prod.list_reviews(product_slug, status="open")
+    _STALE_REVIEW_HOURS = 24
+    stale_reviews = []
+    for rev in open_reviews:
+        try:
+            created = _datetime.fromisoformat(rev.get("created_at", ""))
+            if _datetime.now() - created > _timedelta(hours=_STALE_REVIEW_HOURS):
+                stale_reviews.append(rev)
+        except (ValueError, TypeError):
+            logger.debug("[PRODUCT_CHECK] Invalid created_at on review {}", rev.get("id"))
+    if stale_reviews:
+        actions_taken.append(f"{len(stale_reviews)} stale review(s) open > {_STALE_REVIEW_HOURS}h")
+
+    # --- Step 6: Blocked issue check (blocked > 7 days) ---
+    _BLOCKED_DAYS_THRESHOLD = 7
+    for issue in all_issues:
+        if issue.get("status") in (IssueStatus.DONE.value, IssueStatus.RELEASED.value):
+            continue
+        links = issue.get("issue_links", [])
+        is_blocked = any(
+            l["relation"] == IssueRelation.BLOCKED_BY.value
+            and _is_blocker_unresolved(product_slug, l["issue_id"])
+            for l in links
+        )
+        if not is_blocked:
+            continue
+        try:
+            created = _datetime.fromisoformat(issue.get("created_at", ""))
+            if _datetime.now() - created > _timedelta(days=_BLOCKED_DAYS_THRESHOLD):
+                actions_taken.append(
+                    f"Issue '{issue['title']}' blocked for >{_BLOCKED_DAYS_THRESHOLD} days"
+                )
+        except (ValueError, TypeError):
+            logger.debug("[PRODUCT_CHECK] Invalid created_at on issue {}", issue.get("id"))
+
+    # --- Step 7: Check if owner review is needed ---
     # Conditions: backlog issues with no one working, or KRs at 0% with completed projects
     needs_review = False
     review_reasons = []
@@ -529,6 +568,11 @@ async def run_product_check(product_slug: str) -> dict:
     if len(unscheduled_low) >= _BACKLOG_GROOMING_THRESHOLD:
         needs_review = True
         review_reasons.append(f"{len(unscheduled_low)} P2/P3 issues need sprint assignment")
+
+    # Stale reviews → needs owner review
+    if stale_reviews:
+        needs_review = True
+        review_reasons.append(f"{len(stale_reviews)} stale review(s) pending")
 
     if needs_review:
         reason = "; ".join(review_reasons)
@@ -620,6 +664,38 @@ async def handle_issue_assigned(event: CompanyEvent) -> None:
         )
 
 
+def _is_blocker_unresolved(slug: str, issue_id: str) -> bool:
+    """Check if a blocker issue is still unresolved (not done/released)."""
+    blocker = prod.load_issue(slug, issue_id)
+    if not blocker:
+        return False
+    return blocker.get("status") not in (IssueStatus.DONE.value, IssueStatus.RELEASED.value)
+
+
+async def handle_sprint_closed(event: CompanyEvent) -> None:
+    """When a sprint is closed, auto-create a review checklist for the product owner."""
+    slug = event.payload.get("product_slug", "")
+    sprint_id = event.payload.get("sprint_id", "")
+
+    if not slug:
+        logger.debug("[PRODUCT_TRIGGER] handle_sprint_closed: no product_slug, skip")
+        return
+
+    product = prod.load_product(slug)
+    if not product:
+        logger.warning("[PRODUCT_TRIGGER] handle_sprint_closed: product '{}' not found", slug)
+        return
+
+    owner_id = product.get("owner_id", "")
+    prod.create_review(
+        slug=slug,
+        trigger="sprint_closed",
+        trigger_ref=sprint_id,
+        owner=owner_id,
+    )
+    logger.info("[PRODUCT_TRIGGER] Auto-created review for sprint {} in {}", sprint_id, slug)
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -649,6 +725,8 @@ def register_product_triggers() -> "asyncio.Task":
                     # Only handle if it has product context
                     if event.payload.get("product_slug"):
                         await handle_project_complete(event)
+                elif event.type == EventType.SPRINT_CLOSED:
+                    await handle_sprint_closed(event)
             except Exception:
                 logger.exception(
                     "[PRODUCT_TRIGGER] Error handling event {}", event.type
