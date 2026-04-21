@@ -252,3 +252,35 @@ class TestLifecycleHooks:
         pa.archive_project(project_id)
 
         assert not wt.is_dir(), "worktree should be removed after archive"
+
+
+# ---------------------------------------------------------------------------
+# TestContextInjection
+# ---------------------------------------------------------------------------
+
+
+class TestContextInjection:
+    def test_format_workspace_context(self):
+        from onemancompany.core.product_workspace import format_workspace_context
+
+        ctx = format_workspace_context("/path/to/wt", "SuperApp", 5)
+        assert "SuperApp" in ctx
+        assert "/path/to/wt" in ctx
+        assert "5 files" in ctx
+        assert "promote_to_product()" in ctx
+
+    def test_format_workspace_context_zero_files(self):
+        from onemancompany.core.product_workspace import format_workspace_context
+
+        ctx = format_workspace_context("/path/to/wt", "MyApp", 0)
+        assert "0 files" in ctx
+
+    def test_count_worktree_files(self, tmp_path):
+        from onemancompany.core.product_workspace import count_worktree_files
+
+        (tmp_path / ".git").mkdir()
+        (tmp_path / "README.md").write_text("# Readme")
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "main.py").write_text("print('hi')")
+        (tmp_path / "design.md").write_text("# Design")
+        assert count_worktree_files(tmp_path) == 2

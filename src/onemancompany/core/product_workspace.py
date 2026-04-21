@@ -185,3 +185,26 @@ def promote(
         "conflicts": conflicts,
         "message": "Merge conflicts detected.",
     }
+
+
+# ---------------------------------------------------------------------------
+# Context injection helpers
+# ---------------------------------------------------------------------------
+
+
+def format_workspace_context(worktree_path: str, product_name: str, file_count: int) -> str:
+    """Build the context string injected into task descriptions."""
+    return (
+        f'[Product "{product_name}" workspace: {worktree_path} ({file_count} files)\n'
+        f" Read and write files here using your normal tools.\n"
+        f" When changes are ready, call promote_to_product() to merge into the product.]"
+    )
+
+
+def count_worktree_files(worktree_path: Path) -> int:
+    """Count user-facing files in a worktree (excluding .git, README.md)."""
+    count = 0
+    for f in worktree_path.rglob("*"):
+        if f.is_file() and ".git" not in f.parts and f.name != "README.md":
+            count += 1
+    return count
