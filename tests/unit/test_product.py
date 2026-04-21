@@ -1126,6 +1126,7 @@ class TestAddIssueLink:
         assert len(links1) == 1
         assert links1[0]["issue_id"] == i2["id"]
         assert links1[0]["relation"] == IssueRelation.BLOCKS.value
+        assert "created_at" in links1[0]
 
         # i2 should have blocked_by→i1
         links2 = prod.get_issue_links(slug, i2["id"])

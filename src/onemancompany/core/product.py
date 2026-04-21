@@ -497,7 +497,11 @@ def _add_link_entry(slug: str, issue_id: str, target_id: str, relation: str) -> 
         # Idempotent check
         if any(l["issue_id"] == target_id and l["relation"] == relation for l in links):
             return
-        links.append({"issue_id": target_id, "relation": relation})
+        links.append({
+            "issue_id": target_id,
+            "relation": relation,
+            "created_at": datetime.now().isoformat(),
+        })
         _write_yaml(path, data)
 
 

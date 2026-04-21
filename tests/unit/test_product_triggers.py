@@ -1035,11 +1035,13 @@ class TestBlockedIssueCheck:
         blocked = _make_issue(slug, priority=IssuePriority.P1, title="Blocked Issue")
         prod.add_issue_link(slug, blocked["id"], blocker["id"], IssueRelation.BLOCKED_BY)
 
-        # Backdate the blocked issue's creation
+        # Backdate the blocked_by link's created_at (not the issue's)
         from onemancompany.core.store import _read_yaml, _write_yaml
         bpath = prod._issues_dir(slug) / f"{blocked['id']}.yaml"
         bdata = _read_yaml(bpath)
-        bdata["created_at"] = (datetime.now() - timedelta(days=8)).isoformat()
+        for link in bdata.get("issue_links", []):
+            if link["relation"] == IssueRelation.BLOCKED_BY.value:
+                link["created_at"] = (datetime.now() - timedelta(days=8)).isoformat()
         _write_yaml(bpath, bdata)
 
         with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \

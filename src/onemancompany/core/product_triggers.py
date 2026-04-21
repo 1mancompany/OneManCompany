@@ -516,21 +516,26 @@ async def run_product_check(product_slug: str) -> dict:
         if issue.get("status") in (IssueStatus.DONE.value, IssueStatus.RELEASED.value):
             continue
         links = issue.get("issue_links", [])
-        is_blocked = any(
-            l["relation"] == IssueRelation.BLOCKED_BY.value
-            and _is_blocker_unresolved(product_slug, l["issue_id"])
-            for l in links
-        )
-        if not is_blocked:
+        blocked_links = [
+            link for link in links
+            if link["relation"] == IssueRelation.BLOCKED_BY.value
+            and _is_blocker_unresolved(product_slug, link["issue_id"])
+        ]
+        if not blocked_links:
             continue
-        try:
-            created = _datetime.fromisoformat(issue.get("created_at", ""))
-            if _datetime.now() - created > _timedelta(days=_BLOCKED_DAYS_THRESHOLD):
-                actions_taken.append(
-                    f"Issue '{issue['title']}' blocked for >{_BLOCKED_DAYS_THRESHOLD} days"
-                )
-        except (ValueError, TypeError):
-            logger.debug("[PRODUCT_CHECK] Invalid created_at on issue {}", issue.get("id"))
+        # Use the oldest blocked_by link's created_at to determine how long blocked
+        oldest_blocked_at = None
+        for link in blocked_links:
+            try:
+                link_created = _datetime.fromisoformat(link.get("created_at", ""))
+                if oldest_blocked_at is None or link_created < oldest_blocked_at:
+                    oldest_blocked_at = link_created
+            except (ValueError, TypeError):
+                logger.debug("[PRODUCT_CHECK] Invalid created_at on link in issue {}", issue.get("id"))
+        if oldest_blocked_at and _datetime.now() - oldest_blocked_at > _timedelta(days=_BLOCKED_DAYS_THRESHOLD):
+            actions_taken.append(
+                f"Issue '{issue['title']}' blocked for >{_BLOCKED_DAYS_THRESHOLD} days"
+            )
 
     # --- Step 7: Check if owner review is needed ---
     # Conditions: backlog issues with no one working, or KRs at 0% with completed projects
