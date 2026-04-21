@@ -7197,8 +7197,11 @@ async def api_list_issues(slug: str, status: str = "", priority: str = "") -> li
     from onemancompany.core import product as prod
     from onemancompany.core.models import IssuePriority, IssueStatus
 
-    status_filter = IssueStatus(status) if status else None
-    priority_filter = IssuePriority(priority) if priority else None
+    try:
+        status_filter = IssueStatus(status) if status else None
+        priority_filter = IssuePriority(priority) if priority else None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return prod.list_issues(slug, status=status_filter, priority=priority_filter)
 
 
@@ -7223,13 +7226,17 @@ async def api_update_issue(slug: str, issue_id: str, request: Request) -> dict:
     ISSUE_MUTABLE_FIELDS = {"title", "status", "priority", "assignee_id", "labels", "milestone_version", "description", "story_points", "sprint"}
     body = await request.json()
     filtered = {k: v for k, v in body.items() if k in ISSUE_MUTABLE_FIELDS}
-    if "status" in filtered:
-        filtered["status"] = _IS(filtered["status"]).value
-    if "priority" in filtered:
-        filtered["priority"] = _IP2(filtered["priority"]).value
-    result = prod.update_issue(slug, issue_id, **filtered)
-    if not result:
-        raise HTTPException(status_code=404, detail=f"Issue '{issue_id}' not found")
+    try:
+        if "status" in filtered:
+            filtered["status"] = _IS(filtered["status"]).value
+        if "priority" in filtered:
+            filtered["priority"] = _IP2(filtered["priority"]).value
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    try:
+        result = prod.update_issue(slug, issue_id, **filtered)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
     # Publish ISSUE_ASSIGNED event when assignee changes
     if "assignee_id" in filtered and filtered["assignee_id"]:
@@ -7257,9 +7264,14 @@ async def api_close_issue(slug: str, issue_id: str, request: Request) -> dict:
 
     body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
     resolution_str = body.get("resolution", "fixed")
-    result = prod.close_issue(slug, issue_id, resolution=IssueResolution(resolution_str))
-    if not result:
-        raise HTTPException(status_code=404, detail=f"Issue '{issue_id}' not found")
+    try:
+        resolution = IssueResolution(resolution_str)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    try:
+        result = prod.close_issue(slug, issue_id, resolution=resolution)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     await event_bus.publish(
         CompanyEvent(
             type=EventType.ISSUE_CLOSED,
@@ -7275,9 +7287,10 @@ async def api_reopen_issue(slug: str, issue_id: str) -> dict:
     """Reopen a closed issue."""
     from onemancompany.core import product as prod
 
-    result = prod.reopen_issue(slug, issue_id)
-    if not result:
-        raise HTTPException(status_code=404, detail=f"Issue '{issue_id}' not found")
+    try:
+        result = prod.reopen_issue(slug, issue_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     return result
 
 

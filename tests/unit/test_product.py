@@ -697,9 +697,9 @@ class TestKeyResultEdgeCases:
 
 class TestIssueEdgeCases:
     def test_create_issue_no_product(self):
-        """Line 266 (implicit): create_issue with missing product still works (empty product_id)."""
-        issue = prod.create_issue(slug="ghost", title="Orphan", created_by="ceo")
-        assert issue["product_id"] == ""
+        """create_issue with missing product raises ValueError."""
+        with pytest.raises(ValueError, match="not found"):
+            prod.create_issue(slug="ghost", title="Orphan", created_by="ceo")
 
     def test_list_issues_skips_non_yaml(self, tmp_path):
         """Line 340: non-yaml files in issues dir are skipped."""
@@ -730,22 +730,22 @@ class TestIssueEdgeCases:
         assert backlog[0]["title"] == "Open"
 
     def test_update_issue_not_found(self):
-        """Lines 363-364: updating missing issue returns None."""
+        """updating missing issue raises ValueError."""
         p = prod.create_product(name="UpdateMiss", owner_id="00004")
-        result = prod.update_issue(p["slug"], "issue_nope", title="x")
-        assert result is None
+        with pytest.raises(ValueError, match="not found"):
+            prod.update_issue(p["slug"], "issue_nope", title="x")
 
     def test_close_issue_not_found(self):
-        """Lines 387-388: closing missing issue returns None."""
+        """closing missing issue raises ValueError."""
         p = prod.create_product(name="CloseMiss", owner_id="00004")
-        result = prod.close_issue(p["slug"], "issue_gone")
-        assert result is None
+        with pytest.raises(ValueError, match="not found"):
+            prod.close_issue(p["slug"], "issue_gone")
 
     def test_reopen_issue_not_found(self):
-        """Lines 406-407: reopening missing issue returns None."""
+        """reopening missing issue raises ValueError."""
         p = prod.create_product(name="ReopenMiss", owner_id="00004")
-        result = prod.reopen_issue(p["slug"], "issue_vanish")
-        assert result is None
+        with pytest.raises(ValueError, match="not found"):
+            prod.reopen_issue(p["slug"], "issue_vanish")
 
 
 class TestAppendHistory:
@@ -1567,3 +1567,107 @@ class TestProductActivity:
         log = prod.list_product_activity(slug, limit=1000)
         assert len(log) <= 500
         assert log[0]["event_type"] == "overflow"  # newest first
+
+
+# ---------------------------------------------------------------------------
+# Batch 1 Critical Fixes — Audit Findings
+# ---------------------------------------------------------------------------
+
+
+class TestCreateIssueValidatesProduct:
+    """Fix #1: create_issue() must raise ValueError when product doesn't exist."""
+
+    def test_create_issue_nonexistent_product_raises(self):
+        with pytest.raises(ValueError, match="not found"):
+            prod.create_issue(
+                slug="no-such-product",
+                title="Ghost issue",
+                created_by="ceo",
+            )
+
+    def test_create_issue_existing_product_works(self):
+        p = prod.create_product(name="Valid Prod", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="Real issue", created_by="ceo")
+        assert issue["product_id"] == p["id"]
+
+
+class TestCircularDependencyDetection:
+    """Fix #2: add_issue_link() must detect circular block dependencies."""
+
+    def _make_issues(self, slug, count=3):
+        p = prod.create_product(name="CycleProd", owner_id="00010")
+        issues = []
+        for i in range(count):
+            issues.append(
+                prod.create_issue(slug=p["slug"], title=f"Issue {i}", created_by="ceo")
+            )
+        return p["slug"], issues
+
+    def test_direct_circular_blocks_raises(self):
+        """A blocks B, then B blocks A → circular dependency error."""
+        slug, issues = self._make_issues("cycle", 2)
+        a_id, b_id = issues[0]["id"], issues[1]["id"]
+        prod.add_issue_link(slug, a_id, b_id, IssueRelation.BLOCKS)
+        with pytest.raises(ValueError, match="[Cc]ircular"):
+            prod.add_issue_link(slug, b_id, a_id, IssueRelation.BLOCKS)
+
+    def test_transitive_circular_blocks_raises(self):
+        """A blocks B, B blocks C, C blocks A → circular dependency error."""
+        slug, issues = self._make_issues("cycle", 3)
+        a, b, c = issues[0]["id"], issues[1]["id"], issues[2]["id"]
+        prod.add_issue_link(slug, a, b, IssueRelation.BLOCKS)
+        prod.add_issue_link(slug, b, c, IssueRelation.BLOCKS)
+        with pytest.raises(ValueError, match="[Cc]ircular"):
+            prod.add_issue_link(slug, c, a, IssueRelation.BLOCKS)
+
+    def test_relates_to_allows_cycles(self):
+        """relates_to links don't have directionality — cycles are fine."""
+        slug, issues = self._make_issues("cycle", 2)
+        a_id, b_id = issues[0]["id"], issues[1]["id"]
+        prod.add_issue_link(slug, a_id, b_id, IssueRelation.RELATES_TO)
+        # Should NOT raise
+        prod.add_issue_link(slug, b_id, a_id, IssueRelation.RELATES_TO)
+
+    def test_blocked_by_circular_raises(self):
+        """A blocks B exists. Then A blocked_by B means B blocks A → circular."""
+        slug, issues = self._make_issues("cycle", 2)
+        a_id, b_id = issues[0]["id"], issues[1]["id"]
+        prod.add_issue_link(slug, a_id, b_id, IssueRelation.BLOCKS)
+        # A blocked_by B → target(B) blocks issue(A) → B blocks A → circular with existing A blocks B
+        with pytest.raises(ValueError, match="[Cc]ircular"):
+            prod.add_issue_link(slug, a_id, b_id, IssueRelation.BLOCKED_BY)
+
+
+class TestEnumValidationInRoutes:
+    """Fix #3: Invalid enum values should raise ValueError (routes wrap in 400)."""
+
+    def test_invalid_issue_status_raises(self):
+        with pytest.raises(ValueError):
+            IssueStatus("not_a_real_status")
+
+    def test_invalid_issue_resolution_raises(self):
+        with pytest.raises(ValueError):
+            IssueResolution("not_a_real_resolution")
+
+    def test_invalid_issue_priority_raises(self):
+        with pytest.raises(ValueError):
+            IssuePriority("not_a_real_priority")
+
+
+class TestMissingIssueRaisesValueError:
+    """Fix #4: update_issue, close_issue, reopen_issue should raise ValueError on missing."""
+
+    def test_update_issue_missing_raises(self):
+        prod.create_product(name="ErrProd", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.update_issue("err-prod", "nonexistent_id", title="Nope")
+
+    def test_close_issue_missing_raises(self):
+        prod.create_product(name="ErrProd2", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.close_issue("err-prod2", "nonexistent_id")
+
+    def test_reopen_issue_missing_raises(self):
+        prod.create_product(name="ErrProd3", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.reopen_issue("err-prod3", "nonexistent_id")

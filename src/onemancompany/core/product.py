@@ -287,9 +287,11 @@ def create_issue(
     sprint: str | None = None,
 ) -> dict:
     """Create an issue for a product. Returns the issue dict."""
-    issue_id = _gen_id("issue_")
     product = load_product(slug)
-    product_id = product["id"] if product else ""
+    if not product:
+        raise ValueError(f"Product '{slug}' not found")
+    issue_id = _gen_id("issue_")
+    product_id = product["id"]
     now = datetime.now().isoformat()
 
     data = {
@@ -380,14 +382,13 @@ def list_issues(
     return results
 
 
-def update_issue(slug: str, issue_id: str, **fields) -> dict | None:
-    """Update issue fields. Returns updated dict or None if not found."""
+def update_issue(slug: str, issue_id: str, **fields) -> dict:
+    """Update issue fields. Returns updated dict. Raises ValueError if not found."""
     with _get_slug_lock(slug):
         path = _issues_dir(slug) / f"{issue_id}.yaml"
         data = _read_yaml(path)
         if not data:
-            logger.warning("update_issue: issue {} not found in {}", issue_id, slug)
-            return None
+            raise ValueError(f"Issue '{issue_id}' not found in product '{slug}'")
         for key, value in fields.items():
             if value is not None:
                 old_value = data.get(key)
@@ -404,14 +405,13 @@ def close_issue(
     issue_id: str,
     *,
     resolution: IssueResolution = IssueResolution.FIXED,
-) -> dict | None:
-    """Close an issue with a resolution. Returns updated dict or None."""
+) -> dict:
+    """Close an issue with a resolution. Returns updated dict. Raises ValueError if not found."""
     with _get_slug_lock(slug):
         path = _issues_dir(slug) / f"{issue_id}.yaml"
         data = _read_yaml(path)
         if not data:
-            logger.warning("close_issue: issue {} not found in {}", issue_id, slug)
-            return None
+            raise ValueError(f"Issue '{issue_id}' not found in product '{slug}'")
         old_status = data.get("status")
         _append_history(data, "status", old_status, IssueStatus.DONE.value, changed_by="system")
         data["status"] = IssueStatus.DONE.value
@@ -423,14 +423,13 @@ def close_issue(
     return data
 
 
-def reopen_issue(slug: str, issue_id: str) -> dict | None:
-    """Reopen a closed issue. Increments reopened_count. Returns updated dict or None."""
+def reopen_issue(slug: str, issue_id: str) -> dict:
+    """Reopen a closed issue. Increments reopened_count. Returns updated dict. Raises ValueError if not found."""
     with _get_slug_lock(slug):
         path = _issues_dir(slug) / f"{issue_id}.yaml"
         data = _read_yaml(path)
         if not data:
-            logger.warning("reopen_issue: issue {} not found in {}", issue_id, slug)
-            return None
+            raise ValueError(f"Issue '{issue_id}' not found in product '{slug}'")
         old_status = data.get("status")
         _append_history(data, "status", old_status, IssueStatus.BACKLOG.value, changed_by="system")
         data["status"] = IssueStatus.BACKLOG.value
@@ -478,6 +477,13 @@ def add_issue_link(
     rel_value = relation.value if hasattr(relation, "value") else relation
     reverse_rel = _REVERSE_RELATION[rel_value]
 
+    # Circular dependency check for blocking relations
+    if rel_value == IssueRelation.BLOCKS.value:
+        _check_block_cycle(slug, issue_id, target_id)
+    elif rel_value == IssueRelation.BLOCKED_BY.value:
+        # blocked_by is the reverse: target blocks issue
+        _check_block_cycle(slug, target_id, issue_id)
+
     # Add forward link (idempotent)
     _add_link_entry(slug, issue_id, target_id, rel_value)
     # Add reverse link
@@ -485,6 +491,34 @@ def add_issue_link(
 
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.debug("Linked {} —{}→ {}", issue_id, rel_value, target_id)
+
+
+def _check_block_cycle(slug: str, blocker_id: str, blocked_id: str) -> None:
+    """Raise ValueError if adding 'blocker_id blocks blocked_id' would create a cycle.
+
+    Walks the existing 'blocks' graph starting from blocked_id to see if
+    blocker_id is reachable (meaning blocked_id already transitively blocks blocker_id).
+    """
+    visited: set[str] = set()
+    queue = [blocked_id]
+    while queue:
+        current = queue.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        issue = load_issue(slug, current)
+        if not issue:
+            continue
+        for link in issue.get("issue_links", []):
+            if link["relation"] != IssueRelation.BLOCKS.value:
+                continue
+            downstream = link["issue_id"]
+            if downstream == blocker_id:
+                raise ValueError(
+                    f"Circular dependency: {blocked_id} already transitively "
+                    f"blocks {blocker_id}"
+                )
+            queue.append(downstream)
 
 
 def _add_link_entry(slug: str, issue_id: str, target_id: str, relation: str) -> None:
