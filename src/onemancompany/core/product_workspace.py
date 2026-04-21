@@ -158,7 +158,8 @@ def promote(
                 "conflicts": conflicts,
                 "message": "Conflicts still present.",
             }
-        # All resolved — finalize
+        # All resolved — stage and finalize
+        _git(["add", "-A"], workspace_dir)
         _git(["commit", "--no-edit"], workspace_dir)
         return {"status": "merged", "conflicts": [], "message": "Merge completed after conflict resolution."}
 

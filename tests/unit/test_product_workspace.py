@@ -284,3 +284,93 @@ class TestContextInjection:
         (tmp_path / "src" / "main.py").write_text("print('hi')")
         (tmp_path / "design.md").write_text("# Design")
         assert count_worktree_files(tmp_path) == 2
+
+
+# ---------------------------------------------------------------------------
+# TestEndToEnd
+# ---------------------------------------------------------------------------
+
+
+class TestEndToEnd:
+    """Full flow: product → project → write files → promote → verify on main."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_dirs(self, tmp_path, monkeypatch):
+        self.products_dir = tmp_path / "products"
+        self.projects_dir = tmp_path / "projects"
+        self.products_dir.mkdir()
+        self.projects_dir.mkdir()
+        monkeypatch.setattr(prod, "PRODUCTS_DIR", self.products_dir)
+        monkeypatch.setattr(pa, "PRODUCTS_DIR", self.products_dir)
+        monkeypatch.setattr(pa, "PROJECTS_DIR", self.projects_dir)
+
+    def test_two_projects_promote_sequentially(self):
+        """Two projects write different files, both promote cleanly."""
+        product = prod.create_product(name="E2E Product", owner_id="00010")
+        p1 = pa.create_named_project("Project Alpha", product_id=product["id"])
+        p2 = pa.create_named_project("Project Beta", product_id=product["id"])
+
+        wt1 = self.projects_dir / p1 / "product_worktree"
+        wt2 = self.projects_dir / p2 / "product_worktree"
+        ws_dir = self.products_dir / product["slug"] / "workspace"
+
+        # Project 1 writes a file
+        (wt1 / "alpha.md").write_text("# Alpha output\n")
+        _commit_file(wt1, "alpha.md", "# Alpha output\n", "alpha work")
+
+        # Project 2 writes a different file
+        (wt2 / "beta.md").write_text("# Beta output\n")
+        _commit_file(wt2, "beta.md", "# Beta output\n", "beta work")
+
+        # Both promote
+        r1 = pw.promote(ws_dir, wt1, p1)
+        assert r1["status"] == "merged"
+
+        r2 = pw.promote(ws_dir, wt2, p2)
+        assert r2["status"] == "merged"
+
+        # Both files on main
+        assert (ws_dir / "alpha.md").exists()
+        assert (ws_dir / "beta.md").exists()
+
+    def test_two_projects_conflict_and_resolve(self):
+        """Two projects edit same file. Second promote hits conflict, resolves it."""
+        product = prod.create_product(name="Conflict Product", owner_id="00010")
+        p1 = pa.create_named_project("Project A", product_id=product["id"])
+        p2 = pa.create_named_project("Project B", product_id=product["id"])
+
+        wt1 = self.projects_dir / p1 / "product_worktree"
+        wt2 = self.projects_dir / p2 / "product_worktree"
+        ws_dir = self.products_dir / product["slug"] / "workspace"
+
+        # Both edit README.md
+        _commit_file(wt1, "README.md", "# Version A\n", "A edit")
+        _commit_file(wt2, "README.md", "# Version B\n", "B edit")
+
+        # A promotes first — clean
+        r1 = pw.promote(ws_dir, wt1, p1)
+        assert r1["status"] == "merged"
+
+        # B promotes — conflict
+        r2 = pw.promote(ws_dir, wt2, p2)
+        assert r2["status"] == "conflict"
+
+        # B resolves — write merged content in workspace_dir (where merge state is)
+        (ws_dir / "README.md").write_text("# Merged A + B\n")
+
+        # B promotes again — finalize
+        r3 = pw.promote(ws_dir, wt2, p2)
+        assert r3["status"] == "merged"
+
+        # Merged content on main
+        assert "Merged A + B" in (ws_dir / "README.md").read_text()
+
+    def test_archive_cleans_up_worktree(self):
+        """Archiving a project removes its product worktree."""
+        product = prod.create_product(name="Cleanup Product", owner_id="00010")
+        p1 = pa.create_named_project("To Archive", product_id=product["id"])
+        wt1 = self.projects_dir / p1 / "product_worktree"
+        assert wt1.is_dir()
+
+        pa.archive_project(p1)
+        assert not wt1.exists()
