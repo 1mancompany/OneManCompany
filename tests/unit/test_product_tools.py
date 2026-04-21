@@ -205,7 +205,7 @@ class TestProductTools:
     async def test_product_tools_list(self):
         from onemancompany.agents.product_tools import PRODUCT_TOOLS
 
-        assert len(PRODUCT_TOOLS) == 7
+        assert len(PRODUCT_TOOLS) == 10
         names = {t.name for t in PRODUCT_TOOLS}
         assert "create_product_tool" in names
         assert "create_product_issue" in names
@@ -652,12 +652,83 @@ class TestProductTools:
         assert "Critical issue" in result
 
     # ------------------------------------------------------------------
-    # PRODUCT_TOOLS export (line 292)
+    # PRODUCT_TOOLS export
     # ------------------------------------------------------------------
     def test_product_tools_export_is_list(self):
-        """PRODUCT_TOOLS is a list of tool objects (line 292)."""
         from onemancompany.agents.product_tools import PRODUCT_TOOLS
 
         assert isinstance(PRODUCT_TOOLS, list)
+        assert len(PRODUCT_TOOLS) == 10  # 7 original + 3 sprint tools
         for t in PRODUCT_TOOLS:
             assert hasattr(t, "ainvoke")
+
+
+# ---------------------------------------------------------------------------
+# Sprint tools
+# ---------------------------------------------------------------------------
+
+
+class TestSprintTools:
+    @pytest.mark.asyncio
+    async def test_create_sprint_tool(self, product_slug):
+        from onemancompany.agents.product_tools import create_sprint_tool
+
+        result = await create_sprint_tool.ainvoke({
+            "product_slug": product_slug,
+            "name": "Sprint 1",
+            "start_date": "2026-04-21",
+            "end_date": "2026-05-05",
+            "goal": "MVP",
+        })
+        assert "Created sprint" in result
+        assert "Sprint 1" in result
+
+    @pytest.mark.asyncio
+    async def test_create_sprint_tool_with_capacity(self, product_slug):
+        from onemancompany.agents.product_tools import create_sprint_tool
+
+        result = await create_sprint_tool.ainvoke({
+            "product_slug": product_slug,
+            "name": "Sprint 2",
+            "start_date": "2026-05-06",
+            "end_date": "2026-05-20",
+            "capacity": "21",
+        })
+        assert "Created sprint" in result
+        sprints = prod.list_sprints(product_slug)
+        s2 = [s for s in sprints if s["name"] == "Sprint 2"][0]
+        assert s2["capacity"] == 21
+
+    @pytest.mark.asyncio
+    async def test_close_sprint_tool(self, product_slug):
+        from onemancompany.agents.product_tools import close_sprint_tool
+
+        s = prod.create_sprint(slug=product_slug, name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        prod.update_sprint(product_slug, s["id"], status="active")
+        result = await close_sprint_tool.ainvoke({"product_slug": product_slug})
+        assert "Sprint closed" in result
+        assert "velocity=" in result
+
+    @pytest.mark.asyncio
+    async def test_close_sprint_tool_no_active(self, product_slug):
+        from onemancompany.agents.product_tools import close_sprint_tool
+
+        result = await close_sprint_tool.ainvoke({"product_slug": product_slug})
+        assert "No active sprint" in result
+
+    @pytest.mark.asyncio
+    async def test_get_sprint_info_active(self, product_slug):
+        from onemancompany.agents.product_tools import get_sprint_info_tool
+
+        s = prod.create_sprint(slug=product_slug, name="S1", start_date="2026-04-01", end_date="2026-04-15", goal="Build it")
+        prod.update_sprint(product_slug, s["id"], status="active")
+        result = await get_sprint_info_tool.ainvoke({"product_slug": product_slug})
+        assert "S1" in result
+        assert "Build it" in result
+
+    @pytest.mark.asyncio
+    async def test_get_sprint_info_no_sprints(self, product_slug):
+        from onemancompany.agents.product_tools import get_sprint_info_tool
+
+        result = await get_sprint_info_tool.ainvoke({"product_slug": product_slug})
+        assert "No sprints found" in result

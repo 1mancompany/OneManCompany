@@ -469,7 +469,31 @@ async def run_product_check(product_slug: str) -> dict:
             actions_taken.append(f"Created issue for KR: {kr_title}")
             all_issues.append(issue)  # prevent duplicate creation in same cycle
 
-    # --- Step 3: Check if owner review is needed ---
+    # --- Step 3: Sprint expiry check ---
+    from datetime import date as _date
+
+    active_sprint = prod.get_active_sprint(product_slug)
+    if active_sprint:
+        end_date_str = active_sprint.get("end_date", "")
+        try:
+            end_date = _date.fromisoformat(end_date_str)
+            if _date.today() > end_date:
+                actions_taken.append(f"Sprint '{active_sprint['name']}' expired on {end_date_str}")
+        except (ValueError, TypeError):
+            logger.debug("[PRODUCT_CHECK] Invalid end_date '{}' on sprint {}", end_date_str, active_sprint.get("id"))
+
+    # --- Step 4: Backlog grooming reminder ---
+    _BACKLOG_GROOMING_THRESHOLD = 5
+    unscheduled_low = [
+        i for i in all_issues
+        if i.get("priority") in (IssuePriority.P2.value, IssuePriority.P3.value)
+        and not i.get("sprint")
+        and i.get("status") not in (IssueStatus.DONE.value, IssueStatus.RELEASED.value)
+    ]
+    if len(unscheduled_low) >= _BACKLOG_GROOMING_THRESHOLD:
+        actions_taken.append(f"{len(unscheduled_low)} P2/P3 issues unscheduled — backlog grooming needed")
+
+    # --- Step 5: Check if owner review is needed ---
     # Conditions: backlog issues with no one working, or KRs at 0% with completed projects
     needs_review = False
     review_reasons = []
@@ -490,6 +514,21 @@ async def run_product_check(product_slug: str) -> dict:
     if stale_krs and completed_projects:
         needs_review = True
         review_reasons.append(f"{len(stale_krs)} KRs at 0% despite {len(completed_projects)} completed projects")
+
+    # Sprint expired → needs owner review
+    if active_sprint:
+        try:
+            end_date = _date.fromisoformat(active_sprint.get("end_date", ""))
+            if _date.today() > end_date:
+                needs_review = True
+                review_reasons.append(f"Sprint '{active_sprint['name']}' expired")
+        except (ValueError, TypeError):
+            logger.debug("[PRODUCT_CHECK] Invalid end_date on sprint {} for review check", active_sprint.get("id"))
+
+    # Backlog grooming threshold → needs owner review
+    if len(unscheduled_low) >= _BACKLOG_GROOMING_THRESHOLD:
+        needs_review = True
+        review_reasons.append(f"{len(unscheduled_low)} P2/P3 issues need sprint assignment")
 
     if needs_review:
         reason = "; ".join(review_reasons)

@@ -7331,11 +7331,19 @@ async def api_product_detail(slug: str) -> dict:
     all_projects = list_projects()
     linked_projects = [p for p in all_projects if p.get("product_id") == product.get("id")]
 
+    # Sprints
+    sprints = prod.list_sprints(slug)
+    active_sprint = prod.get_active_sprint(slug)
+    suggested_capacity = prod.suggest_capacity(slug)
+
     return {
         "product": product,
         "issues": issues,
         "versions": versions,
         "projects": linked_projects,
+        "sprints": sprints,
+        "active_sprint": active_sprint,
+        "suggested_capacity": suggested_capacity,
     }
 
 
@@ -7415,3 +7423,88 @@ async def api_start_product_planning(slug: str) -> dict:
         product_id=product["id"],
     )
     return {"conversation_id": conv.id, "existing": False}
+
+
+# ── Sprints ──────────────────────────────────────────────────────────────────
+
+
+@router.post("/api/product/{slug}/sprint")
+async def api_create_sprint(slug: str, request: Request) -> dict:
+    """Create a sprint for a product."""
+    from onemancompany.core import product as prod
+
+    body = await request.json()
+    name = body.get("name")
+    start_date = body.get("start_date")
+    end_date = body.get("end_date")
+    if not name or not start_date or not end_date:
+        raise HTTPException(status_code=400, detail="Missing required fields: name, start_date, end_date")
+    try:
+        result = prod.create_sprint(
+            slug=slug,
+            name=name,
+            start_date=start_date,
+            end_date=end_date,
+            goal=body.get("goal", ""),
+            capacity=int(body["capacity"]) if body.get("capacity") else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return result
+
+
+@router.get("/api/product/{slug}/sprints")
+async def api_list_sprints(slug: str, status: str = "") -> list[dict]:
+    """List sprints for a product, optionally filtered by status."""
+    from onemancompany.core import product as prod
+
+    return prod.list_sprints(slug, status=status or None)
+
+
+@router.get("/api/product/{slug}/sprint/{sprint_id}")
+async def api_get_sprint(slug: str, sprint_id: str) -> dict:
+    """Get a single sprint by ID."""
+    from onemancompany.core import product as prod
+
+    sprint = prod.load_sprint(slug, sprint_id)
+    if not sprint:
+        raise HTTPException(status_code=404, detail=f"Sprint '{sprint_id}' not found")
+    return sprint
+
+
+@router.put("/api/product/{slug}/sprint/{sprint_id}")
+async def api_update_sprint(slug: str, sprint_id: str, request: Request) -> dict:
+    """Update sprint fields (name, goal, start_date, end_date, capacity, status)."""
+    from onemancompany.core import product as prod
+
+    body = await request.json()
+    SPRINT_MUTABLE_FIELDS = {"name", "goal", "start_date", "end_date", "capacity", "status"}
+    filtered = {k: v for k, v in body.items() if k in SPRINT_MUTABLE_FIELDS}
+    if "capacity" in filtered and filtered["capacity"] is not None:
+        filtered["capacity"] = int(filtered["capacity"])
+    try:
+        result = prod.update_sprint(slug, sprint_id, **filtered)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return result
+
+
+@router.post("/api/product/{slug}/sprint/{sprint_id}/close")
+async def api_close_sprint(slug: str, sprint_id: str) -> dict:
+    """Close a sprint: calculate velocity, carry over unfinished issues, generate retrospective."""
+    from onemancompany.core import product as prod
+
+    try:
+        result = prod.close_sprint(slug, sprint_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return result
+
+
+@router.get("/api/product/{slug}/sprint/suggest-capacity")
+async def api_suggest_sprint_capacity(slug: str) -> dict:
+    """Suggest sprint capacity based on historical velocity (sliding average of last 3)."""
+    from onemancompany.core import product as prod
+
+    suggestion = prod.suggest_capacity(slug)
+    return {"suggested_capacity": suggestion}
