@@ -60,6 +60,20 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
 _files_read_by_employee: dict[str, set[str]] = {}
 
 
+def _limit_result(result, tool_name: str):
+    """Limit tool result size. If too large, persist to disk."""
+    from onemancompany.core.tool_limits import maybe_persist_result
+
+    if isinstance(result, str):
+        return maybe_persist_result(result, tool_name)
+    elif isinstance(result, dict):
+        for key in ("content", "stdout", "stderr", "output"):
+            if key in result and isinstance(result[key], str):
+                result[key] = maybe_persist_result(result[key], tool_name)
+        return result
+    return result
+
+
 def _tool_error(message: str, hint: str = "", retry_with: str = "") -> dict:
     """Build a structured tool error response.
 
@@ -141,12 +155,12 @@ def read(file_path: str, employee_id: str = "", offset: int = 0, limit: int = 0)
             content = "".join(lines)
 
         _files_read_by_employee.setdefault(employee_id, set()).add(str(resolved))
-        return {
+        return _limit_result({
             "status": "ok",
             "path": file_path,
             "content": content,
             "total_lines": total_lines,
-        }
+        }, "read")
     except Exception as e:
         return _tool_error(f"Read failed: {e}")
 
@@ -198,7 +212,7 @@ def ls(dir_path: str = "", employee_id: str = "") -> dict:
                 "name": item.name,
                 "type": "dir" if item.is_dir() else "file",
             })
-        return {"status": "ok", "path": dir_path or ".", "entries": entries}
+        return _limit_result({"status": "ok", "path": dir_path or ".", "entries": entries}, "ls")
     except Exception as e:
         return _tool_error(f"Failed to read directory: {e}")
 
@@ -361,12 +375,12 @@ async def bash(
                 cwd=str(SOURCE_ROOT),
             ),
         )
-        return {
+        return _limit_result({
             "status": "ok",
             "returncode": proc.returncode,
-            "stdout": proc.stdout[:5000] if proc.stdout else "",
-            "stderr": proc.stderr[:2000] if proc.stderr else "",
-        }
+            "stdout": proc.stdout or "",
+            "stderr": proc.stderr or "",
+        }, "bash")
     except subprocess.TimeoutExpired:
         return _tool_error(f"Command timed out after {timeout_seconds}s", hint="Increase timeout_seconds or simplify the command.")
     except Exception as e:
@@ -403,12 +417,12 @@ def glob_files(pattern: str, path: str = "", employee_id: str = "") -> dict:
         MAX_RESULTS = 100
         truncated = len(matches) > MAX_RESULTS
         filenames = [str(m) for m in matches[:MAX_RESULTS]]
-        return {
+        return _limit_result({
             "status": "ok",
             "num_files": len(matches),
             "filenames": filenames,
             "truncated": truncated,
-        }
+        }, "glob_files")
     except Exception as e:
         return {"status": "error", "message": f"Glob failed: {e}"}
 
@@ -497,11 +511,11 @@ def grep_search(
             break
 
     if output_mode == "files_with_matches":
-        return {"status": "ok", "num_files": len(match_files), "filenames": match_files}
+        return _limit_result({"status": "ok", "num_files": len(match_files), "filenames": match_files}, "grep_search")
     elif output_mode == "count":
-        return {"status": "ok", "num_files": len(match_files), "counts": count_map}
+        return _limit_result({"status": "ok", "num_files": len(match_files), "counts": count_map}, "grep_search")
     else:
-        return {"status": "ok", "num_files": len(match_files), "results": results}
+        return _limit_result({"status": "ok", "num_files": len(match_files), "results": results}, "grep_search")
 
 
 @tool
