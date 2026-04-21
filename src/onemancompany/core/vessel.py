@@ -1459,6 +1459,12 @@ class EmployeeManager:
                 if _effective_dir:
                     task_with_ctx += f"\n\n[Project workspace: {_effective_dir} — save all outputs here]"
 
+                # Product workspace — inject if project has a product worktree
+                if project_id:
+                    _pw_ctx = self._get_product_workspace_context(project_id)
+                    if _pw_ctx:
+                        task_with_ctx += f"\n\n{_pw_ctx}"
+
                 if project_id:
                     proj_ctx = self._get_project_history_context(project_id)
                     if proj_ctx:
@@ -2064,6 +2070,37 @@ class EmployeeManager:
     _CTX_TASK_DESC_CHARS = 200
     _CTX_MAX_WORKSPACE_FILES = 30
     _CTX_MAX_CRITERIA = 5
+
+    @staticmethod
+    def _get_product_workspace_context(project_id: str) -> str:
+        """Build product workspace context string if project is linked to a product."""
+        from onemancompany.core.project_archive import load_named_project
+        from onemancompany.core.product import find_slug_by_product_id, load_product
+        from onemancompany.core.config import PRODUCTS_DIR, PROJECTS_DIR, PRODUCT_WORKTREE_DIR_NAME
+
+        base_project_id = project_id.split("/")[0]
+        proj_doc = load_named_project(base_project_id)
+        if not proj_doc:
+            return ""
+        product_id = proj_doc.get("product_id", "")
+        if not product_id:
+            return ""
+
+        slug = find_slug_by_product_id(product_id)
+        if not slug:
+            return ""
+
+        product = load_product(slug)
+        if not product or not product.get("workspace_initialized", False):
+            return ""
+
+        worktree_path = PROJECTS_DIR / base_project_id / PRODUCT_WORKTREE_DIR_NAME
+        if not worktree_path.is_dir():
+            return ""
+
+        from onemancompany.core.product_workspace import format_workspace_context, count_worktree_files
+        file_count = count_worktree_files(worktree_path)
+        return format_workspace_context(str(worktree_path), product.get("name", slug), file_count)
 
     def _get_project_history_context(self, project_id: str) -> str:
         from onemancompany.core.project_archive import (

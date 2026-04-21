@@ -69,6 +69,7 @@ SRC_DIR_NAME = "src"
 LAUNCH_SH_FILENAME = "launch.sh"
 PROMPTS_DIR_NAME = "prompts"
 WORKSPACE_DIR_NAME = "workspace"
+PRODUCT_WORKTREE_DIR_NAME = "product_worktree"
 VESSEL_DIR_NAME = "vessel"
 AGENT_DIR_NAME = "agent"
 

@@ -113,6 +113,7 @@ def create_product(
         "status": status,
         "current_version": current_version,
         "key_results": [],
+        "workspace_initialized": False,
         "created_at": now,
         "updated_at": now,
     }
@@ -645,6 +646,14 @@ def delete_product(slug: str) -> dict:
                         employee_manager.abort_project(proj["project_id"])
                     except Exception as e:
                         logger.debug("[PRODUCT] Could not abort project {}: {}", proj["project_id"], e)
+
+                    # Remove product worktree dir if it exists
+                    from onemancompany.core.config import PRODUCT_WORKTREE_DIR_NAME
+                    wt_dir = proj_dir / PRODUCT_WORKTREE_DIR_NAME
+                    if wt_dir.exists():
+                        _shutil.rmtree(wt_dir)
+                        logger.debug("[PRODUCT] Removed product worktree for project {}", proj["project_id"])
+
                     _shutil.rmtree(proj_dir)
                     deleted_projects += 1
                     logger.debug("[PRODUCT] Deleted linked project {}", proj["project_id"])

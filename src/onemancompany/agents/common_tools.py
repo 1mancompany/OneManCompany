@@ -1916,6 +1916,11 @@ def _register_all_internal_tools() -> None:
     for t in _product_tools:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))
 
+    # Product workspace tools — promote_to_product
+    from onemancompany.agents.product_workspace_tools import PRODUCT_WORKSPACE_TOOLS as _pw_tools
+    for t in _pw_tools:
+        tool_registry.register(t, ToolMeta(name=t.name, category="base"))
+
     # Tree tools self-register on import
     from onemancompany.agents import tree_tools as _tt  # noqa: F401
 
