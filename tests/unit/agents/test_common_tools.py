@@ -2193,3 +2193,23 @@ class TestRunDiscussionRound:
         # round 2 no willing + no CEO → break
         assert rounds == 2
         assert entries == []
+
+
+class TestLimitResult:
+    """Cover _limit_result branches (lines 68, 74)."""
+
+    def test_str_result_passes_through(self):
+        from onemancompany.agents.common_tools import _limit_result
+        assert _limit_result("hello", "test") == "hello"
+
+    def test_non_str_non_dict_returns_unchanged(self):
+        from onemancompany.agents.common_tools import _limit_result
+        assert _limit_result(42, "test") == 42
+        assert _limit_result(["a", "b"], "test") == ["a", "b"]
+
+    def test_dict_result_limits_content_key(self):
+        from onemancompany.agents.common_tools import _limit_result
+        d = {"content": "short text", "other": 123}
+        result = _limit_result(d, "test")
+        assert result["content"] == "short text"
+        assert result["other"] == 123

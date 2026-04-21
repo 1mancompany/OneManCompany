@@ -156,6 +156,30 @@ class TestEARoleIdentity:
         assert result == ""
 
 
+    def test_get_role_identity_section_with_guide(self, tmp_path, monkeypatch):
+        """Line 36: returns guide content when role_guide.md exists."""
+        from onemancompany.agents import ea_agent as ea_mod
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
+
+        monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
+        monkeypatch.setattr(ea_mod, "create_react_agent", lambda model, tools: MagicMock())
+
+        # First create the agent with a nonexistent dir (same as no_guide test)
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", Path("/nonexistent"))
+        from onemancompany.agents.ea_agent import EAAgent
+        agent = EAAgent()
+
+        # Now switch EMPLOYEES_DIR to tmp_path with the guide file present
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        ea_dir = tmp_path / agent.employee_id
+        ea_dir.mkdir(parents=True)
+        (ea_dir / "role_guide.md").write_text("# EA Guide\nBe helpful.")
+
+        result = agent._get_role_identity_section()
+        assert "EA Guide" in result
+
+
 class TestEAPromptContents:
     def test_ea_role_guide_references_sop(self):
         """EA role_guide.md references SOP for progressive disclosure."""
