@@ -732,3 +732,82 @@ class TestSprintTools:
 
         result = await get_sprint_info_tool.ainvoke({"product_slug": product_slug})
         assert "No sprints found" in result
+
+    @pytest.mark.asyncio
+    async def test_create_sprint_tool_error(self):
+        from onemancompany.agents.product_tools import create_sprint_tool
+
+        result = await create_sprint_tool.ainvoke({
+            "product_slug": "nonexistent",
+            "name": "S1",
+            "start_date": "2026-04-01",
+            "end_date": "2026-04-15",
+        })
+        assert "Error" in result
+
+    @pytest.mark.asyncio
+    async def test_close_sprint_tool_error(self, product_slug):
+        from onemancompany.agents.product_tools import close_sprint_tool
+
+        s = prod.create_sprint(slug=product_slug, name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        # Try closing a non-active sprint
+        result = await close_sprint_tool.ainvoke({
+            "product_slug": product_slug,
+            "sprint_id": s["id"],
+        })
+        assert "Error" in result
+
+    @pytest.mark.asyncio
+    async def test_get_sprint_info_by_id(self, product_slug):
+        from onemancompany.agents.product_tools import get_sprint_info_tool
+
+        s = prod.create_sprint(slug=product_slug, name="ById", start_date="2026-04-01", end_date="2026-04-15")
+        result = await get_sprint_info_tool.ainvoke({
+            "product_slug": product_slug,
+            "sprint_id": s["id"],
+        })
+        assert "ById" in result
+
+    @pytest.mark.asyncio
+    async def test_get_sprint_info_fallback_listing(self, product_slug):
+        """No active sprint but sprints exist → lists all sprints."""
+        from onemancompany.agents.product_tools import get_sprint_info_tool
+
+        prod.create_sprint(slug=product_slug, name="Closed1", start_date="2026-04-01", end_date="2026-04-15")
+        result = await get_sprint_info_tool.ainvoke({"product_slug": product_slug})
+        assert "No active sprint" in result
+        assert "Closed1" in result
+
+    @pytest.mark.asyncio
+    async def test_get_sprint_info_with_capacity_and_suggestion(self, product_slug):
+        """Active sprint with capacity set and enough history for suggestion."""
+        from onemancompany.agents.product_tools import get_sprint_info_tool
+        from onemancompany.core.models import IssueResolution
+
+        slug = product_slug
+        # Create 3 closed sprints for velocity history
+        for i in range(3):
+            s = prod.create_sprint(slug=slug, name=f"H{i}", start_date="2026-01-01", end_date="2026-01-15")
+            prod.update_sprint(slug, s["id"], status="active")
+            issue = prod.create_issue(slug=slug, title=f"T{i}", created_by="x", story_points=10, sprint=s["id"])
+            prod.close_issue(slug, issue["id"], resolution=IssueResolution.FIXED)
+            prod.close_sprint(slug, s["id"])
+
+        # Create active sprint with capacity
+        active = prod.create_sprint(slug=slug, name="Current", start_date="2026-04-01", end_date="2026-04-15")
+        prod.update_sprint(slug, active["id"], status="active", capacity=15)
+
+        result = await get_sprint_info_tool.ainvoke({"product_slug": slug})
+        assert "Capacity: 15 pts" in result
+        assert "Suggested capacity" in result
+
+    @pytest.mark.asyncio
+    async def test_get_sprint_info_error(self):
+        from onemancompany.agents.product_tools import get_sprint_info_tool
+
+        # Use a product slug that doesn't exist but won't raise — just returns empty
+        # Force an error by patching
+        from unittest.mock import patch
+        with patch("onemancompany.agents.product_tools.prod.get_active_sprint", side_effect=ValueError("boom")):
+            result = await get_sprint_info_tool.ainvoke({"product_slug": "x"})
+        assert "Error" in result
