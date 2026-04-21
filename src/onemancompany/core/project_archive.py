@@ -24,6 +24,8 @@ import yaml
 
 from onemancompany.core.config import (
     NODES_DIR_NAME,
+    PRODUCT_WORKTREE_DIR_NAME,
+    PRODUCTS_DIR,
     PROJECT_YAML_FILENAME,
     PROJECTS_DIR,
     TASK_TREE_FILENAME,
@@ -325,6 +327,46 @@ def create_project_from_task(task: str, routed_to: str = "pending",
     return project_id, iter_id
 
 
+def _setup_product_worktree(project_id: str, product_id: str) -> None:
+    """Create/reuse a product workspace and add a worktree for this project."""
+    from onemancompany.core.product import find_slug_by_product_id, load_product, update_product
+    from onemancompany.core.product_workspace import init_workspace, add_worktree
+
+    product_slug = find_slug_by_product_id(product_id)
+    if not product_slug:
+        logger.warning("[PROJECT] product_id={} not found, skipping worktree setup", product_id)
+        return
+
+    product = load_product(product_slug)
+    workspace_dir = PRODUCTS_DIR / product_slug / "workspace"
+
+    if not product.get("workspace_initialized"):
+        init_workspace(workspace_dir)
+        update_product(product_slug, workspace_initialized=True)
+
+    worktree_path = PROJECTS_DIR / project_id / PRODUCT_WORKTREE_DIR_NAME
+    add_worktree(workspace_dir, worktree_path, project_id)
+
+
+def _cleanup_product_worktree(project_id: str, proj_doc: dict) -> None:
+    """Remove the product worktree for an archived project."""
+    product_id = proj_doc.get("product_id", "")
+    if not product_id:
+        return
+
+    from onemancompany.core.product import find_slug_by_product_id
+    from onemancompany.core.product_workspace import remove_worktree
+
+    product_slug = find_slug_by_product_id(product_id)
+    if not product_slug:
+        logger.debug("[PROJECT] product_id={} not found during worktree cleanup", product_id)
+        return
+
+    workspace_dir = PRODUCTS_DIR / product_slug / "workspace"
+    worktree_path = PROJECTS_DIR / project_id / PRODUCT_WORKTREE_DIR_NAME
+    remove_worktree(workspace_dir, worktree_path, project_id)
+
+
 def create_named_project(name: str, *, product_id: str = "") -> str:
     """Create a persistent named project. Returns the project_id (UUID-based)."""
     slug = uuid.uuid4().hex[:12]
@@ -352,6 +394,10 @@ def create_named_project(name: str, *, product_id: str = "") -> str:
     lock = _get_project_lock(slug)
     with lock, open_utf(path, "w") as f:
         yaml.dump(doc, f, allow_unicode=True, default_flow_style=False)
+
+    if product_id:
+        _setup_product_worktree(slug, product_id)
+
     return slug
 
 
@@ -512,6 +558,8 @@ def archive_project(project_id: str) -> None:
     lock = _get_project_lock(project_id)
     with lock, open_utf(path, "w") as f:
         yaml.dump(proj, f, allow_unicode=True, default_flow_style=False)
+
+    _cleanup_product_worktree(project_id, proj)
 
     # Close project conversation so it disappears from CEO console
     try:

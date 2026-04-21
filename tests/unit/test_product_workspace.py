@@ -178,3 +178,77 @@ class TestPromote:
         assert result2["status"] == "aborted"
         # shared.txt should be back to main version
         assert (ws / "shared.txt").read_text() == "main version"
+
+
+# ---------------------------------------------------------------------------
+# TestLifecycleHooks
+# ---------------------------------------------------------------------------
+
+from onemancompany.core import product as prod
+from onemancompany.core import project_archive as pa
+
+
+class TestLifecycleHooks:
+    @pytest.fixture(autouse=True)
+    def _setup_dirs(self, tmp_path, monkeypatch):
+        self.products_dir = tmp_path / "products"
+        self.projects_dir = tmp_path / "projects"
+        self.products_dir.mkdir()
+        self.projects_dir.mkdir()
+        monkeypatch.setattr(prod, "PRODUCTS_DIR", self.products_dir)
+        monkeypatch.setattr(pa, "PRODUCTS_DIR", self.products_dir)
+        monkeypatch.setattr(pa, "PROJECTS_DIR", self.projects_dir)
+
+    def _create_product(self) -> dict:
+        """Helper: create a product on disk and return its dict."""
+        return prod.create_product(name="Test App", owner_id="emp001")
+
+    def test_project_with_product_id_creates_worktree(self) -> None:
+        product = self._create_product()
+        project_id = pa.create_named_project("feat-one", product_id=product["id"])
+
+        # Workspace should be initialised inside product dir
+        slug = prod.find_slug_by_product_id(product["id"])
+        ws = self.products_dir / slug / "workspace"
+        assert (ws / ".git").is_dir(), "workspace git repo not created"
+
+        # Worktree dir should exist in project dir
+        wt = self.projects_dir / project_id / "product_worktree"
+        assert wt.is_dir(), "worktree dir not created"
+
+        # Product should be marked as workspace_initialized
+        updated = prod.load_product(slug)
+        assert updated["workspace_initialized"] is True
+
+    def test_project_without_product_id_no_worktree(self) -> None:
+        project_id = pa.create_named_project("standalone")
+        wt = self.projects_dir / project_id / "product_worktree"
+        assert not wt.exists(), "worktree should not exist for project without product_id"
+
+    def test_second_project_reuses_workspace(self) -> None:
+        product = self._create_product()
+
+        proj1 = pa.create_named_project("feat-one", product_id=product["id"])
+        proj2 = pa.create_named_project("feat-two", product_id=product["id"])
+
+        slug = prod.find_slug_by_product_id(product["id"])
+        ws = self.products_dir / slug / "workspace"
+
+        # Both worktrees exist
+        assert (self.projects_dir / proj1 / "product_worktree").is_dir()
+        assert (self.projects_dir / proj2 / "product_worktree").is_dir()
+
+        # Workspace was only initialised once (1 initial commit on main)
+        log = _git(["log", "--oneline", "main"], ws)
+        assert len(log.splitlines()) == 1, "workspace should have exactly 1 initial commit"
+
+    def test_archive_project_removes_worktree(self) -> None:
+        product = self._create_product()
+        project_id = pa.create_named_project("feat-one", product_id=product["id"])
+
+        wt = self.projects_dir / project_id / "product_worktree"
+        assert wt.is_dir(), "precondition: worktree should exist"
+
+        pa.archive_project(project_id)
+
+        assert not wt.is_dir(), "worktree should be removed after archive"
