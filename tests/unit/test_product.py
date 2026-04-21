@@ -1405,3 +1405,158 @@ class TestCompleteReview:
         prod.complete_review(slug, review["id"])
         with pytest.raises(ValueError, match="already completed"):
             prod.complete_review(slug, review["id"])
+
+
+# ---------------------------------------------------------------------------
+# Kanban Board
+# ---------------------------------------------------------------------------
+
+
+class TestKanbanBoard:
+    def test_kanban_groups_by_status(self):
+        """kanban_board returns issues grouped by IssueStatus columns."""
+        p = prod.create_product(name="KanbanProd", owner_id="00010")
+        slug = p["slug"]
+        prod.create_issue(slug=slug, title="Backlog1", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="InProg1", created_by="ceo")
+        prod.update_issue(slug, i2["id"], status=IssueStatus.IN_PROGRESS.value)
+        i3 = prod.create_issue(slug=slug, title="Done1", created_by="ceo")
+        prod.update_issue(slug, i3["id"], status=IssueStatus.DONE.value)
+
+        board = prod.kanban_board(slug)
+        assert "backlog" in board["columns"]
+        assert "in_progress" in board["columns"]
+        assert "done" in board["columns"]
+        assert len(board["columns"]["backlog"]) == 1
+        assert len(board["columns"]["in_progress"]) == 1
+        assert len(board["columns"]["done"]) == 1
+        assert board["columns"]["backlog"][0]["title"] == "Backlog1"
+
+    def test_kanban_includes_blocked_ids(self):
+        """kanban_board marks blocked issue IDs."""
+        p = prod.create_product(name="KanbanBlocked", owner_id="00010")
+        slug = p["slug"]
+        blocker = prod.create_issue(slug=slug, title="Blocker", created_by="ceo")
+        blocked = prod.create_issue(slug=slug, title="Blocked", created_by="ceo")
+        prod.add_issue_link(slug, blocked["id"], blocker["id"], IssueRelation.BLOCKED_BY)
+
+        board = prod.kanban_board(slug)
+        assert blocked["id"] in board["blocked_ids"]
+        assert blocker["id"] not in board["blocked_ids"]
+
+    def test_kanban_empty_product(self):
+        """kanban_board on product with no issues returns empty columns."""
+        p = prod.create_product(name="KanbanEmpty", owner_id="00010")
+        board = prod.kanban_board(p["slug"])
+        for col in board["columns"].values():
+            assert col == []
+
+    def test_kanban_product_not_found(self):
+        """kanban_board raises ValueError for missing product."""
+        with pytest.raises(ValueError, match="not found"):
+            prod.kanban_board("nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# Roadmap Timeline
+# ---------------------------------------------------------------------------
+
+
+class TestRoadmapTimeline:
+    def test_roadmap_includes_sprints(self):
+        """roadmap_timeline returns sprint date ranges."""
+        p = prod.create_product(name="RoadmapProd", owner_id="00010")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-04-01", end_date="2026-04-14")
+
+        roadmap = prod.roadmap_timeline(slug)
+        assert len(roadmap["sprints"]) == 1
+        assert roadmap["sprints"][0]["name"] == "S1"
+        assert roadmap["sprints"][0]["start_date"] == "2026-04-01"
+
+    def test_roadmap_includes_versions(self):
+        """roadmap_timeline returns released versions."""
+        p = prod.create_product(name="RoadmapVer", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="Fix", created_by="ceo")
+        prod.update_issue(slug, i1["id"], status=IssueStatus.DONE.value)
+        prod.release_version(slug, resolved_issue_ids=[i1["id"]])
+
+        roadmap = prod.roadmap_timeline(slug)
+        assert len(roadmap["versions"]) == 1
+        assert "released_at" in roadmap["versions"][0]
+
+    def test_roadmap_includes_milestoned_issues(self):
+        """roadmap_timeline returns issues with milestone_version set."""
+        p = prod.create_product(name="RoadmapMile", owner_id="00010")
+        slug = p["slug"]
+        i1 = prod.create_issue(slug=slug, title="Milestone Issue", created_by="ceo")
+        prod.update_issue(slug, i1["id"], milestone_version="1.1.0")
+        i2 = prod.create_issue(slug=slug, title="No milestone", created_by="ceo")
+
+        roadmap = prod.roadmap_timeline(slug)
+        assert len(roadmap["milestoned_issues"]) == 1
+        assert roadmap["milestoned_issues"][0]["milestone_version"] == "1.1.0"
+
+    def test_roadmap_empty(self):
+        """roadmap_timeline on fresh product returns empty lists."""
+        p = prod.create_product(name="RoadmapEmpty", owner_id="00010")
+        roadmap = prod.roadmap_timeline(p["slug"])
+        assert roadmap["sprints"] == []
+        assert roadmap["versions"] == []
+        assert roadmap["milestoned_issues"] == []
+
+    def test_roadmap_product_not_found(self):
+        with pytest.raises(ValueError, match="not found"):
+            prod.roadmap_timeline("nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# Product Activity
+# ---------------------------------------------------------------------------
+
+
+class TestProductActivity:
+    def test_append_and_list(self):
+        """append_product_activity adds entries, list returns them."""
+        p = prod.create_product(name="ActivityProd", owner_id="00010")
+        slug = p["slug"]
+        prod.append_product_activity(slug, event_type="issue_created", actor="ceo", detail="Created issue X")
+        prod.append_product_activity(slug, event_type="sprint_closed", actor="00010", detail="Sprint S1 closed")
+
+        log = prod.list_product_activity(slug)
+        assert len(log) == 2
+        assert log[0]["event_type"] == "sprint_closed"  # newest first
+        assert log[1]["event_type"] == "issue_created"
+
+    def test_list_with_limit(self):
+        """list_product_activity respects limit parameter."""
+        p = prod.create_product(name="ActivityLimit", owner_id="00010")
+        slug = p["slug"]
+        for i in range(5):
+            prod.append_product_activity(slug, event_type=f"event_{i}", actor="ceo", detail=f"Event {i}")
+
+        log = prod.list_product_activity(slug, limit=3)
+        assert len(log) == 3
+
+    def test_list_empty(self):
+        """list_product_activity on fresh product returns empty list."""
+        p = prod.create_product(name="ActivityEmpty", owner_id="00010")
+        assert prod.list_product_activity(p["slug"]) == []
+
+    def test_activity_has_timestamp(self):
+        """Each activity entry has a ts field."""
+        p = prod.create_product(name="ActivityTS", owner_id="00010")
+        slug = p["slug"]
+        prod.append_product_activity(slug, event_type="test", actor="ceo", detail="test")
+        log = prod.list_product_activity(slug)
+        assert "ts" in log[0]
+
+    def test_activity_max_entries(self):
+        """Activity log is capped at 500 entries."""
+        p = prod.create_product(name="ActivityCap", owner_id="00010")
+        slug = p["slug"]
+        for i in range(510):
+            prod.append_product_activity(slug, event_type=f"e{i}", actor="ceo", detail=f"d{i}")
+        log = prod.list_product_activity(slug, limit=1000)
+        assert len(log) <= 500

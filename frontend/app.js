@@ -7528,6 +7528,9 @@ class AppController {
     const tabDefs = [
       { id: 'overview', label: 'Overview' },
       { id: 'issues', label: `Issues (${issues.length})` },
+      { id: 'kanban', label: 'Kanban' },
+      { id: 'roadmap', label: 'Roadmap' },
+      { id: 'activity', label: 'Activity' },
       { id: 'projects', label: `Projects (${projects.length})` },
     ];
     const tabContent = document.createElement('div');
@@ -7559,6 +7562,12 @@ class AppController {
       this._renderProductOverview(product, versions, slug, container);
     } else if (tabId === 'issues') {
       this._renderProductIssues(issues, slug, container, data);
+    } else if (tabId === 'kanban') {
+      this._renderProductKanban(slug, container, data);
+    } else if (tabId === 'roadmap') {
+      this._renderProductRoadmap(slug, container);
+    } else if (tabId === 'activity') {
+      this._renderProductActivity(slug, container);
     } else if (tabId === 'projects') {
       this._renderProductProjects(projects, container);
     }
@@ -8244,6 +8253,322 @@ class AppController {
       });
       container.appendChild(card);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Kanban Board Tab
+  // ---------------------------------------------------------------------------
+
+  _renderProductKanban(slug, container, fullData) {
+    container.innerHTML = '<div class="loading-text">Loading kanban...</div>';
+    fetch(`/api/product/${encodeURIComponent(slug)}/kanban`)
+      .then(r => r.json())
+      .then(data => {
+        container.innerHTML = '';
+        const board = document.createElement('div');
+        board.className = 'kanban-board';
+
+        const statusLabels = {
+          backlog: 'Backlog',
+          planned: 'Planned',
+          in_progress: 'In Progress',
+          in_review: 'In Review',
+          done: 'Done',
+          released: 'Released',
+        };
+        const blockedSet = new Set(data.blocked_ids || []);
+
+        for (const [status, label] of Object.entries(statusLabels)) {
+          const col = document.createElement('div');
+          col.className = 'kanban-column';
+          col.dataset.status = status;
+
+          const colHeader = document.createElement('div');
+          colHeader.className = 'kanban-column-header';
+          const items = data.columns[status] || [];
+          colHeader.textContent = `${label} (${items.length})`;
+          col.appendChild(colHeader);
+
+          const cardList = document.createElement('div');
+          cardList.className = 'kanban-card-list';
+
+          // Drag-drop: allow dropping on column
+          cardList.addEventListener('dragover', (e) => { e.preventDefault(); cardList.classList.add('kanban-drop-target'); });
+          cardList.addEventListener('dragleave', () => cardList.classList.remove('kanban-drop-target'));
+          cardList.addEventListener('drop', (e) => {
+            e.preventDefault();
+            cardList.classList.remove('kanban-drop-target');
+            const issueId = e.dataTransfer.getData('text/plain');
+            if (issueId) {
+              fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issueId)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status }),
+              }).then(() => this._renderProductKanban(slug, container, fullData));
+            }
+          });
+
+          for (const issue of items) {
+            const card = document.createElement('div');
+            card.className = `kanban-card priority-${(issue.priority || 'p2').toLowerCase()}`;
+            card.draggable = true;
+            card.dataset.issueId = issue.id;
+            if (blockedSet.has(issue.id)) card.classList.add('kanban-blocked');
+
+            card.addEventListener('dragstart', (e) => {
+              e.dataTransfer.setData('text/plain', issue.id);
+              card.classList.add('dragging');
+            });
+            card.addEventListener('dragend', () => card.classList.remove('dragging'));
+
+            const priTag = document.createElement('span');
+            priTag.className = `kanban-priority priority-${(issue.priority || 'p2').toLowerCase()}`;
+            priTag.textContent = issue.priority || 'P2';
+
+            const title = document.createElement('span');
+            title.className = 'kanban-card-title';
+            title.textContent = issue.title;
+
+            const meta = document.createElement('div');
+            meta.className = 'kanban-card-meta';
+            if (issue.assignee_id) {
+              meta.textContent = issue.assignee_id;
+            }
+            if (issue.story_points) {
+              const sp = document.createElement('span');
+              sp.className = 'kanban-sp';
+              sp.textContent = `${issue.story_points}sp`;
+              meta.appendChild(sp);
+            }
+            if (blockedSet.has(issue.id)) {
+              const lock = document.createElement('span');
+              lock.className = 'kanban-blocked-icon';
+              lock.textContent = '🔒';
+              lock.title = 'Blocked by dependency';
+              meta.appendChild(lock);
+            }
+
+            card.appendChild(priTag);
+            card.appendChild(title);
+            card.appendChild(meta);
+            cardList.appendChild(card);
+          }
+
+          col.appendChild(cardList);
+          board.appendChild(col);
+        }
+
+        container.appendChild(board);
+      })
+      .catch(err => { container.innerHTML = `<div class="error-text">Failed to load kanban: ${err.message}</div>`; });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Roadmap Timeline Tab
+  // ---------------------------------------------------------------------------
+
+  _renderProductRoadmap(slug, container) {
+    container.innerHTML = '<div class="loading-text">Loading roadmap...</div>';
+    fetch(`/api/product/${encodeURIComponent(slug)}/roadmap`)
+      .then(r => r.json())
+      .then(data => {
+        container.innerHTML = '';
+
+        if (!data.sprints.length && !data.versions.length && !data.milestoned_issues.length) {
+          container.innerHTML = '<div class="task-empty">No sprints, versions, or milestoned issues yet.</div>';
+          return;
+        }
+
+        // Sprints section
+        if (data.sprints.length) {
+          const section = document.createElement('div');
+          section.className = 'roadmap-section';
+          const h = document.createElement('h3');
+          h.textContent = 'Sprints';
+          section.appendChild(h);
+
+          const timeline = document.createElement('div');
+          timeline.className = 'roadmap-timeline';
+
+          for (const s of data.sprints) {
+            const bar = document.createElement('div');
+            bar.className = `roadmap-sprint-bar roadmap-status-${s.status}`;
+
+            const label = document.createElement('div');
+            label.className = 'roadmap-bar-label';
+            label.textContent = `${s.name} (${s.issue_count} issues)`;
+
+            const dates = document.createElement('div');
+            dates.className = 'roadmap-bar-dates';
+            dates.textContent = `${s.start_date} → ${s.end_date}`;
+
+            const statusBadge = document.createElement('span');
+            statusBadge.className = `roadmap-status-badge roadmap-status-${s.status}`;
+            statusBadge.textContent = s.status;
+
+            bar.appendChild(label);
+            bar.appendChild(dates);
+            bar.appendChild(statusBadge);
+            if (s.goal) {
+              const goal = document.createElement('div');
+              goal.className = 'roadmap-goal';
+              goal.textContent = s.goal;
+              bar.appendChild(goal);
+            }
+            timeline.appendChild(bar);
+          }
+          section.appendChild(timeline);
+          container.appendChild(section);
+        }
+
+        // Versions section
+        if (data.versions.length) {
+          const section = document.createElement('div');
+          section.className = 'roadmap-section';
+          const h = document.createElement('h3');
+          h.textContent = 'Releases';
+          section.appendChild(h);
+
+          for (const v of data.versions) {
+            const row = document.createElement('div');
+            row.className = 'roadmap-version-row';
+
+            const ver = document.createElement('span');
+            ver.className = 'roadmap-version-tag';
+            ver.textContent = `v${v.version}`;
+
+            const date = document.createElement('span');
+            date.className = 'roadmap-version-date';
+            date.textContent = v.released_at ? v.released_at.split('T')[0] : '';
+
+            const count = document.createElement('span');
+            count.className = 'roadmap-version-count';
+            count.textContent = `${v.resolved_count} issues resolved`;
+
+            row.appendChild(ver);
+            row.appendChild(date);
+            row.appendChild(count);
+            section.appendChild(row);
+          }
+          container.appendChild(section);
+        }
+
+        // Milestoned issues
+        if (data.milestoned_issues.length) {
+          const section = document.createElement('div');
+          section.className = 'roadmap-section';
+          const h = document.createElement('h3');
+          h.textContent = 'Milestoned Issues';
+          section.appendChild(h);
+
+          // Group by milestone_version
+          const groups = {};
+          for (const i of data.milestoned_issues) {
+            const mv = i.milestone_version;
+            if (!groups[mv]) groups[mv] = [];
+            groups[mv].push(i);
+          }
+
+          for (const [ver, items] of Object.entries(groups).sort()) {
+            const group = document.createElement('div');
+            group.className = 'roadmap-milestone-group';
+
+            const gh = document.createElement('div');
+            gh.className = 'roadmap-milestone-header';
+            gh.textContent = `v${ver} (${items.length} issues)`;
+            group.appendChild(gh);
+
+            for (const item of items) {
+              const row = document.createElement('div');
+              row.className = `roadmap-issue-row priority-${(item.priority || 'p2').toLowerCase()}`;
+              row.innerHTML = `<span class="roadmap-issue-pri">[${item.priority}]</span> ${item.title} <span class="roadmap-issue-status">${item.status}</span>`;
+              group.appendChild(row);
+            }
+
+            section.appendChild(group);
+          }
+          container.appendChild(section);
+        }
+      })
+      .catch(err => { container.innerHTML = `<div class="error-text">Failed to load roadmap: ${err.message}</div>`; });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Activity Feed Tab
+  // ---------------------------------------------------------------------------
+
+  _renderProductActivity(slug, container) {
+    container.innerHTML = '<div class="loading-text">Loading activity...</div>';
+    fetch(`/api/product/${encodeURIComponent(slug)}/activity?limit=100`)
+      .then(r => r.json())
+      .then(entries => {
+        container.innerHTML = '';
+
+        if (!entries.length) {
+          container.innerHTML = '<div class="task-empty">No activity recorded yet.</div>';
+          return;
+        }
+
+        const feed = document.createElement('div');
+        feed.className = 'activity-feed';
+
+        const eventIcons = {
+          issue_created: '📋',
+          issue_closed: '✅',
+          issue_assigned: '👤',
+          sprint_created: '🏃',
+          sprint_closed: '🏁',
+          version_released: '🚀',
+          review_created: '📝',
+          review_completed: '☑️',
+          kr_updated: '📊',
+        };
+
+        for (const entry of entries) {
+          const item = document.createElement('div');
+          item.className = 'activity-item';
+
+          const icon = document.createElement('span');
+          icon.className = 'activity-icon';
+          icon.textContent = eventIcons[entry.event_type] || '•';
+
+          const content = document.createElement('div');
+          content.className = 'activity-content';
+
+          const headerLine = document.createElement('div');
+          headerLine.className = 'activity-header';
+          const typeLabel = document.createElement('span');
+          typeLabel.className = 'activity-type';
+          typeLabel.textContent = (entry.event_type || '').replace(/_/g, ' ');
+          const actor = document.createElement('span');
+          actor.className = 'activity-actor';
+          actor.textContent = entry.actor || '';
+          headerLine.appendChild(typeLabel);
+          headerLine.appendChild(actor);
+
+          const detail = document.createElement('div');
+          detail.className = 'activity-detail';
+          detail.textContent = entry.detail || '';
+
+          const ts = document.createElement('div');
+          ts.className = 'activity-ts';
+          if (entry.ts) {
+            const d = new Date(entry.ts);
+            ts.textContent = d.toLocaleString();
+          }
+
+          content.appendChild(headerLine);
+          content.appendChild(detail);
+          content.appendChild(ts);
+
+          item.appendChild(icon);
+          item.appendChild(content);
+          feed.appendChild(item);
+        }
+
+        container.appendChild(feed);
+      })
+      .catch(err => { container.innerHTML = `<div class="error-text">Failed to load activity: ${err.message}</div>`; });
   }
 
   _doUpdateProjectsPanel() {

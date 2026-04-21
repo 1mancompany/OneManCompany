@@ -1109,3 +1109,56 @@ class TestSprintClosedAutoReview:
         )
         await handle_sprint_closed(event)
         # No review created — just verify no crash
+
+
+# ---------------------------------------------------------------------------
+# Activity auto-logging
+# ---------------------------------------------------------------------------
+
+
+class TestActivityAutoLogging:
+    def test_log_product_activity_from_event(self):
+        """_log_product_activity writes to product activity log."""
+        from onemancompany.core.product_triggers import _log_product_activity
+
+        p = _make_product(name="ActivityLog")
+        slug = p["slug"]
+        event = CompanyEvent(
+            type=EventType.ISSUE_CREATED,
+            payload={"product_slug": slug, "title": "New bug", "detail": "Created issue: New bug"},
+            agent="ceo",
+        )
+        _log_product_activity(event)
+
+        log = prod.list_product_activity(slug)
+        assert len(log) == 1
+        assert log[0]["event_type"] == "issue_created"
+        assert log[0]["actor"] == "ceo"
+        assert "New bug" in log[0]["detail"]
+
+    def test_log_activity_no_slug_skips(self):
+        """_log_product_activity with empty slug does nothing."""
+        from onemancompany.core.product_triggers import _log_product_activity
+
+        event = CompanyEvent(
+            type=EventType.ISSUE_CREATED,
+            payload={"product_slug": "", "title": "X"},
+        )
+        _log_product_activity(event)
+        # No crash, nothing logged
+
+    def test_log_activity_auto_detail(self):
+        """_log_product_activity generates detail from event type + title when no detail provided."""
+        from onemancompany.core.product_triggers import _log_product_activity
+
+        p = _make_product(name="AutoDetail")
+        slug = p["slug"]
+        event = CompanyEvent(
+            type=EventType.SPRINT_CLOSED,
+            payload={"product_slug": slug, "sprint_id": "sprint_123"},
+        )
+        _log_product_activity(event)
+
+        log = prod.list_product_activity(slug)
+        assert len(log) == 1
+        assert "sprint_123" in log[0]["detail"]
