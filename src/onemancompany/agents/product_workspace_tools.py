@@ -27,7 +27,7 @@ def _resolve_product_workspace() -> tuple[Path, Path, str]:
     from onemancompany.core.vessel import _current_vessel
     from onemancompany.core.project_archive import load_named_project
     from onemancompany.core.product import find_slug_by_product_id
-    from onemancompany.core.config import PRODUCTS_DIR, PROJECTS_DIR
+    from onemancompany.core.config import PRODUCTS_DIR, PROJECTS_DIR, PRODUCT_WORKTREE_DIR_NAME
 
     vessel = _current_vessel.get()
     if not vessel:
@@ -53,7 +53,7 @@ def _resolve_product_workspace() -> tuple[Path, Path, str]:
         raise ValueError(f"Product not found for id={product_id}")
 
     workspace_dir = PRODUCTS_DIR / slug / "workspace"
-    worktree_path = PROJECTS_DIR / project_id / "product_worktree"
+    worktree_path = PROJECTS_DIR / project_id / PRODUCT_WORKTREE_DIR_NAME
 
     if not workspace_dir.exists():
         raise ValueError(f"Product workspace not initialized for {slug}")

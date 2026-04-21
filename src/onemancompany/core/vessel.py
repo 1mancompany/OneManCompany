@@ -2076,9 +2076,10 @@ class EmployeeManager:
         """Build product workspace context string if project is linked to a product."""
         from onemancompany.core.project_archive import load_named_project
         from onemancompany.core.product import find_slug_by_product_id, load_product
-        from onemancompany.core.config import PRODUCTS_DIR, PROJECTS_DIR
+        from onemancompany.core.config import PRODUCTS_DIR, PROJECTS_DIR, PRODUCT_WORKTREE_DIR_NAME
 
-        proj_doc = load_named_project(project_id.split("/")[0])
+        base_project_id = project_id.split("/")[0]
+        proj_doc = load_named_project(base_project_id)
         if not proj_doc:
             return ""
         product_id = proj_doc.get("product_id", "")
@@ -2093,7 +2094,7 @@ class EmployeeManager:
         if not product or not product.get("workspace_initialized", False):
             return ""
 
-        worktree_path = PROJECTS_DIR / project_id.split("/")[0] / "product_worktree"
+        worktree_path = PROJECTS_DIR / base_project_id / PRODUCT_WORKTREE_DIR_NAME
         if not worktree_path.is_dir():
             return ""
 

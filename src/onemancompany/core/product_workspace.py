@@ -7,6 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from filelock import FileLock
 from loguru import logger
 
 
@@ -50,7 +51,7 @@ def init_workspace(workspace_dir: Path) -> None:
         return
 
     workspace_dir.mkdir(parents=True, exist_ok=True)
-    _git(["init"], workspace_dir)
+    _git(["init", "-b", "main"], workspace_dir)
     _git(["config", "user.email", "workspace@localhost"], workspace_dir)
     _git(["config", "user.name", "workspace"], workspace_dir)
 
@@ -80,6 +81,15 @@ def remove_worktree(workspace_dir: Path, worktree_path: Path, project_id: str) -
     """Remove a worktree and delete its branch. Idempotent / noop if missing."""
     branch = f"project/{project_id}"
 
+    # Guard: if workspace_dir itself is gone (e.g. product already deleted),
+    # there's nothing to clean up in git — just remove the directory.
+    if not (workspace_dir / ".git").is_dir():
+        logger.debug("remove_worktree: workspace {} gone, skipping git cleanup", workspace_dir)
+        if worktree_path.is_dir():
+            import shutil
+            shutil.rmtree(worktree_path)
+        return
+
     if worktree_path.is_dir():
         _git(["worktree", "remove", "--force", str(worktree_path)], workspace_dir)
 
@@ -103,9 +113,22 @@ def _is_merging(workspace_dir: Path) -> bool:
 
 
 def _has_conflict_markers(workspace_dir: Path) -> bool:
-    """Check if any tracked file still has conflict markers."""
-    result = _git(["diff", "--check"], workspace_dir, check=False)
-    return result.returncode != 0
+    """Check if any unmerged file still has conflict markers in its working-tree content.
+
+    Two-step check: first find unmerged paths via the index, then read the
+    actual file content for ``<<<<<<<`` markers.  This avoids false positives
+    from ``git diff --check`` (which also flags trailing-whitespace) while
+    correctly detecting resolved-but-unstaged files.
+    """
+    result = _git(["diff", "--name-only", "--diff-filter=U"], workspace_dir, check=False)
+    unmerged = [f for f in result.stdout.strip().splitlines() if f]
+    if not unmerged:
+        return False
+    for fname in unmerged:
+        fpath = workspace_dir / fname
+        if fpath.is_file() and "<<<<<<<" in fpath.read_text():
+            return True
+    return False
 
 
 def _parse_conflicts(workspace_dir: Path) -> list[dict]:
@@ -129,6 +152,11 @@ def _parse_conflicts(workspace_dir: Path) -> list[dict]:
     return conflicts
 
 
+def _workspace_lock(workspace_dir: Path) -> FileLock:
+    """Return a per-workspace file lock to serialise promote operations."""
+    return FileLock(workspace_dir / ".git" / "promote.lock", timeout=120)
+
+
 def promote(
     workspace_dir: Path,
     worktree_path: Path,
@@ -138,54 +166,63 @@ def promote(
 ) -> dict:
     """Stateful merge of project branch into main.
 
-    Returns dict with keys: status, conflicts, message.
+    Acquires a per-workspace file lock so concurrent promote calls on the
+    same product are serialised.  Returns dict with keys: status, conflicts,
+    message.
     """
     branch = f"project/{project_id}"
 
-    # --- Abort mode ---
-    if abort:
+    with _workspace_lock(workspace_dir):
+        # --- Abort mode ---
+        if abort:
+            if _is_merging(workspace_dir):
+                _git(["merge", "--abort"], workspace_dir)
+                return {"status": "aborted", "conflicts": [], "message": "Merge aborted."}
+            return {"status": "aborted", "conflicts": [], "message": "No merge in progress."}
+
+        # --- Resume after conflict resolution ---
         if _is_merging(workspace_dir):
-            _git(["merge", "--abort"], workspace_dir)
-            return {"status": "aborted", "conflicts": [], "message": "Merge aborted."}
-        return {"status": "aborted", "conflicts": [], "message": "No merge in progress."}
+            if _has_conflict_markers(workspace_dir):
+                conflicts = _parse_conflicts(workspace_dir)
+                return {
+                    "status": "conflict",
+                    "conflicts": conflicts,
+                    "message": "Conflicts still present.",
+                }
+            # All resolved — stage and finalize
+            _git(["add", "-A"], workspace_dir)
+            _git(["commit", "--no-edit"], workspace_dir)
+            return {"status": "merged", "conflicts": [], "message": "Merge completed after conflict resolution."}
 
-    # --- Resume after conflict resolution ---
-    if _is_merging(workspace_dir):
-        if _has_conflict_markers(workspace_dir):
-            conflicts = _parse_conflicts(workspace_dir)
-            return {
-                "status": "conflict",
-                "conflicts": conflicts,
-                "message": "Conflicts still present.",
-            }
-        # All resolved — stage and finalize
-        _git(["add", "-A"], workspace_dir)
-        _git(["commit", "--no-edit"], workspace_dir)
-        return {"status": "merged", "conflicts": [], "message": "Merge completed after conflict resolution."}
+        # --- Normal flow: sync main into branch, then merge branch into main ---
 
-    # --- Normal flow: sync main into branch, then merge branch into main ---
+        # Step 1: merge main into project branch (sync — best effort)
+        # If the sync conflicts, abort it to avoid leaving the worktree dirty.
+        # The promote still works because Step 3 merges the branch HEAD (not
+        # the worktree state) into main.
+        sync = _git(["merge", "main", "--no-edit"], worktree_path, check=False)
+        if sync.returncode != 0:
+            _git(["merge", "--abort"], worktree_path, check=False)
+            logger.debug("promote: sync merge into branch failed for {}, proceeding", branch)
 
-    # Step 1: merge main into project branch (sync)
-    _git(["merge", "main", "--no-edit"], worktree_path, check=False)
+        # Step 2: check if branch has anything beyond main
+        result = _git(["log", f"main..{branch}", "--oneline"], workspace_dir)
+        if not result.stdout.strip():
+            return {"status": "nothing", "conflicts": [], "message": "Nothing to merge."}
 
-    # Step 2: check if branch has anything beyond main
-    result = _git(["log", f"main..{branch}", "--oneline"], workspace_dir)
-    if not result.stdout.strip():
-        return {"status": "nothing", "conflicts": [], "message": "Nothing to merge."}
+        # Step 3: merge project branch into main
+        merge = _git(["merge", branch, "--no-edit"], workspace_dir, check=False)
 
-    # Step 3: merge project branch into main
-    merge = _git(["merge", branch, "--no-edit"], workspace_dir, check=False)
+        if merge.returncode == 0:
+            return {"status": "merged", "conflicts": [], "message": "Branch merged into main."}
 
-    if merge.returncode == 0:
-        return {"status": "merged", "conflicts": [], "message": "Branch merged into main."}
-
-    # Conflict
-    conflicts = _parse_conflicts(workspace_dir)
-    return {
-        "status": "conflict",
-        "conflicts": conflicts,
-        "message": "Merge conflicts detected.",
-    }
+        # Conflict
+        conflicts = _parse_conflicts(workspace_dir)
+        return {
+            "status": "conflict",
+            "conflicts": conflicts,
+            "message": "Merge conflicts detected.",
+        }
 
 
 # ---------------------------------------------------------------------------
