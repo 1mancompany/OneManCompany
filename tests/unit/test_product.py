@@ -38,6 +38,16 @@ class TestProductCRUD:
         assert p["current_version"] == "0.1.0"
         assert p["slug"] == "acme-widget"
 
+    def test_create_product_has_workspace_initialized_false(self):
+        p = prod.create_product(name="WS Test", owner_id="00010")
+        assert p["workspace_initialized"] is False
+
+    def test_update_workspace_initialized(self):
+        p = prod.create_product(name="WS Test2", owner_id="00010")
+        prod.update_product(p["slug"], workspace_initialized=True)
+        loaded = prod.load_product(p["slug"])
+        assert loaded["workspace_initialized"] is True
+
     def test_load_product(self):
         p = prod.create_product(name="Load Me", owner_id="00010")
         loaded = prod.load_product(p["slug"])

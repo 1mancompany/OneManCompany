@@ -113,6 +113,7 @@ def create_product(
         "status": status,
         "current_version": current_version,
         "key_results": [],
+        "workspace_initialized": False,
         "created_at": now,
         "updated_at": now,
     }
