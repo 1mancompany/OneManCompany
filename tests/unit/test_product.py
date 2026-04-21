@@ -1553,10 +1553,17 @@ class TestProductActivity:
         assert "ts" in log[0]
 
     def test_activity_max_entries(self):
-        """Activity log is capped at 500 entries."""
+        """Activity log is capped at _MAX_ACTIVITY_ENTRIES."""
         p = prod.create_product(name="ActivityCap", owner_id="00010")
         slug = p["slug"]
-        for i in range(510):
-            prod.append_product_activity(slug, event_type=f"e{i}", actor="ceo", detail=f"d{i}")
+        # Directly write a large log, then append one more to trigger cap
+        from onemancompany.core.store import _write_yaml
+        log_path = prod._activity_dir(slug) / "log.yaml"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        big_log = [{"ts": "2026-01-01", "event_type": f"e{i}", "actor": "x", "detail": "d"} for i in range(500)]
+        _write_yaml(log_path, big_log)
+        # Append one more — should trigger cap
+        prod.append_product_activity(slug, event_type="overflow", actor="ceo", detail="over")
         log = prod.list_product_activity(slug, limit=1000)
         assert len(log) <= 500
+        assert log[0]["event_type"] == "overflow"  # newest first
