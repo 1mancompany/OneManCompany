@@ -875,6 +875,22 @@ class TestSprintExpiryCheck:
         action_str = " ".join(result.get("actions", []))
         assert "expired" not in action_str.lower()
 
+    @pytest.mark.asyncio
+    async def test_invalid_end_date_no_crash(self):
+        """Sprint with invalid end_date should not crash the health check."""
+        from onemancompany.core.product_triggers import run_product_check
+        p = _make_product(name="BadDate")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-01-01", end_date="not-a-date")
+        prod.update_sprint(slug, s["id"], status="active")
+
+        with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
+             patch("onemancompany.core.product_triggers.notify_owner", new_callable=AsyncMock, return_value=False):
+            result = await run_product_check(slug)
+
+        # Should not crash, and should not falsely report expiry
+        assert not result.get("skipped")
+
 
 class TestBacklogGrooming:
     @pytest.mark.asyncio

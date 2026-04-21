@@ -1071,3 +1071,35 @@ class TestSprintRetrospective:
         retro = prod.build_sprint_retrospective(slug, s["id"])
         assert "Sprint 1" in retro or "S1" in retro
         assert "velocity" in retro.lower() or "5" in retro
+
+    def test_retrospective_with_carry_over(self):
+        """Retrospective includes carried-over issues section."""
+        p = prod.create_product(name="RetroCarry", owner_id="00010")
+        slug = p["slug"]
+        s = prod.create_sprint(slug=slug, name="S1", start_date="2026-04-01", end_date="2026-04-15")
+        prod.update_sprint(slug, s["id"], status=SprintStatus.ACTIVE.value)
+        prod.create_issue(slug=slug, title="Unfinished work", created_by="00010", story_points=3, sprint=s["id"])
+        retro = prod.build_sprint_retrospective(slug, s["id"])
+        assert "Carried Over" in retro
+        assert "Unfinished work" in retro
+
+    def test_retrospective_nonexistent_sprint(self):
+        """build_sprint_retrospective returns empty string for missing sprint."""
+        p = prod.create_product(name="RetroNone", owner_id="00010")
+        assert prod.build_sprint_retrospective(p["slug"], "sprint_nonexist") == ""
+
+
+class TestSprintErrorPaths:
+    def test_create_sprint_product_not_found(self):
+        with pytest.raises(ValueError, match="not found"):
+            prod.create_sprint(slug="nonexist", name="S1", start_date="2026-04-01", end_date="2026-04-15")
+
+    def test_update_sprint_not_found(self):
+        p = prod.create_product(name="UpdErr", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.update_sprint(p["slug"], "sprint_nonexist", name="X")
+
+    def test_close_sprint_not_found(self):
+        p = prod.create_product(name="CloseErr", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.close_sprint(p["slug"], "sprint_nonexist")
