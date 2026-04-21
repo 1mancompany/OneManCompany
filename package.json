@@ -1,12 +1,18 @@
 {
   "name": "@1mancompany/onemancompany",
-  "version": "0.7.10",
+  "version": "0.7.11",
   "description": "The AI Operating System for One-Person Companies",
   "bin": {
     "onemancompany": "bin/cli.js"
   },
   "files": [
-    "bin/cli.js"
+    "bin/cli.js",
+    "src/",
+    "frontend/",
+    "company/",
+    "pyproject.toml",
+    "config.yaml",
+    "uv.lock"
   ],
   "keywords": [
     "ai",
