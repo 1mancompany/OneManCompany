@@ -26,11 +26,11 @@ const STATUS_STYLES = {
     blocked:    { color: '#f97316', label: '\u2298 Blocked' },
 };
 
-const CARD_W = 240;
+const CARD_W = 260;
 const CARD_MIN_H = 72;       // minimum card height (no description)
 const DESC_LINE_H = 14;      // height per description line
-const DESC_MAX_LINES = 6;    // cap description lines
-const DESC_CHARS_PER_LINE = 34;
+const DESC_MAX_LINES = 12;   // cap description lines (was 6 — caused overflow/truncation)
+const DESC_CHARS_PER_LINE = 38;
 const CHILDREN_PAGE_SIZE = 5;
 
 /* ─────────────────── Word-wrap helper (shared with old code) ────── */
