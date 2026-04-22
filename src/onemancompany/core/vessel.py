@@ -139,11 +139,14 @@ _PROMISE_PATTERNS = _re.compile(
     r"我将|接下来|下一步|现在开始|马上开始|即将开始|准备开始"
     r"|我会(?:立即|马上|开始)"
     r"|下面我(?:来|将|要)"
+    r"|分配给\w+处理|派遣给\w+负责"
     # English future-action phrases
     r"|I will (?:now |start |begin )|I'll (?:now |start |begin )"
     r"|Let me (?:start|begin|proceed)"
     r"|Next,? I'?(?:ll| will)"
     r"|I'?m going to (?:start|begin)"
+    r"|Going to dispatch"
+    r"|I need to dispatch_child"
     r")",
     _re.IGNORECASE,
 )
@@ -158,6 +161,27 @@ def detect_unfulfilled_promises(output: str | None) -> bool:
     if not output:
         return False
     return bool(_PROMISE_PATTERNS.search(output))
+
+
+MAX_STALL_RETRIES: int = 2  # max times to re-run a stalled agent before giving up
+
+
+def _should_retry_stall(node) -> bool:
+    """Check if a completed node should be retried due to stall detection.
+
+    Returns True if:
+    - Node is not a system node
+    - Node has no children (didn't actually dispatch)
+    - Node output contains promise patterns
+    - stall_retry_count < MAX_STALL_RETRIES
+    """
+    if node.node_type in SYSTEM_NODE_TYPES:
+        return False
+    if node.children_ids:
+        return False
+    if not detect_unfulfilled_promises(node.result):
+        return False
+    return getattr(node, 'stall_retry_count', 0) < MAX_STALL_RETRIES
 
 
 # ---------------------------------------------------------------------------
@@ -1732,18 +1756,42 @@ class EmployeeManager:
                                  employee_id, entry.node_id)
 
                 # Stall detection: agent said "I will do X" but dispatched no children
-                if (node.node_type not in SYSTEM_NODE_TYPES
+                if _should_retry_stall(node):
+                    node.stall_retry_count = getattr(node, 'stall_retry_count', 0) + 1
+                    logger.warning(
+                        "[STALL] employee={} node={}: output contains action promises "
+                        "but no subtasks dispatched. Retrying ({}/{}).",
+                        employee_id, entry.node_id,
+                        node.stall_retry_count, MAX_STALL_RETRIES,
+                    )
+                    # Revert to PROCESSING and re-schedule with explicit nudge
+                    node.set_status(TaskPhase.PROCESSING)
+                    nudge = (
+                        "\n\n[SYSTEM] You said you would dispatch tasks but did NOT "
+                        "actually call dispatch_child(). You MUST call the tool now. "
+                        "Do NOT describe what you plan to do — invoke dispatch_child() directly."
+                    )
+                    node.result = (node.result or "") + nudge
+                    save_tree_async(entry.tree_path)
+                    self.schedule_node(employee_id, entry.node_id, entry.tree_path)
+                    self._schedule_next(employee_id)
+                    self._log_node(employee_id, entry.node_id, "stall_retry",
+                                   f"Retrying stalled task (attempt {node.stall_retry_count})")
+                    return  # skip normal completion flow
+                elif (node.node_type not in SYSTEM_NODE_TYPES
                         and not node.children_ids
                         and detect_unfulfilled_promises(node.result)):
-                    logger.warning(  # pragma: no cover
-                        "[STALL] employee={} node={}: output contains action promises "
-                        "but no subtasks were dispatched. Agent may have stalled.",
+                    # Max retries exhausted — warn CEO
+                    logger.warning(
+                        "[STALL] employee={} node={}: stall retries exhausted ({}/{}). "
+                        "Marking COMPLETED with warning.",
                         employee_id, entry.node_id,
+                        getattr(node, 'stall_retry_count', 0), MAX_STALL_RETRIES,
                     )
-                    self._push_to_conversation(  # pragma: no cover
+                    self._push_to_conversation(
                         node,
-                        "⚠️ Agent claimed it would execute follow-up work but did not "
-                        "create any tasks. It may have stalled. Please review and re-dispatch.",
+                        "⚠️ Agent repeatedly claimed it would execute follow-up work but "
+                        "did not create any tasks after multiple retries. Please review and re-dispatch manually.",
                     )
 
                 save_tree_async(entry.tree_path)
@@ -1799,6 +1847,11 @@ class EmployeeManager:
 
             # Unschedule completed node
             self.unschedule(employee_id, entry.node_id)
+
+            # Drain any deferred schedules — ensures child tasks dispatched
+            # by tools (e.g. dispatch_child) that hit a sync/async boundary
+            # actually start executing (I1: prevents silent defer).
+            self.drain_pending()
         else:
             self._publish_node_update(employee_id, node)
 

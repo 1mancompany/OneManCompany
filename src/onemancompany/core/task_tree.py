@@ -91,6 +91,10 @@ class TaskNode:
     # Used to cap infinite retry loops (e.g. EA keeps retrying a failing child).
     retry_count: int = 0
 
+    # How many times this node was retried due to stall detection
+    # (agent promised action but didn't call tools). Capped at MAX_STALL_RETRIES.
+    stall_retry_count: int = 0
+
     # --- Content externalization tracking (not part of equality/repr) ---
     _content_dirty: bool = field(default=False, init=False, repr=False, compare=False)
     _content_loaded: bool = field(default=False, init=False, repr=False, compare=False)
@@ -210,6 +214,7 @@ class TaskNode:
             "hold_reason": self.hold_reason,
             "hold_started_at": self.hold_started_at,
             "retry_count": self.retry_count,
+            "stall_retry_count": self.stall_retry_count,
             "directives_count": len(self.directives),
         }
 
