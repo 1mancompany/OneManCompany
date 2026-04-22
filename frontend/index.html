@@ -11,22 +11,22 @@
   <script defer src="https://cloud.umami.is/script.js" data-website-id="e72ced7e-c551-40a9-b60e-18bb7db0592f"></script>
 </head>
 <body>
-  <div id="app">
+  <div id="app" role="application" aria-label="One Man Company CEO Console">
     <!-- Left top: Products & Projects -->
-    <div id="left-top-panel">
+    <aside id="left-top-panel" aria-label="Products">
       <div class="collapsible-header" data-target="projects-panel-body">
         <span class="collapse-arrow">&#9660;</span>
         <h3 class="pixel-title">PRODUCTS</h3>
-        <button id="create-product-btn" class="panel-add-btn" title="New Product">+</button>
-        <button id="import-product-btn" class="panel-add-btn" title="Import Product">&#8593;</button>
+        <button id="create-product-btn" class="panel-add-btn" title="New Product" aria-label="New Product">+</button>
+        <button id="import-product-btn" class="panel-add-btn" title="Import Product" aria-label="Import Product">&#8593;</button>
       </div>
       <div id="projects-panel-body" class="collapsible-body">
         <div id="projects-panel-list"></div>
       </div>
-    </div>
+    </aside>
 
     <!-- Left bottom: Activity Log -->
-    <div id="left-bottom-panel">
+    <aside id="left-bottom-panel" aria-label="Activity Log">
       <div class="collapsible-header" data-target="activity-body">
         <span class="collapse-arrow">&#9660;</span>
         <h3 class="pixel-title">ACTIVITY LOG</h3>
@@ -34,10 +34,10 @@
       <div id="activity-body" class="collapsible-body collapsible-flex">
         <div id="activity-log" style="background:#0a0a0a;flex:1"></div>
       </div>
-    </div>
+    </aside>
 
     <!-- Center top: Office Canvas -->
-    <div id="office-panel">
+    <main id="office-panel">
       <div class="panel-header">
         <h1 class="pixel-title">&#127970; ONE MAN COMPANY <span id="app-version" class="version-badge"></span></h1>
         <div id="status-bar">
@@ -45,22 +45,22 @@
           <span class="status-item status-clickable" id="tool-count" onclick="window.app.openToolList()">&#128295; 0</span>
           <span class="status-item" id="room-count">&#127970; 0/0</span>
           <!-- Meeting moved to /meeting slash command in CEO console -->
-          <button id="ex-employee-toolbar-btn" class="toolbar-icon-btn" title="Ex-Employee Wall">&#128220;</button>
-          <button id="company-culture-toolbar-btn" class="toolbar-icon-btn" title="Company Culture">&#127988;</button>
-          <button id="company-direction-toolbar-btn" class="toolbar-icon-btn" title="Company Direction">&#127919;</button>
-          <button id="dashboard-toolbar-btn" class="toolbar-icon-btn" title="Dashboard">&#128202;</button>
-          <button id="announcements-toolbar-btn" class="toolbar-icon-btn" title="Announcements" style="position:relative;">&#128276;<span id="announcements-badge" class="announcement-badge hidden"></span></button>
-          <button id="settings-toolbar-btn" class="toolbar-icon-btn" title="Settings">&#9881;</button>
-          <span class="status-item" id="connection-status">&#9679; OFFLINE</span>
+          <button id="ex-employee-toolbar-btn" class="toolbar-icon-btn" title="Ex-Employee Wall" aria-label="Ex-Employee Wall">&#128220;</button>
+          <button id="company-culture-toolbar-btn" class="toolbar-icon-btn" title="Company Culture" aria-label="Company Culture">&#127988;</button>
+          <button id="company-direction-toolbar-btn" class="toolbar-icon-btn" title="Company Direction" aria-label="Company Direction">&#127919;</button>
+          <button id="dashboard-toolbar-btn" class="toolbar-icon-btn" title="Dashboard" aria-label="Dashboard">&#128202;</button>
+          <button id="announcements-toolbar-btn" class="toolbar-icon-btn" title="Announcements" aria-label="Announcements" style="position:relative;">&#128276;<span id="announcements-badge" class="announcement-badge hidden"></span></button>
+          <button id="settings-toolbar-btn" class="toolbar-icon-btn" title="Settings" aria-label="Settings">&#9881;</button>
+          <span class="status-item" id="connection-status" role="status" aria-live="polite">&#9679; OFFLINE</span>
           <span class="status-item" id="last-sync-time"></span>
         </div>
       </div>
-      <canvas id="office-canvas" width="640" height="480"></canvas>
+      <canvas id="office-canvas" width="640" height="480" aria-label="Office floor plan" role="img"></canvas>
       <div id="tooltip" class="tooltip hidden"></div>
-    </div>
+    </main>
 
     <!-- Right top: Team Roster -->
-    <div id="roster-panel">
+    <aside id="roster-panel" aria-label="Team Roster">
       <div class="collapsible-header" data-target="roster-body">
         <span class="collapse-arrow">&#9660;</span>
         <h3 class="pixel-title">TEAM ROSTER</h3>
@@ -73,7 +73,7 @@
         </div>
         <div id="roster-list"></div>
       </div>
-    </div>
+    </aside>
 
     <!-- Bottom spanning center+right: CEO Console -->
     <div id="console-panel">
@@ -85,11 +85,11 @@
         <div id="ceo-avatar-area">
           <img id="ceo-avatar" width="32" height="32" src="/api/employees/00001/avatar" onerror="this.style.display='none'" />
           <span class="ceo-label">&#128081; YOU</span>
-          <button id="dnd-toggle-btn" class="toolbar-icon-btn" title="Do Not Disturb">&#127769;</button>
-          <button id="bg-tasks-toolbar-btn" class="toolbar-icon-btn" title="Background Tasks">&#9641;</button>
-          <button id="screenshot-toolbar-btn" class="toolbar-icon-btn" title="Export SVG Screenshot">&#128247;</button>
-          <button id="abort-all-toolbar-btn" class="toolbar-icon-btn" title="Stop All Tasks" style="color: #ff4444;">&#9888;</button>
-          <button id="reload-toolbar-btn" class="reload-btn" title="Force reload all data from disk">&#128260;</button>
+          <button id="dnd-toggle-btn" class="toolbar-icon-btn" title="Do Not Disturb" aria-label="Do Not Disturb">&#127769;</button>
+          <button id="bg-tasks-toolbar-btn" class="toolbar-icon-btn" title="Background Tasks" aria-label="Background Tasks">&#9641;</button>
+          <button id="screenshot-toolbar-btn" class="toolbar-icon-btn" title="Export SVG Screenshot" aria-label="Export SVG Screenshot">&#128247;</button>
+          <button id="abort-all-toolbar-btn" class="toolbar-icon-btn" title="Stop All Tasks" aria-label="Stop All Tasks" style="color: #ff4444;">&#9888;</button>
+          <button id="reload-toolbar-btn" class="reload-btn" title="Force reload all data from disk" aria-label="Force reload all data from disk">&#128260;</button>
         </div>
         <div id="ceo-split">
           <div id="ceo-project-list">
@@ -118,7 +118,7 @@
                 </select>
               </div>
               <div id="ceo-conv-input-row">
-                <textarea id="ceo-conv-input" placeholder="$ Type message, / for commands (Enter to send)" rows="1"></textarea>
+                <textarea id="ceo-conv-input" placeholder="$ Type message, / for commands (Enter to send)" rows="1" aria-label="CEO message input"></textarea>
                 <input type="file" id="ceo-file-input" multiple hidden />
               </div>
               <div id="ceo-slash-menu" class="hidden"></div>
