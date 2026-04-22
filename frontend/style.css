@@ -6907,8 +6907,14 @@ h3.pixel-title { font-size: var(--text-label); }
 
 /* ===== Responsive Breakpoints ===== */
 
-/* Tablet: stack left panels above, roster collapses */
+/* Tablet: two-column, roster collapses, scale up text */
 @media (max-width: 1024px) {
+  :root {
+    --size-1: calc(6px + var(--font-boost));
+    --size-2: calc(8px + var(--font-boost));
+    --size-3: calc(10px + var(--font-boost));
+    --sp-5: 20px;
+  }
   #app {
     grid-template-columns: 200px 1fr;
     grid-template-rows: auto 1fr auto;
@@ -6925,8 +6931,16 @@ h3.pixel-title { font-size: var(--text-label); }
   }
 }
 
-/* Mobile: single column stack */
+/* Mobile: single column stack, larger text for readability */
 @media (max-width: 768px) {
+  :root {
+    --size-1: calc(7px + var(--font-boost));
+    --size-2: calc(9px + var(--font-boost));
+    --size-3: calc(11px + var(--font-boost));
+    --size-4: calc(13px + var(--font-boost));
+    --sp-4: 12px;
+    --sp-5: 16px;
+  }
   #app {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto 200px auto;
@@ -6965,4 +6979,67 @@ h3.pixel-title { font-size: var(--text-label); }
     max-height: 120px;
     overflow-y: auto;
   }
+  .modal-body {
+    padding: var(--sp-3);
+  }
+  .toolbar-icon-btn {
+    padding: var(--sp-2);
+  }
+}
+
+/* Small mobile: extra text boost */
+@media (max-width: 480px) {
+  :root {
+    --size-1: calc(8px + var(--font-boost));
+    --size-2: calc(10px + var(--font-boost));
+    --size-3: calc(12px + var(--font-boost));
+    --size-4: calc(14px + var(--font-boost));
+  }
+  #app {
+    gap: 2px;
+    padding: 2px;
+  }
+  .modal-content {
+    width: 98vw !important;
+    max-width: 98vw !important;
+    margin: 1vh auto;
+  }
+}
+
+/* Wide desktop: use extra space */
+@media (min-width: 1440px) {
+  #app {
+    grid-template-columns: 280px 1fr 320px;
+  }
+}
+
+/* ===== Accessibility: Reduced Motion ===== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ===== Accessibility: Touch Targets (mobile only) ===== */
+@media (pointer: coarse) {
+  button, [role="button"], select, input[type="checkbox"], input[type="radio"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* Exempt elements that already have adequate hit area via padding */
+  .pixel-title button, .inline-btn, .collapsible-header,
+  .tab-btn, .status-filter-btn, .kanban-column-header {
+    min-height: unset;
+    min-width: unset;
+  }
+}
+
+/* ===== Interaction: Disabled State ===== */
+button:disabled, [aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
 }
