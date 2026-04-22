@@ -691,6 +691,58 @@ def version_management_tool(
         return f"Error: {e}"
 
 
+@tool
+async def update_product_tool(
+    product_slug: str,
+    name: str = "",
+    description: str = "",
+    objective: str = "",
+) -> str:
+    """Update a product's name, description, or objective.
+
+    Args:
+        product_slug: Product slug identifier
+        name: New product name (leave empty to keep current)
+        description: New description (leave empty to keep current)
+        objective: New objective (leave empty to keep current)
+    """
+    fields: dict = {}
+    if name:
+        fields["name"] = name
+    if description:
+        fields["description"] = description
+    if objective:
+        fields["objective"] = objective
+    if not fields:
+        return "Error: no fields to update. Provide name, description, or objective."
+    try:
+        result = prod.update_product(product_slug, **fields)
+        if result is None:
+            return f"Error: product '{product_slug}' not found"
+        return f"Updated product '{product_slug}': {', '.join(fields.keys())}"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
+async def delete_product_tool(product_slug: str) -> str:
+    """Delete a product and all its issues, versions, and linked projects.
+
+    Args:
+        product_slug: Product slug identifier
+    """
+    try:
+        summary = prod.delete_product(product_slug)
+        return (
+            f"Deleted product '{product_slug}'. "
+            f"Removed {summary.get('issues', 0)} issues, "
+            f"{summary.get('versions', 0)} versions, "
+            f"{summary.get('projects', 0)} linked projects."
+        )
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
 # ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
@@ -716,4 +768,6 @@ PRODUCT_TOOLS = [
     delete_sprint_tool,
     sprint_analytics_tool,
     version_management_tool,
+    update_product_tool,
+    delete_product_tool,
 ]

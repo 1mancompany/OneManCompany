@@ -762,6 +762,7 @@ def register_product_triggers() -> "asyncio.Task":
         EventType.ISSUE_CLOSED,
         EventType.ISSUE_ASSIGNED,
         EventType.SPRINT_CREATED,
+        EventType.SPRINT_STARTED,
         EventType.SPRINT_CLOSED,
         EventType.VERSION_RELEASED,
         EventType.REVIEW_CREATED,

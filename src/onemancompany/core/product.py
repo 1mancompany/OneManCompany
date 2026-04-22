@@ -236,6 +236,24 @@ def update_kr_progress(slug: str, kr_id: str, *, current: float) -> dict:
     raise ValueError(f"KR '{kr_id}' not found in product '{slug}'")
 
 
+def delete_key_result(slug: str, kr_id: str) -> None:
+    """Delete a key result from a product. Raises ValueError if not found."""
+    with _get_slug_lock(slug):
+        path = _product_yaml_path(slug)
+        data = _read_yaml(path)
+        if not data:
+            raise ValueError(f"Product '{slug}' not found")
+        krs = data.get("key_results", [])
+        original_len = len(krs)
+        data["key_results"] = [kr for kr in krs if kr["id"] != kr_id]
+        if len(data["key_results"]) == original_len:
+            raise ValueError(f"KR '{kr_id}' not found in product '{slug}'")
+        data["updated_at"] = datetime.now().isoformat()
+        _write_yaml(path, data)
+    mark_dirty(DirtyCategory.PRODUCTS)
+    logger.debug("Deleted KR {} from product {}", kr_id, slug)
+
+
 def update_kr_fields(slug: str, kr_id: str, **fields) -> dict:
     """Update arbitrary fields on a key result. Returns updated KR dict.
 
@@ -400,8 +418,12 @@ def list_issues(
     return results
 
 
-def update_issue(slug: str, issue_id: str, **fields) -> dict:
-    """Update issue fields. Returns updated dict. Raises ValueError if not found."""
+def update_issue(slug: str, issue_id: str, *, _skip_transition_check: bool = False, **fields) -> dict:
+    """Update issue fields. Returns updated dict. Raises ValueError if not found.
+
+    _skip_transition_check: internal flag for system-derived status updates
+    that may jump non-adjacent states (e.g. sync_issue_statuses).
+    """
     with _get_slug_lock(slug):
         path = _issues_dir(slug) / f"{issue_id}.yaml"
         data = _read_yaml(path)
@@ -409,7 +431,7 @@ def update_issue(slug: str, issue_id: str, **fields) -> dict:
             raise ValueError(f"Issue '{issue_id}' not found in product '{slug}'")
         # Validate status transition if status is being changed
         new_status = fields.get("status")
-        if new_status is not None:
+        if new_status is not None and not _skip_transition_check:
             current_status = data.get("status", IssueStatus.BACKLOG.value)
             if new_status != current_status:
                 _validate_status_transition(current_status, new_status)
@@ -977,11 +999,11 @@ def release_version(
         product["current_version"] = new_version
         _write_yaml(_product_yaml_path(product_slug), product)
 
-    # Mark resolved issues as released
+    # Mark resolved issues as released (bypass validation — release is a system operation)
     for issue_id in resolved_issue_ids:
         issue = load_issue(product_slug, issue_id)
         if issue and issue.get("status") != IssueStatus.RELEASED.value:
-            update_issue(product_slug, issue_id, status=IssueStatus.RELEASED.value)
+            update_issue(product_slug, issue_id, _skip_transition_check=True, status=IssueStatus.RELEASED.value)
 
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.info("[VERSION] Released {} for product '{}'", new_version, product_slug)
@@ -1012,12 +1034,14 @@ def build_product_context(product_slug: str) -> str:
             unit = kr.get("unit", "")
             suffix = f" {unit}" if unit else ""
             parts.append(f"  - {kr['title']}: {current}/{target}{suffix} ({pct:.0f}%)")
-    issues = list_issues(product_slug, status=IssueStatus.BACKLOG)
+    _terminal = {IssueStatus.DONE.value, IssueStatus.RELEASED.value}
+    issues = [i for i in list_issues(product_slug) if i.get("status") not in _terminal]
     issues.sort(key=lambda i: i.get("priority", "P3"))
     if issues:
         parts.append(f"\nActive Issues ({len(issues)}):")
         for issue in issues[:10]:
-            parts.append(f"  - [{issue['priority']}] {issue['title']} ({issue['id']})")
+            status_tag = issue.get("status", "backlog")
+            parts.append(f"  - [{issue['priority']}][{status_tag}] {issue['title']} ({issue['id']})")
         if len(issues) > 10:
             parts.append(f"  ... and {len(issues) - 10} more")
     parts.append("=== End Product Context ===")
@@ -1288,7 +1312,7 @@ def sync_issue_statuses(slug: str) -> list[dict]:
         current = issue.get("status", IssueStatus.BACKLOG.value)
 
         if derived.value != current:
-            update_issue(slug, issue["id"], status=derived.value)
+            update_issue(slug, issue["id"], _skip_transition_check=True, status=derived.value)
             changed.append({"issue_id": issue["id"], "old": current, "new": derived.value})
             logger.debug("[PRODUCT] Issue {} status derived: {} → {}", issue["id"], current, derived.value)
 

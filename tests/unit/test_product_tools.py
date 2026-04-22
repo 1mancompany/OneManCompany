@@ -205,7 +205,7 @@ class TestProductTools:
     async def test_product_tools_list(self):
         from onemancompany.agents.product_tools import PRODUCT_TOOLS
 
-        assert len(PRODUCT_TOOLS) == 20
+        assert len(PRODUCT_TOOLS) == 22
         names = {t.name for t in PRODUCT_TOOLS}
         assert "create_product_tool" in names
         assert "create_product_issue" in names
@@ -658,7 +658,7 @@ class TestProductTools:
         from onemancompany.agents.product_tools import PRODUCT_TOOLS
 
         assert isinstance(PRODUCT_TOOLS, list)
-        assert len(PRODUCT_TOOLS) == 20  # 7 original + 3 sprint tools
+        assert len(PRODUCT_TOOLS) == 22  # 7 original + 3 sprint tools
         for t in PRODUCT_TOOLS:
             assert hasattr(t, "ainvoke")
 
@@ -1038,3 +1038,65 @@ class TestReviewTools:
         })
         assert "Error" in result
         assert "unknown action" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# B5: update_product_tool and delete_product_tool
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateProductTool:
+    """Agent tool: update_product_tool wraps prod.update_product."""
+
+    @pytest.mark.asyncio
+    async def test_update_name_and_description(self):
+        from onemancompany.agents.product_tools import update_product_tool
+
+        p = prod.create_product(name="OrigName", owner_id="00010", description="Old desc")
+        result = await update_product_tool.ainvoke(
+            {"product_slug": p["slug"], "name": "NewName", "description": "New desc"}
+        )
+        assert "Updated" in result
+        loaded = prod.load_product(p["slug"])
+        assert loaded["name"] == "NewName"
+        assert loaded["description"] == "New desc"
+
+    @pytest.mark.asyncio
+    async def test_update_nonexistent_product(self):
+        from onemancompany.agents.product_tools import update_product_tool
+
+        result = await update_product_tool.ainvoke({"product_slug": "nope", "name": "X"})
+        assert "not found" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_update_partial_fields(self):
+        from onemancompany.agents.product_tools import update_product_tool
+
+        p = prod.create_product(name="Partial", owner_id="00010", description="Keep me")
+        result = await update_product_tool.ainvoke(
+            {"product_slug": p["slug"], "name": "Changed"}
+        )
+        assert "Updated" in result
+        loaded = prod.load_product(p["slug"])
+        assert loaded["name"] == "Changed"
+        assert loaded["description"] == "Keep me"
+
+
+class TestDeleteProductTool:
+    """Agent tool: delete_product_tool wraps prod.delete_product."""
+
+    @pytest.mark.asyncio
+    async def test_delete_existing_product(self):
+        from onemancompany.agents.product_tools import delete_product_tool
+
+        p = prod.create_product(name="ToDelete", owner_id="00010")
+        result = await delete_product_tool.ainvoke({"product_slug": p["slug"]})
+        assert "Deleted" in result
+        assert prod.load_product(p["slug"]) is None
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_product(self):
+        from onemancompany.agents.product_tools import delete_product_tool
+
+        result = await delete_product_tool.ainvoke({"product_slug": "ghost"})
+        assert "error" in result.lower() or "not found" in result.lower()

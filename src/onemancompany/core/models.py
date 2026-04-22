@@ -163,6 +163,7 @@ class EventType(str, Enum):
     KR_UPDATED = "kr_updated"
     VERSION_RELEASED = "version_released"
     SPRINT_CREATED = "sprint_created"
+    SPRINT_STARTED = "sprint_started"
     SPRINT_CLOSED = "sprint_closed"
     REVIEW_CREATED = "review_created"
     REVIEW_COMPLETED = "review_completed"

@@ -7555,6 +7555,7 @@ class AppController {
       { id: 'issues', label: `Issues (${issues.length})` },
       { id: 'kanban', label: 'Kanban' },
       { id: 'roadmap', label: 'Roadmap' },
+      { id: 'reviews', label: `Reviews (${(data.reviews || []).length})` },
       { id: 'activity', label: 'Activity' },
       { id: 'projects', label: `Projects (${projects.length})` },
     ];
@@ -7591,6 +7592,8 @@ class AppController {
       this._renderProductKanban(slug, container, data);
     } else if (tabId === 'roadmap') {
       this._renderProductRoadmap(slug, container);
+    } else if (tabId === 'reviews') {
+      this._renderProductReviews(data.reviews || [], slug, container);
     } else if (tabId === 'activity') {
       this._renderProductActivity(slug, container);
     } else if (tabId === 'projects') {
@@ -7783,6 +7786,21 @@ class AppController {
       unitEl.textContent = unit;
       this._makeKrFieldEditable(unitEl, slug, kr.id, 'unit');
 
+      // Delete KR button
+      const delKrBtn = document.createElement('button');
+      delKrBtn.className = 'kr-remove-btn';
+      delKrBtn.innerHTML = '&times;';
+      delKrBtn.title = 'Delete KR';
+      delKrBtn.addEventListener('click', async () => {
+        if (!confirm(`Delete KR "${kr.title}"?`)) return;
+        try {
+          const r = await fetch(`/api/product/${encodeURIComponent(slug)}/kr/${encodeURIComponent(kr.id)}`, { method: 'DELETE' });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          this._showToast('KR deleted', 'success');
+          this._openProductDetail(slug);
+        } catch (err) { this._showToast(`Failed: ${err.message}`, 'error'); }
+      });
+
       krRow.appendChild(titleEl);
       krRow.appendChild(document.createTextNode(': '));
       krRow.appendChild(currentEl);
@@ -7791,6 +7809,7 @@ class AppController {
       krRow.appendChild(unitEl);
       krRow.appendChild(document.createTextNode(` (${pct.toFixed(0)}%)`));
       krRow.appendChild(progTrack);
+      krRow.appendChild(delKrBtn);
       krList.appendChild(krRow);
     }
 
@@ -7803,11 +7822,12 @@ class AppController {
     container.appendChild(krList);
 
     // Version History
+    const verLabel = document.createElement('div');
+    verLabel.className = 'product-section-label';
+    verLabel.textContent = 'Version History';
+    container.appendChild(verLabel);
+
     if (versions.length > 0) {
-      const verLabel = document.createElement('div');
-      verLabel.className = 'product-section-label';
-      verLabel.textContent = 'Version History';
-      container.appendChild(verLabel);
       const verList = document.createElement('div');
       verList.className = 'product-version-list';
       for (const v of versions) {
@@ -7826,6 +7846,13 @@ class AppController {
       }
       container.appendChild(verList);
     }
+
+    // Release Version button
+    const releaseBtn = document.createElement('button');
+    releaseBtn.className = 'btn-small';
+    releaseBtn.textContent = '+ Release Version';
+    releaseBtn.addEventListener('click', () => this._showReleaseVersionForm(container, slug));
+    container.appendChild(releaseBtn);
   }
 
   _makeEditable(el, fieldName, slug) {
@@ -8152,9 +8179,39 @@ class AppController {
       ${labels ? `<div>Labels: ${labels}</div>` : ''}
       ${issue.created_by ? `<div>Created by: ${this._escHtml(issue.created_by)}</div>` : ''}
       ${issue.resolution ? `<div>Resolution: ${this._escHtml(issue.resolution)}</div>` : ''}
-      ${issue.sprint ? `<div>Sprint: ${this._escHtml(issue.sprint)}</div>` : ''}
     `;
     body.appendChild(metaEl);
+
+    // Sprint picker (dropdown)
+    const sprintRow = document.createElement('div');
+    sprintRow.textContent = 'Sprint: ';
+    const sprintSel = document.createElement('select');
+    sprintSel.className = 'form-input';
+    sprintSel.style.width = 'auto';
+    sprintSel.style.display = 'inline';
+    sprintSel.innerHTML = '<option value="">No Sprint</option>';
+    fetch(`/api/product/${encodeURIComponent(slug)}/sprints`)
+      .then(r => r.json())
+      .then(sprints => {
+        for (const s of sprints.filter(s => s.status !== 'closed')) {
+          const opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = `${s.name}${s.status === 'active' ? ' (active)' : ''}`;
+          sprintSel.appendChild(opt);
+        }
+        sprintSel.value = issue.sprint || '';
+      })
+      .catch(err => console.warn('Failed to load sprints:', err));
+    sprintSel.addEventListener('change', () => {
+      fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issue.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sprint: sprintSel.value || '' }),
+      }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); })
+        .catch(err => this._showToast(`Failed: ${err.message}`, 'error'));
+    });
+    sprintRow.appendChild(sprintSel);
+    body.appendChild(sprintRow);
 
     const assignRow = document.createElement('div');
     assignRow.textContent = 'Assignee: ';
@@ -8402,11 +8459,26 @@ class AppController {
           <option value="P2" selected>P2</option><option value="P3">P3</option>
         </select>
         <input type="number" class="form-input issue-new-sp" placeholder="Story pts" style="width:60px" />
-        <input type="text" class="form-input issue-new-sprint" placeholder="Sprint" style="width:80px" />
+        <select class="form-input issue-new-sprint" style="width:auto">
+          <option value="">No Sprint</option>
+        </select>
         <button class="btn-small issue-new-save">Create</button>
         <button class="kr-remove-btn issue-new-cancel">&times;</button>
       </div>
     `;
+    // Populate sprint picker from available sprints
+    const sprintSel = row.querySelector('.issue-new-sprint');
+    fetch(`/api/product/${encodeURIComponent(slug)}/sprints`)
+      .then(r => r.json())
+      .then(sprints => {
+        for (const s of sprints.filter(s => s.status !== 'closed')) {
+          const opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = `${s.name}${s.status === 'active' ? ' (active)' : ''}`;
+          sprintSel.appendChild(opt);
+        }
+      })
+      .catch(err => console.warn('Failed to load sprints:', err));
     row.querySelector('.issue-new-cancel').addEventListener('click', () => row.remove());
     row.querySelector('.issue-new-save').addEventListener('click', async () => {
       const title = row.querySelector('.issue-new-title').value.trim();
@@ -8607,6 +8679,11 @@ class AppController {
             const actions = document.createElement('div');
             actions.className = 'sprint-actions';
             if (s.status === 'planning') {
+              const editBtn = document.createElement('button');
+              editBtn.className = 'sprint-action-btn';
+              editBtn.textContent = 'Edit';
+              editBtn.addEventListener('click', () => this._showEditSprintForm(bar, slug, s));
+              actions.appendChild(editBtn);
               const startBtn = document.createElement('button');
               startBtn.className = 'sprint-action-btn';
               startBtn.textContent = 'Start';
@@ -8758,10 +8835,26 @@ class AppController {
       </div>
       <div class="sprint-form-row">
         <input type="number" class="form-input sprint-new-capacity" placeholder="Capacity (pts)" style="width:80px" />
+        <span class="sprint-suggested-capacity" style="color:var(--text-dim);font-size:calc(5px + var(--font-boost));margin-left:4px"></span>
         <button class="btn-small sprint-save-btn">Create</button>
         <button class="kr-remove-btn sprint-cancel-btn">&times;</button>
       </div>
     `;
+    // Show suggested capacity if available
+    fetch(`/api/product/${encodeURIComponent(slug)}/sprint/suggest-capacity`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.suggested_capacity != null) {
+          const hint = form.querySelector('.sprint-suggested-capacity');
+          hint.textContent = `(suggested: ${d.suggested_capacity} pts)`;
+          hint.style.cursor = 'pointer';
+          hint.title = 'Click to use suggested capacity';
+          hint.addEventListener('click', () => {
+            form.querySelector('.sprint-new-capacity').value = d.suggested_capacity;
+          });
+        }
+      })
+      .catch(err => console.warn('Failed to load suggested capacity:', err));
     // Default dates: today → +14 days
     const today = new Date();
     const end = new Date(today);
@@ -8794,6 +8887,51 @@ class AppController {
     const timeline = section.querySelector('.roadmap-timeline');
     section.insertBefore(form, timeline);
     form.querySelector('.sprint-new-name').focus();
+  }
+
+  _showEditSprintForm(barEl, slug, sprint) {
+    if (barEl.querySelector('.sprint-inline-add')) return;
+    const form = document.createElement('div');
+    form.className = 'sprint-inline-add';
+    form.innerHTML = `
+      <input type="text" class="form-input sprint-edit-name" value="${this._escHtml(sprint.name)}" />
+      <input type="text" class="form-input sprint-edit-goal" value="${this._escHtml(sprint.goal || '')}" placeholder="Goal" />
+      <div class="sprint-form-row">
+        <label style="color:var(--text-dim);font-size:calc(5px + var(--font-boost))">Start:</label>
+        <input type="date" class="form-input sprint-edit-start" value="${sprint.start_date || ''}" style="width:auto" />
+        <label style="color:var(--text-dim);font-size:calc(5px + var(--font-boost))">End:</label>
+        <input type="date" class="form-input sprint-edit-end" value="${sprint.end_date || ''}" style="width:auto" />
+      </div>
+      <div class="sprint-form-row">
+        <input type="number" class="form-input sprint-edit-capacity" value="${sprint.capacity || ''}" placeholder="Capacity" style="width:80px" />
+        <button class="btn-small sprint-edit-save">Save</button>
+        <button class="kr-remove-btn sprint-edit-cancel">&times;</button>
+      </div>
+    `;
+    form.querySelector('.sprint-edit-cancel').addEventListener('click', () => form.remove());
+    form.querySelector('.sprint-edit-save').addEventListener('click', async () => {
+      const updates = {
+        name: form.querySelector('.sprint-edit-name').value.trim(),
+        goal: form.querySelector('.sprint-edit-goal').value.trim(),
+        start_date: form.querySelector('.sprint-edit-start').value,
+        end_date: form.querySelector('.sprint-edit-end').value,
+      };
+      const cap = parseInt(form.querySelector('.sprint-edit-capacity').value);
+      if (!isNaN(cap)) updates.capacity = cap;
+      if (!updates.name) { this._showToast('Sprint name is required', 'warning'); return; }
+      try {
+        const r = await fetch(`/api/product/${encodeURIComponent(slug)}/sprint/${encodeURIComponent(sprint.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates),
+        });
+        if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+        this._showToast('Sprint updated', 'success');
+        this._openProductDetail(slug);
+      } catch (err) { this._showToast(`Update failed: ${err.message}`, 'error'); }
+    });
+    barEl.appendChild(form);
+    form.querySelector('.sprint-edit-name').focus();
   }
 
   // ---------------------------------------------------------------------------
@@ -8872,6 +9010,207 @@ class AppController {
         container.appendChild(feed);
       })
       .catch(err => { container.innerHTML = `<div class="error-text">Failed to load activity: ${err.message}</div>`; });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reviews Tab
+  // ---------------------------------------------------------------------------
+
+  _renderProductReviews(reviews, slug, container) {
+    container.innerHTML = '';
+
+    // Create Review button
+    const toolbar = document.createElement('div');
+    toolbar.className = 'issue-toolbar';
+    const createBtn = document.createElement('button');
+    createBtn.className = 'btn-small';
+    createBtn.textContent = '+ Create Review';
+    createBtn.addEventListener('click', async () => {
+      try {
+        const r = await fetch(`/api/product/${encodeURIComponent(slug)}/review`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trigger: 'manual', owner: '' }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        this._showToast('Review created', 'success');
+        this._openProductDetail(slug);
+      } catch (err) { this._showToast(`Failed: ${err.message}`, 'error'); }
+    });
+    toolbar.appendChild(createBtn);
+    container.appendChild(toolbar);
+
+    if (!reviews.length) {
+      const emptyMsg = document.createElement('div');
+      emptyMsg.className = 'task-empty';
+      emptyMsg.textContent = 'No reviews yet.';
+      container.appendChild(emptyMsg);
+      return;
+    }
+
+    // Group: open first, then completed
+    const open = reviews.filter(r => r.status === 'open');
+    const completed = reviews.filter(r => r.status === 'completed');
+
+    for (const group of [{ label: 'Open', items: open }, { label: 'Completed', items: completed }]) {
+      if (!group.items.length) continue;
+      const heading = document.createElement('div');
+      heading.className = 'product-section-label';
+      heading.textContent = `${group.label} (${group.items.length})`;
+      container.appendChild(heading);
+
+      for (const rev of group.items) {
+        const card = document.createElement('div');
+        card.className = `review-card ${rev.status === 'completed' ? 'review-completed' : ''}`;
+
+        const header = document.createElement('div');
+        header.className = 'review-card-header';
+        const trigger = rev.trigger || 'manual';
+        const dateStr = rev.created_at ? new Date(rev.created_at).toLocaleDateString() : '';
+        header.innerHTML = `<span class="review-trigger">${this._escHtml(trigger)}</span> <span class="review-date">${dateStr}</span>`;
+        if (rev.owner) header.innerHTML += ` <span class="review-owner">Owner: ${this._escHtml(rev.owner)}</span>`;
+        card.appendChild(header);
+
+        // Checklist items
+        const itemsList = document.createElement('div');
+        itemsList.className = 'review-items';
+        for (const item of (rev.items || [])) {
+          const row = document.createElement('div');
+          row.className = 'review-item-row';
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.checked = !!item.checked;
+          checkbox.disabled = rev.status === 'completed';
+          checkbox.addEventListener('change', async () => {
+            try {
+              const r = await fetch(`/api/product/${encodeURIComponent(slug)}/review/${encodeURIComponent(rev.id)}/item/${encodeURIComponent(item.key)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ checked: checkbox.checked }),
+              });
+              if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            } catch (err) {
+              checkbox.checked = !checkbox.checked;
+              this._showToast(`Failed: ${err.message}`, 'error');
+            }
+          });
+          const label = document.createElement('span');
+          label.className = item.checked ? 'review-item-checked' : '';
+          label.textContent = item.label || item.key;
+          row.appendChild(checkbox);
+          row.appendChild(label);
+          itemsList.appendChild(row);
+        }
+        card.appendChild(itemsList);
+
+        // Complete button for open reviews
+        if (rev.status === 'open') {
+          const completeBtn = document.createElement('button');
+          completeBtn.className = 'btn-small';
+          completeBtn.textContent = 'Complete Review';
+          completeBtn.addEventListener('click', async () => {
+            try {
+              const r = await fetch(`/api/product/${encodeURIComponent(slug)}/review/${encodeURIComponent(rev.id)}/complete`, { method: 'POST' });
+              if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+              this._showToast('Review completed', 'success');
+              this._openProductDetail(slug);
+            } catch (err) { this._showToast(`Failed: ${err.message}`, 'error'); }
+          });
+          card.appendChild(completeBtn);
+        }
+
+        container.appendChild(card);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Release Version Form
+  // ---------------------------------------------------------------------------
+
+  _showReleaseVersionForm(container, slug) {
+    if (container.querySelector('.release-form')) return;
+    const form = document.createElement('div');
+    form.className = 'release-form sprint-inline-add';
+
+    // Show done issues that can be released
+    fetch(`/api/product/${encodeURIComponent(slug)}/detail`)
+      .then(r => r.json())
+      .then(data => {
+        const doneIssues = (data.issues || []).filter(i => i.status === 'done');
+        if (!doneIssues.length) {
+          form.innerHTML = '<div class="task-empty">No issues in DONE status to release.</div>';
+          const closeBtn = document.createElement('button');
+          closeBtn.className = 'kr-remove-btn';
+          closeBtn.innerHTML = '&times;';
+          closeBtn.addEventListener('click', () => form.remove());
+          form.appendChild(closeBtn);
+          return;
+        }
+
+        const label = document.createElement('div');
+        label.style.cssText = 'color:var(--text-dim);font-size:calc(5px + var(--font-boost));margin-bottom:4px';
+        label.textContent = `Select issues to include in release (${doneIssues.length} done):`;
+        form.appendChild(label);
+
+        const checkboxes = [];
+        for (const issue of doneIssues) {
+          const row = document.createElement('div');
+          row.className = 'review-item-row';
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = true;
+          cb.dataset.issueId = issue.id;
+          checkboxes.push(cb);
+          const text = document.createElement('span');
+          text.textContent = `[${issue.priority || 'P2'}] ${issue.title}`;
+          row.appendChild(cb);
+          row.appendChild(text);
+          form.appendChild(row);
+        }
+
+        const bumpRow = document.createElement('div');
+        bumpRow.className = 'sprint-form-row';
+        bumpRow.style.marginTop = '6px';
+        const bumpLabel = document.createElement('label');
+        bumpLabel.style.cssText = 'color:var(--text-dim);font-size:calc(5px + var(--font-boost))';
+        bumpLabel.textContent = 'Bump:';
+        const bumpSel = document.createElement('select');
+        bumpSel.className = 'form-input';
+        bumpSel.style.width = 'auto';
+        bumpSel.innerHTML = '<option value="patch">Patch</option><option value="minor">Minor</option><option value="major">Major</option>';
+        bumpRow.appendChild(bumpLabel);
+        bumpRow.appendChild(bumpSel);
+
+        const releaseBtn = document.createElement('button');
+        releaseBtn.className = 'btn-small';
+        releaseBtn.textContent = 'Release';
+        releaseBtn.addEventListener('click', async () => {
+          const selectedIds = checkboxes.filter(cb => cb.checked).map(cb => cb.dataset.issueId);
+          if (!selectedIds.length) { this._showToast('Select at least one issue', 'warning'); return; }
+          try {
+            const r = await fetch(`/api/product/${encodeURIComponent(slug)}/release`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ resolved_issue_ids: selectedIds, bump: bumpSel.value }),
+            });
+            if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+            const result = await r.json();
+            this._showToast(`Released v${result.version}`, 'success');
+            this._openProductDetail(slug);
+          } catch (err) { this._showToast(`Release failed: ${err.message}`, 'error'); }
+        });
+        bumpRow.appendChild(releaseBtn);
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'kr-remove-btn';
+        cancelBtn.innerHTML = '&times;';
+        cancelBtn.addEventListener('click', () => form.remove());
+        bumpRow.appendChild(cancelBtn);
+        form.appendChild(bumpRow);
+      });
+
+    container.appendChild(form);
   }
 
   _doUpdateProjectsPanel() {

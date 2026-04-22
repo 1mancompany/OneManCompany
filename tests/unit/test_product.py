@@ -1919,3 +1919,188 @@ class TestConfigurableThresholds:
         assert hasattr(prod, "HISTORY_MAX_ENTRIES")
         assert isinstance(prod.HISTORY_MAX_ENTRIES, int)
         assert prod.HISTORY_MAX_ENTRIES > 0
+
+
+# ---------------------------------------------------------------------------
+# Batch 2 (Audit) — Status Transition Consistency
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteKeyResult:
+    """B4 audit: KR deletion was impossible — no backend function existed."""
+
+    def test_delete_kr(self):
+        p = prod.create_product(name="KRDel", owner_id="00010")
+        kr = prod.add_key_result(p["slug"], title="Users", target=100)
+        prod.delete_key_result(p["slug"], kr["id"])
+        loaded = prod.load_product(p["slug"])
+        assert len(loaded["key_results"]) == 0
+
+    def test_delete_kr_not_found(self):
+        p = prod.create_product(name="KRDelNF", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.delete_key_result(p["slug"], "kr_nonexist")
+
+    def test_delete_kr_product_not_found(self):
+        with pytest.raises(ValueError, match="not found"):
+            prod.delete_key_result("nonexist", "kr_1")
+
+    def test_delete_kr_preserves_others(self):
+        p = prod.create_product(name="KRKeep", owner_id="00010")
+        kr1 = prod.add_key_result(p["slug"], title="A", target=10)
+        kr2 = prod.add_key_result(p["slug"], title="B", target=20)
+        prod.delete_key_result(p["slug"], kr1["id"])
+        loaded = prod.load_product(p["slug"])
+        assert len(loaded["key_results"]) == 1
+        assert loaded["key_results"][0]["id"] == kr2["id"]
+
+
+class TestCloseIssueFromAnyStatus:
+    """close_issue should work from any status — it's a special operation."""
+
+    def test_close_from_backlog(self):
+        p = prod.create_product(name="CloseAny", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="FromBacklog", created_by="ceo")
+        result = prod.close_issue(p["slug"], issue["id"])
+        assert result["status"] == IssueStatus.DONE.value
+
+    def test_close_from_in_progress(self):
+        p = prod.create_product(name="CloseIP", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="FromIP", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
+        result = prod.close_issue(p["slug"], issue["id"])
+        assert result["status"] == IssueStatus.DONE.value
+
+    def test_close_from_planned(self):
+        p = prod.create_product(name="ClosePl", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="FromPlanned", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.PLANNED.value)
+        result = prod.close_issue(p["slug"], issue["id"])
+        assert result["status"] == IssueStatus.DONE.value
+
+    def test_close_from_released_is_noop(self):
+        """Closing an already-released issue should still set DONE (downgrade)."""
+        p = prod.create_product(name="CloseRel", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="AlreadyReleased", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.DONE.value)
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.RELEASED.value)
+        result = prod.close_issue(p["slug"], issue["id"])
+        assert result["status"] == IssueStatus.DONE.value
+
+
+class TestReopenIssueFromAnyStatus:
+    """reopen_issue should work from any closed/done/released status."""
+
+    def test_reopen_from_done(self):
+        p = prod.create_product(name="ReopenD", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="ClosedDone", created_by="ceo")
+        prod.close_issue(p["slug"], issue["id"])
+        result = prod.reopen_issue(p["slug"], issue["id"])
+        assert result["status"] == IssueStatus.BACKLOG.value
+        assert result["reopened_count"] == 1
+
+    def test_reopen_from_released(self):
+        p = prod.create_product(name="ReopenR", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="Released", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.DONE.value)
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.RELEASED.value)
+        result = prod.reopen_issue(p["slug"], issue["id"])
+        assert result["status"] == IssueStatus.BACKLOG.value
+
+
+class TestSyncIssueStatusesBypassesValidation:
+    """sync_issue_statuses should set derived status without transition validation."""
+
+    def test_sync_can_jump_to_non_adjacent_status(self):
+        """If a task goes from pending straight to finished, issue should go BACKLOG → DONE."""
+        p = prod.create_product(name="SyncJump", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="FastTrack", created_by="ceo")
+        # Mock derive_issue_status to return DONE (skipping intermediate states)
+        with patch("onemancompany.core.product.derive_issue_status", return_value=IssueStatus.DONE):
+            changed = prod.sync_issue_statuses(p["slug"])
+        assert len(changed) == 1
+        assert changed[0]["old"] == IssueStatus.BACKLOG.value
+        assert changed[0]["new"] == IssueStatus.DONE.value
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        assert loaded["status"] == IssueStatus.DONE.value
+
+    def test_sync_can_go_backward(self):
+        """If tasks revert, issue can go from IN_PROGRESS back to PLANNED."""
+        p = prod.create_product(name="SyncBack", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="Reverted", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
+        with patch("onemancompany.core.product.derive_issue_status", return_value=IssueStatus.PLANNED):
+            changed = prod.sync_issue_statuses(p["slug"])
+        assert len(changed) == 1
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        assert loaded["status"] == IssueStatus.PLANNED.value
+
+
+class TestReleaseVersionClosesFirstIfNeeded:
+    """release_version should handle issues not yet in DONE status."""
+
+    def test_release_version_with_done_issues(self):
+        """Standard path: issues already DONE → RELEASED."""
+        p = prod.create_product(name="RelDone", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="Ready", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.DONE.value)
+        v = prod.release_version(p["slug"], [issue["id"]])
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        assert loaded["status"] == IssueStatus.RELEASED.value
+        assert v["version"] == "0.1.1"
+
+    def test_release_version_with_non_done_issue(self):
+        """Edge case: issue is BACKLOG but included in release. Should not crash."""
+        p = prod.create_product(name="RelBack", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="Surprise", created_by="ceo")
+        # Issue is still in BACKLOG — release should handle gracefully
+        v = prod.release_version(p["slug"], [issue["id"]])
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        assert loaded["status"] == IssueStatus.RELEASED.value
+        assert v["version"] == "0.1.1"
+
+
+# ---------------------------------------------------------------------------
+# B5: build_product_context shows all active issues, not just BACKLOG
+# ---------------------------------------------------------------------------
+
+
+class TestBuildProductContextActiveIssues:
+    """build_product_context should include all non-terminal issues, not just BACKLOG."""
+
+    def test_context_includes_in_progress_issues(self):
+        p = prod.create_product(name="CtxActive", owner_id="00010")
+        slug = p["slug"]
+        prod.create_issue(slug=slug, title="Backlog Issue", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="In Progress Issue", created_by="ceo")
+        prod.update_issue(slug, i2["id"], status=IssueStatus.IN_PROGRESS.value)
+        ctx = prod.build_product_context(slug)
+        assert "Backlog Issue" in ctx
+        assert "In Progress Issue" in ctx
+
+    def test_context_excludes_done_and_released(self):
+        p = prod.create_product(name="CtxExclude", owner_id="00010")
+        slug = p["slug"]
+        prod.create_issue(slug=slug, title="Active One", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="Done One", created_by="ceo")
+        i3 = prod.create_issue(slug=slug, title="Released One", created_by="ceo")
+        prod.update_issue(slug, i2["id"], status=IssueStatus.IN_PROGRESS.value)
+        prod.update_issue(slug, i2["id"], status=IssueStatus.DONE.value)
+        prod.update_issue(slug, i3["id"], status=IssueStatus.IN_PROGRESS.value)
+        prod.update_issue(slug, i3["id"], status=IssueStatus.DONE.value)
+        prod.update_issue(slug, i3["id"], _skip_transition_check=True, status=IssueStatus.RELEASED.value)
+        ctx = prod.build_product_context(slug)
+        assert "Active One" in ctx
+        assert "Done One" not in ctx
+        assert "Released One" not in ctx
+
+    def test_context_label_says_active_not_backlog(self):
+        """The section header should say 'Active Issues', not just 'Backlog'."""
+        p = prod.create_product(name="CtxLabel", owner_id="00010")
+        slug = p["slug"]
+        prod.create_issue(slug=slug, title="Something", created_by="ceo")
+        ctx = prod.build_product_context(slug)
+        assert "Active Issues" in ctx
