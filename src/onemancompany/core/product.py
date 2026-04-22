@@ -400,8 +400,12 @@ def list_issues(
     return results
 
 
-def update_issue(slug: str, issue_id: str, **fields) -> dict:
-    """Update issue fields. Returns updated dict. Raises ValueError if not found."""
+def update_issue(slug: str, issue_id: str, *, _skip_transition_check: bool = False, **fields) -> dict:
+    """Update issue fields. Returns updated dict. Raises ValueError if not found.
+
+    _skip_transition_check: internal flag for system-derived status updates
+    that may jump non-adjacent states (e.g. sync_issue_statuses).
+    """
     with _get_slug_lock(slug):
         path = _issues_dir(slug) / f"{issue_id}.yaml"
         data = _read_yaml(path)
@@ -409,7 +413,7 @@ def update_issue(slug: str, issue_id: str, **fields) -> dict:
             raise ValueError(f"Issue '{issue_id}' not found in product '{slug}'")
         # Validate status transition if status is being changed
         new_status = fields.get("status")
-        if new_status is not None:
+        if new_status is not None and not _skip_transition_check:
             current_status = data.get("status", IssueStatus.BACKLOG.value)
             if new_status != current_status:
                 _validate_status_transition(current_status, new_status)
@@ -977,11 +981,11 @@ def release_version(
         product["current_version"] = new_version
         _write_yaml(_product_yaml_path(product_slug), product)
 
-    # Mark resolved issues as released
+    # Mark resolved issues as released (bypass validation — release is a system operation)
     for issue_id in resolved_issue_ids:
         issue = load_issue(product_slug, issue_id)
         if issue and issue.get("status") != IssueStatus.RELEASED.value:
-            update_issue(product_slug, issue_id, status=IssueStatus.RELEASED.value)
+            update_issue(product_slug, issue_id, _skip_transition_check=True, status=IssueStatus.RELEASED.value)
 
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.info("[VERSION] Released {} for product '{}'", new_version, product_slug)
@@ -1288,7 +1292,7 @@ def sync_issue_statuses(slug: str) -> list[dict]:
         current = issue.get("status", IssueStatus.BACKLOG.value)
 
         if derived.value != current:
-            update_issue(slug, issue["id"], status=derived.value)
+            update_issue(slug, issue["id"], _skip_transition_check=True, status=derived.value)
             changed.append({"issue_id": issue["id"], "old": current, "new": derived.value})
             logger.debug("[PRODUCT] Issue {} status derived: {} → {}", issue["id"], current, derived.value)
 
