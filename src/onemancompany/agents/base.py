@@ -641,6 +641,7 @@ class BaseAgentRunner:
                         content = last_msg.content or ""
                         if isinstance(content, str):
                             on_log("llm_input", f"[{type(last_msg).__name__}] {content}")
+                            logger.debug("[LLM INPUT] employee={}: {}", self.employee_id, content[:3000])
             elif kind == "on_chat_model_end":
                 output = data.get("output", None)
                 if output:
@@ -671,6 +672,7 @@ class BaseAgentRunner:
                         if text.strip():
                             final_content = text  # track last AI output
                             on_log("llm_output", text)
+                            logger.debug("[LLM OUTPUT] employee={}: {}", self.employee_id, text[:3000])
                         tool_calls = getattr(output, "tool_calls", None)
                         if tool_calls:
                             last_tool_calls = []
@@ -685,11 +687,13 @@ class BaseAgentRunner:
                                     "tool_args": args_dict,
                                     "content": f"{name}({args})",
                                 })
+                                logger.debug("[TOOL CALL] employee={}: {}({})", self.employee_id, name, args[:1000])
             elif kind == "on_tool_end":
                 output = data.get("output", "")
                 name = event.get("name", "tool")
                 result_str = str(output)
                 last_tool_results.append(f"{name} → {result_str}")
+                logger.debug("[TOOL RESULT] employee={}: {} → {}", self.employee_id, name, result_str[:2000])
                 on_log("tool_result", {
                     "tool_name": name,
                     "tool_result": result_str,
