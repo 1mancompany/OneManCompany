@@ -1092,11 +1092,11 @@ class AppController {
             if (data.status === 'ok') {
                 console.log('Abort all result:', data);
             } else {
-                alert(data.detail || data.message || 'Failed to abort all tasks');
+                this._showToast(data.detail || data.message || 'Failed to abort all tasks', 'error');
             }
         } catch (e) {
             console.error('Abort all failed:', e);
-            alert('Failed to abort all tasks');
+            this._showToast('Failed to abort all tasks', 'error');
         }
     });
 
@@ -1261,7 +1261,7 @@ class AppController {
     startBtn.disabled = false;
 
     if (res.error) {
-      alert(res.error);
+      this._showToast(res.error, 'error');
       return;
     }
 
@@ -1754,7 +1754,7 @@ class AppController {
       })
       .then(data => {
         if (data.error) {
-          alert(`Cannot dismiss: ${data.error}`);
+          this._showToast(`Cannot dismiss: ${data.error}`, 'error');
         } else {
           this.closeEmployeeDetail();
           this.addLog(`Dismissed ${data.name} (${data.nickname}) — ${data.reason}`);
@@ -1763,7 +1763,7 @@ class AppController {
       })
       .catch(err => {
         console.error('Fire employee error:', err);
-        alert('Failed to dismiss employee. See console for details.');
+        this._showToast('Failed to dismiss employee', 'error');
       });
   }
 
@@ -2029,11 +2029,11 @@ class AppController {
       if (data.status === 'ok') {
         this._fetchCronList(empId);
       } else {
-        alert(data.detail || data.message || 'Failed to stop cron');
+        this._showToast(data.detail || data.message || 'Failed to stop cron', 'error');
       }
     } catch (err) {
       console.error('Failed to cancel cron:', err);
-      alert('Failed to stop cron job');
+      this._showToast('Failed to stop cron job', 'error');
     }
   }
 
@@ -2047,11 +2047,11 @@ class AppController {
       if (data.status === 'ok') {
         this._fetchCronList(empId);
       } else {
-        alert(data.detail || data.message || 'Failed to stop all crons');
+        this._showToast(data.detail || data.message || 'Failed to stop all crons', 'error');
       }
     } catch (err) {
       console.error('Failed to stop all crons:', err);
-      alert('Failed to stop all cron jobs');
+      this._showToast('Failed to stop all cron jobs', 'error');
     }
   }
 
@@ -5900,7 +5900,7 @@ class AppController {
       });
       const result = await resp.json();
       if (result.status === 'error') {
-        alert(result.message);
+        this._showToast(result.message, 'error');
       } else {
         this._renderSystemCrons();
       }
@@ -6681,7 +6681,7 @@ class AppController {
           window.open(data.auth_url, '_blank', 'width=600,height=700');
           setTimeout(() => this.openToolDetail(toolId), 5000);
         } else {
-          alert(data.message || 'OAuth login failed');
+          this._showToast(data.message || 'OAuth login failed', 'error');
         }
         break;
       }
@@ -6694,7 +6694,7 @@ class AppController {
       case 'credentials': {
         const clientId = document.getElementById('tool-oauth-client-id')?.value || '';
         const clientSecret = document.getElementById('tool-oauth-client-secret')?.value || '';
-        if (!clientId || !clientSecret) { alert('Both Client ID and Client Secret required'); return; }
+        if (!clientId || !clientSecret) { this._showToast('Both Client ID and Client Secret required', 'error'); return; }
         const res = await fetch(`/api/tools/${esc}/oauth/credentials`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -6702,7 +6702,7 @@ class AppController {
         });
         const data = await res.json();
         if (data.status === 'ok') this.openToolDetail(toolId);
-        else alert(data.message || 'Failed');
+        else this._showToast(data.message || 'Failed', 'error');
         break;
       }
       case 'save_env': {
@@ -6716,7 +6716,7 @@ class AppController {
         });
         const data = await res.json();
         if (data.status === 'ok') this.openToolDetail(toolId);
-        else alert(data.message || 'Failed');
+        else this._showToast(data.message || 'Failed', 'error');
         break;
       }
     }
@@ -6727,7 +6727,7 @@ class AppController {
   async _templateOpen(toolId, filename) {
     const esc = encodeURIComponent;
     const res = await fetch(`/api/tools/${esc(toolId)}/templates/${esc(filename)}`);
-    if (!res.ok) { alert('Failed to load template'); return; }
+    if (!res.ok) { this._showToast('Failed to load template', 'error'); return; }
     const data = await res.json();
     const body = document.getElementById('tool-list-body');
     const escH = (t) => this._escapeHtml(t);
@@ -6745,7 +6745,7 @@ class AppController {
 
   async _templateSave(toolId, filename) {
     const content = document.getElementById('template-editor')?.value || '';
-    if (!content.trim()) { alert('Template cannot be empty'); return; }
+    if (!content.trim()) { this._showToast('Template cannot be empty', 'error'); return; }
     const esc = encodeURIComponent;
     const res = await fetch(`/api/tools/${esc(toolId)}/templates/${esc(filename)}`, {
       method: 'PUT',
@@ -6754,7 +6754,7 @@ class AppController {
     });
     const data = await res.json();
     if (data.status === 'ok') this.openToolDetail(toolId);
-    else alert(data.message || 'Save failed');
+    else this._showToast(data.message || 'Save failed', 'error');
   }
 
   async _templateDelete(toolId, filename) {
@@ -6763,7 +6763,7 @@ class AppController {
     const res = await fetch(`/api/tools/${esc(toolId)}/templates/${esc(filename)}`, { method: 'DELETE' });
     const data = await res.json();
     if (data.status === 'ok') this.openToolDetail(toolId);
-    else alert(data.message || 'Delete failed');
+    else this._showToast(data.message || 'Delete failed', 'error');
   }
 
   _templateNew(toolId, templatesDir) {
@@ -6963,7 +6963,7 @@ class AppController {
       }
     } catch (err) {
       this._chatPanel.showTyping(false);
-      alert(`Failed to send message: ${err.message}`);
+      this._showToast(`Failed to send message: ${err.message}`, 'error');
     }
     // Reply arrives via WebSocket conversation_message event
   }
@@ -6989,7 +6989,7 @@ class AppController {
       const empName = this._resolveEmployeeName(data.employee_id || '');
       this.logEntry('SYSTEM', `🧹 Cleared 1-on-1 history for ${empName}.`, 'system');
     } catch (err) {
-      alert(`Failed to clear history: ${err.message}`);
+      this._showToast(`Failed to clear history: ${err.message}`, 'error');
     }
   }
 
