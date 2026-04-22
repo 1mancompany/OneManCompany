@@ -23,6 +23,16 @@ from onemancompany.core.system_cron import system_cron
 # Priorities that auto-trigger project creation
 _AUTO_PROJECT_PRIORITIES = {IssuePriority.P0.value, IssuePriority.P1.value}
 
+# ---------------------------------------------------------------------------
+# Configurable thresholds (B4 audit: extracted from inline magic numbers)
+# ---------------------------------------------------------------------------
+
+KR_LAGGING_THRESHOLD: int = 50          # KR progress % below which it's "lagging"
+MAX_ACTIVE_PROJECTS: int = 3            # Max concurrent active projects per product
+BACKLOG_GROOMING_THRESHOLD: int = 5     # P2/P3 unscheduled issues before grooming nudge
+STALE_REVIEW_HOURS: int = 24            # Hours before an open review is considered stale
+BLOCKED_DAYS_THRESHOLD: int = 7         # Days before a blocked issue is flagged
+UNHANDLED_BACKLOG_THRESHOLD: int = 2    # Unhandled backlog issues before alert
 
 # ---------------------------------------------------------------------------
 # Trigger handlers
@@ -332,7 +342,7 @@ async def check_kr_progress(product_slug: str) -> list[dict]:
         if target <= 0:
             continue
         progress_pct = current / target * 100
-        if progress_pct >= 50:
+        if progress_pct >= KR_LAGGING_THRESHOLD:
             continue
 
         # Check if an open issue already exists for this KR
@@ -415,7 +425,7 @@ async def run_product_check(product_slug: str) -> dict:
 
         # High priority + no active project → create project
         if priority in _AUTO_PROJECT_PRIORITIES and not linked:
-            if len(active_for_product) >= 3:
+            if len(active_for_product) >= MAX_ACTIVE_PROJECTS:
                 logger.debug("[PRODUCT_CHECK] Skipping project for issue {} — 3+ active projects", issue["id"])
                 continue
             project_id = await _create_project_for_issue(product_slug, issue)
@@ -430,7 +440,7 @@ async def run_product_check(product_slug: str) -> dict:
 
         # Has assignee but no project → create project
         elif issue.get("assignee_id") and not linked:
-            if len(active_for_product) >= 3:
+            if len(active_for_product) >= MAX_ACTIVE_PROJECTS:
                 continue
             project_id = await _create_project_for_issue(product_slug, issue)
             if project_id:
@@ -484,34 +494,31 @@ async def run_product_check(product_slug: str) -> dict:
             logger.debug("[PRODUCT_CHECK] Invalid end_date '{}' on sprint {}", end_date_str, active_sprint.get("id"))
 
     # --- Step 4: Backlog grooming reminder ---
-    _BACKLOG_GROOMING_THRESHOLD = 5
     unscheduled_low = [
         i for i in all_issues
         if i.get("priority") in (IssuePriority.P2.value, IssuePriority.P3.value)
         and not i.get("sprint")
         and i.get("status") not in (IssueStatus.DONE.value, IssueStatus.RELEASED.value)
     ]
-    if len(unscheduled_low) >= _BACKLOG_GROOMING_THRESHOLD:
+    if len(unscheduled_low) >= BACKLOG_GROOMING_THRESHOLD:
         actions_taken.append(f"{len(unscheduled_low)} P2/P3 issues unscheduled — backlog grooming needed")
 
-    # --- Step 5: Stale review check (open > 24h) ---
+    # --- Step 5: Stale review check ---
     from datetime import datetime as _datetime, timedelta as _timedelta
 
     open_reviews = prod.list_reviews(product_slug, status="open")
-    _STALE_REVIEW_HOURS = 24
     stale_reviews = []
     for rev in open_reviews:
         try:
             created = _datetime.fromisoformat(rev.get("created_at", ""))
-            if _datetime.now() - created > _timedelta(hours=_STALE_REVIEW_HOURS):
+            if _datetime.now() - created > _timedelta(hours=STALE_REVIEW_HOURS):
                 stale_reviews.append(rev)
         except (ValueError, TypeError):
             logger.debug("[PRODUCT_CHECK] Invalid created_at on review {}", rev.get("id"))
     if stale_reviews:
-        actions_taken.append(f"{len(stale_reviews)} stale review(s) open > {_STALE_REVIEW_HOURS}h")
+        actions_taken.append(f"{len(stale_reviews)} stale review(s) open > {STALE_REVIEW_HOURS}h")
 
-    # --- Step 6: Blocked issue check (blocked > 7 days) ---
-    _BLOCKED_DAYS_THRESHOLD = 7
+    # --- Step 6: Blocked issue check ---
     for issue in all_issues:
         if issue.get("status") in (IssueStatus.DONE.value, IssueStatus.RELEASED.value):
             continue
@@ -532,9 +539,9 @@ async def run_product_check(product_slug: str) -> dict:
                     oldest_blocked_at = link_created
             except (ValueError, TypeError):
                 logger.debug("[PRODUCT_CHECK] Invalid created_at on link in issue {}", issue.get("id"))
-        if oldest_blocked_at and _datetime.now() - oldest_blocked_at > _timedelta(days=_BLOCKED_DAYS_THRESHOLD):
+        if oldest_blocked_at and _datetime.now() - oldest_blocked_at > _timedelta(days=BLOCKED_DAYS_THRESHOLD):
             actions_taken.append(
-                f"Issue '{issue['title']}' blocked for >{_BLOCKED_DAYS_THRESHOLD} days"
+                f"Issue '{issue['title']}' blocked for >{BLOCKED_DAYS_THRESHOLD} days"
             )
 
     # --- Step 7: Check if owner review is needed ---
@@ -546,7 +553,7 @@ async def run_product_check(product_slug: str) -> dict:
         i for i in all_issues
         if i.get("status") == IssueStatus.BACKLOG.value and not i.get("linked_task_ids")
     ]
-    if len(unhandled_backlog) > 2:
+    if len(unhandled_backlog) > UNHANDLED_BACKLOG_THRESHOLD:
         needs_review = True
         review_reasons.append(f"{len(unhandled_backlog)} unhandled backlog issues")
 
@@ -570,7 +577,7 @@ async def run_product_check(product_slug: str) -> dict:
             logger.debug("[PRODUCT_CHECK] Invalid end_date on sprint {} for review check", active_sprint.get("id"))
 
     # Backlog grooming threshold → needs owner review
-    if len(unscheduled_low) >= _BACKLOG_GROOMING_THRESHOLD:
+    if len(unscheduled_low) >= BACKLOG_GROOMING_THRESHOLD:
         needs_review = True
         review_reasons.append(f"{len(unscheduled_low)} P2/P3 issues need sprint assignment")
 
