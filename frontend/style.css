@@ -7017,7 +7017,6 @@ h3.pixel-title { font-size: var(--text-label); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
@@ -7029,9 +7028,9 @@ h3.pixel-title { font-size: var(--text-label); }
     min-height: 44px;
     min-width: 44px;
   }
-  /* Exempt elements that already have adequate hit area via padding */
-  .pixel-title button, .inline-btn, .collapsible-header,
-  .tab-btn, .status-filter-btn, .kanban-column-header {
+  /* Exempt small/inline elements — full-width hit area or intentionally compact */
+  .pixel-title button, .pixel-btn.small, .btn-small,
+  .collapsible-header, .toolbar-icon-btn, .kanban-column-header {
     min-height: unset;
     min-width: unset;
   }
@@ -7039,7 +7038,6 @@ h3.pixel-title { font-size: var(--text-label); }
 
 /* ===== Interaction: Disabled State ===== */
 button:disabled, [aria-disabled="true"] {
-  opacity: 0.4;
+  opacity: 0.5;
   cursor: not-allowed;
-  pointer-events: none;
 }
