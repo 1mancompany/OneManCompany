@@ -361,6 +361,9 @@ class TestIssueStatusDerivation:
     def test_released_status_preserved(self):
         p = prod.create_product(name="ReleasedTest", owner_id="00004")
         issue = prod.create_issue(slug=p["slug"], title="Released", created_by="ceo")
+        # Walk valid transition chain: backlog → in_progress → done → released
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.DONE.value)
         prod.update_issue(p["slug"], issue["id"], status=IssueStatus.RELEASED.value)
         status = prod.derive_issue_status(p["slug"], issue["id"])
         assert status == IssueStatus.RELEASED
@@ -368,6 +371,9 @@ class TestIssueStatusDerivation:
     def test_sync_skips_released_issues(self):
         p = prod.create_product(name="SkipReleasedTest", owner_id="00004")
         issue = prod.create_issue(slug=p["slug"], title="Skip", created_by="ceo")
+        # Walk valid transition chain: backlog → in_progress → done → released
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.DONE.value)
         prod.update_issue(p["slug"], issue["id"], status=IssueStatus.RELEASED.value)
         changes = prod.sync_issue_statuses(p["slug"])
         assert len(changes) == 0
@@ -1449,6 +1455,7 @@ class TestKanbanBoard:
         i2 = prod.create_issue(slug=slug, title="InProg1", created_by="ceo")
         prod.update_issue(slug, i2["id"], status=IssueStatus.IN_PROGRESS.value)
         i3 = prod.create_issue(slug=slug, title="Done1", created_by="ceo")
+        prod.update_issue(slug, i3["id"], status=IssueStatus.IN_PROGRESS.value)
         prod.update_issue(slug, i3["id"], status=IssueStatus.DONE.value)
 
         board = prod.kanban_board(slug)
@@ -1507,6 +1514,7 @@ class TestRoadmapTimeline:
         p = prod.create_product(name="RoadmapVer", owner_id="00010")
         slug = p["slug"]
         i1 = prod.create_issue(slug=slug, title="Fix", created_by="ceo")
+        prod.update_issue(slug, i1["id"], status=IssueStatus.IN_PROGRESS.value)
         prod.update_issue(slug, i1["id"], status=IssueStatus.DONE.value)
         prod.release_version(slug, resolved_issue_ids=[i1["id"]])
 
@@ -1739,3 +1747,121 @@ class TestMissingIssueRaisesValueError:
         prod.create_product(name="ErrProd3", owner_id="00010")
         with pytest.raises(ValueError, match="not found"):
             prod.reopen_issue("err-prod3", "nonexistent_id")
+
+
+# ---------------------------------------------------------------------------
+# Batch 2 — CRUD + Validation
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteIssue:
+    """B2 Fix #1: delete_issue() removes issue yaml and cleans up links."""
+
+    def test_delete_issue_removes_file(self):
+        p = prod.create_product(name="DelProd", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="To delete", created_by="ceo")
+        prod.delete_issue(p["slug"], issue["id"])
+        assert prod.load_issue(p["slug"], issue["id"]) is None
+
+    def test_delete_issue_cleans_links(self):
+        p = prod.create_product(name="DelLink", owner_id="00010")
+        i1 = prod.create_issue(slug=p["slug"], title="A", created_by="ceo")
+        i2 = prod.create_issue(slug=p["slug"], title="B", created_by="ceo")
+        prod.add_issue_link(p["slug"], i1["id"], i2["id"], IssueRelation.BLOCKS)
+        prod.delete_issue(p["slug"], i1["id"])
+        # i2 should no longer have links to i1
+        links = prod.get_issue_links(p["slug"], i2["id"])
+        assert not any(l["issue_id"] == i1["id"] for l in links)
+
+    def test_delete_issue_not_found_raises(self):
+        p = prod.create_product(name="DelMiss", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.delete_issue(p["slug"], "issue_nope")
+
+    def test_delete_issue_from_nonexistent_product(self):
+        with pytest.raises(ValueError, match="not found"):
+            prod.delete_issue("no-product", "issue_nope")
+
+
+class TestDeleteSprint:
+    """B2 Fix #2: delete_sprint() removes sprint yaml."""
+
+    def test_delete_sprint_removes_file(self):
+        p = prod.create_product(name="DelSprint", owner_id="00010")
+        sprint = prod.create_sprint(slug=p["slug"], name="S1",
+                                     start_date="2026-01-01", end_date="2026-01-14")
+        prod.delete_sprint(p["slug"], sprint["id"])
+        assert prod.load_sprint(p["slug"], sprint["id"]) is None
+
+    def test_delete_sprint_not_found_raises(self):
+        p = prod.create_product(name="DelSMiss", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.delete_sprint(p["slug"], "sprint_nope")
+
+    def test_delete_active_sprint_raises(self):
+        """Cannot delete an active sprint — must close first."""
+        p = prod.create_product(name="DelActive", owner_id="00010")
+        sprint = prod.create_sprint(slug=p["slug"], name="S1",
+                                     start_date="2026-01-01", end_date="2026-01-14")
+        prod.start_sprint(p["slug"], sprint["id"])
+        with pytest.raises(ValueError, match="[Aa]ctive|[Cc]annot"):
+            prod.delete_sprint(p["slug"], sprint["id"])
+
+
+class TestIssueStatusTransition:
+    """B2 Fix #3: validate issue status transitions."""
+
+    def test_valid_forward_transitions(self):
+        p = prod.create_product(name="Trans", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="Flow", created_by="ceo")
+        # backlog → planned → in_progress → in_review → done
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.PLANNED.value)
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_REVIEW.value)
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.DONE.value)
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        assert loaded["status"] == IssueStatus.DONE.value
+
+    def test_backward_to_backlog_always_allowed(self):
+        """Moving back to backlog is always valid (requeue)."""
+        p = prod.create_product(name="BackQ", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="Requeue", created_by="ceo")
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
+        prod.update_issue(p["slug"], issue["id"], status=IssueStatus.BACKLOG.value)
+        loaded = prod.load_issue(p["slug"], issue["id"])
+        assert loaded["status"] == IssueStatus.BACKLOG.value
+
+    def test_invalid_transition_raises(self):
+        """Cannot jump from backlog directly to done."""
+        p = prod.create_product(name="BadTrans", owner_id="00010")
+        issue = prod.create_issue(slug=p["slug"], title="Skip", created_by="ceo")
+        with pytest.raises(ValueError, match="[Tt]ransition|[Ii]nvalid"):
+            prod.update_issue(p["slug"], issue["id"], status=IssueStatus.DONE.value)
+
+
+class TestSprintDateValidation:
+    """B2 Fix #4: sprint end_date must be after start_date."""
+
+    def test_valid_dates(self):
+        p = prod.create_product(name="DateOK", owner_id="00010")
+        sprint = prod.create_sprint(slug=p["slug"], name="Good",
+                                     start_date="2026-01-01", end_date="2026-01-14")
+        assert sprint["start_date"] == "2026-01-01"
+
+    def test_end_before_start_raises(self):
+        p = prod.create_product(name="DateBad", owner_id="00010")
+        with pytest.raises(ValueError, match="[Ee]nd.*before|[Ss]tart.*after|[Dd]ate"):
+            prod.create_sprint(slug=p["slug"], name="Bad",
+                               start_date="2026-01-14", end_date="2026-01-01")
+
+    def test_same_date_raises(self):
+        p = prod.create_product(name="DateSame", owner_id="00010")
+        with pytest.raises(ValueError, match="[Ee]nd.*before|[Ss]tart.*after|[Dd]ate"):
+            prod.create_sprint(slug=p["slug"], name="Same",
+                               start_date="2026-01-01", end_date="2026-01-01")
+
+    def test_invalid_date_format_raises(self):
+        p = prod.create_product(name="DateFmt", owner_id="00010")
+        with pytest.raises(ValueError):
+            prod.create_sprint(slug=p["slug"], name="Fmt",
+                               start_date="not-a-date", end_date="2026-01-14")

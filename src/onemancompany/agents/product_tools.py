@@ -563,6 +563,135 @@ async def manage_review_tool(
 
 
 # ---------------------------------------------------------------------------
+# B2: Missing CRUD + analytics tools
+# ---------------------------------------------------------------------------
+
+
+@tool
+def delete_issue_tool(product_slug: str, issue_id: str) -> str:
+    """Delete an issue and clean up all links referencing it.
+
+    Args:
+        product_slug: The product slug
+        issue_id: The issue ID to delete
+    """
+    try:
+        prod.delete_issue(product_slug, issue_id)
+        return f"Deleted issue {issue_id} from {product_slug}"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
+def reopen_issue_tool(product_slug: str, issue_id: str) -> str:
+    """Reopen a closed issue (moves it back to backlog).
+
+    Args:
+        product_slug: The product slug
+        issue_id: The issue ID to reopen
+    """
+    try:
+        issue = prod.reopen_issue(product_slug, issue_id)
+        return f"Reopened issue {issue_id}: status={issue['status']}"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
+def start_sprint_tool(product_slug: str, sprint_id: str) -> str:
+    """Start a sprint (set it to active). Only one sprint can be active at a time.
+
+    Args:
+        product_slug: The product slug
+        sprint_id: The sprint ID to start
+    """
+    try:
+        sprint = prod.start_sprint(product_slug, sprint_id)
+        return f"Started sprint {sprint_id}: {sprint['name']}"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
+def delete_sprint_tool(product_slug: str, sprint_id: str) -> str:
+    """Delete a sprint. Cannot delete an active sprint — close it first.
+
+    Args:
+        product_slug: The product slug
+        sprint_id: The sprint ID to delete
+    """
+    try:
+        prod.delete_sprint(product_slug, sprint_id)
+        return f"Deleted sprint {sprint_id} from {product_slug}"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
+def sprint_analytics_tool(product_slug: str, sprint_id: str) -> str:
+    """Get sprint analytics: velocity (story points completed).
+
+    Args:
+        product_slug: The product slug
+        sprint_id: The sprint ID
+    """
+    try:
+        sprint = prod.load_sprint(product_slug, sprint_id)
+        if not sprint:
+            return f"Error: Sprint '{sprint_id}' not found"
+        velocity = prod.get_sprint_velocity(product_slug, sprint_id)
+        issues = prod.list_issues(product_slug, sprint=sprint_id)
+        done = sum(1 for i in issues if i.get("status") in ("done", "released"))
+        total = len(issues)
+        lines = [
+            f"Sprint: {sprint['name']} ({sprint['status']})",
+            f"Velocity: {velocity} story points",
+            f"Issues: {done}/{total} done",
+            f"Dates: {sprint['start_date']} → {sprint['end_date']}",
+        ]
+        if sprint.get("goal"):
+            lines.append(f"Goal: {sprint['goal']}")
+        return "\n".join(lines)
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
+def version_management_tool(
+    product_slug: str,
+    action: str,
+    resolved_issue_ids: str = "",
+    bump: str = "patch",
+) -> str:
+    """Manage product versions. Actions: list, release.
+
+    Args:
+        product_slug: The product slug
+        action: 'list' to list versions, 'release' to release a new version
+        resolved_issue_ids: Comma-separated issue IDs resolved in this release (for 'release')
+        bump: Version bump type: 'patch', 'minor', or 'major' (default: 'patch')
+    """
+    try:
+        if action == "list":
+            versions = prod.list_versions(product_slug)
+            if not versions:
+                return f"No versions released for {product_slug}"
+            lines = [f"Versions for {product_slug}:"]
+            for v in versions:
+                lines.append(f"  {v['version']} — released {v.get('released_at', '?')}")
+            return "\n".join(lines)
+
+        if action == "release":
+            ids = [i.strip() for i in resolved_issue_ids.split(",") if i.strip()]
+            version = prod.release_version(product_slug, ids, bump=bump)
+            return f"Released v{version['version']} with {len(ids)} resolved issues"
+
+        return f"Error: unknown action '{action}'. Use: list, release"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+# ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
 
@@ -581,4 +710,10 @@ PRODUCT_TOOLS = [
     unlink_issues_tool,
     check_blocked_issues_tool,
     manage_review_tool,
+    delete_issue_tool,
+    reopen_issue_tool,
+    start_sprint_tool,
+    delete_sprint_tool,
+    sprint_analytics_tool,
+    version_management_tool,
 ]

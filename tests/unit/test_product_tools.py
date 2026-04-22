@@ -205,7 +205,7 @@ class TestProductTools:
     async def test_product_tools_list(self):
         from onemancompany.agents.product_tools import PRODUCT_TOOLS
 
-        assert len(PRODUCT_TOOLS) == 14
+        assert len(PRODUCT_TOOLS) == 20
         names = {t.name for t in PRODUCT_TOOLS}
         assert "create_product_tool" in names
         assert "create_product_issue" in names
@@ -658,7 +658,7 @@ class TestProductTools:
         from onemancompany.agents.product_tools import PRODUCT_TOOLS
 
         assert isinstance(PRODUCT_TOOLS, list)
-        assert len(PRODUCT_TOOLS) == 14  # 7 original + 3 sprint tools
+        assert len(PRODUCT_TOOLS) == 20  # 7 original + 3 sprint tools
         for t in PRODUCT_TOOLS:
             assert hasattr(t, "ainvoke")
 
