@@ -236,6 +236,24 @@ def update_kr_progress(slug: str, kr_id: str, *, current: float) -> dict:
     raise ValueError(f"KR '{kr_id}' not found in product '{slug}'")
 
 
+def delete_key_result(slug: str, kr_id: str) -> None:
+    """Delete a key result from a product. Raises ValueError if not found."""
+    with _get_slug_lock(slug):
+        path = _product_yaml_path(slug)
+        data = _read_yaml(path)
+        if not data:
+            raise ValueError(f"Product '{slug}' not found")
+        krs = data.get("key_results", [])
+        original_len = len(krs)
+        data["key_results"] = [kr for kr in krs if kr["id"] != kr_id]
+        if len(data["key_results"]) == original_len:
+            raise ValueError(f"KR '{kr_id}' not found in product '{slug}'")
+        data["updated_at"] = datetime.now().isoformat()
+        _write_yaml(path, data)
+    mark_dirty(DirtyCategory.PRODUCTS)
+    logger.debug("Deleted KR {} from product {}", kr_id, slug)
+
+
 def update_kr_fields(slug: str, kr_id: str, **fields) -> dict:
     """Update arbitrary fields on a key result. Returns updated KR dict.
 

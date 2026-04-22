@@ -1926,6 +1926,35 @@ class TestConfigurableThresholds:
 # ---------------------------------------------------------------------------
 
 
+class TestDeleteKeyResult:
+    """B4 audit: KR deletion was impossible — no backend function existed."""
+
+    def test_delete_kr(self):
+        p = prod.create_product(name="KRDel", owner_id="00010")
+        kr = prod.add_key_result(p["slug"], title="Users", target=100)
+        prod.delete_key_result(p["slug"], kr["id"])
+        loaded = prod.load_product(p["slug"])
+        assert len(loaded["key_results"]) == 0
+
+    def test_delete_kr_not_found(self):
+        p = prod.create_product(name="KRDelNF", owner_id="00010")
+        with pytest.raises(ValueError, match="not found"):
+            prod.delete_key_result(p["slug"], "kr_nonexist")
+
+    def test_delete_kr_product_not_found(self):
+        with pytest.raises(ValueError, match="not found"):
+            prod.delete_key_result("nonexist", "kr_1")
+
+    def test_delete_kr_preserves_others(self):
+        p = prod.create_product(name="KRKeep", owner_id="00010")
+        kr1 = prod.add_key_result(p["slug"], title="A", target=10)
+        kr2 = prod.add_key_result(p["slug"], title="B", target=20)
+        prod.delete_key_result(p["slug"], kr1["id"])
+        loaded = prod.load_product(p["slug"])
+        assert len(loaded["key_results"]) == 1
+        assert loaded["key_results"][0]["id"] == kr2["id"]
+
+
 class TestCloseIssueFromAnyStatus:
     """close_issue should work from any status — it's a special operation."""
 

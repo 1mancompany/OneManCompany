@@ -7141,6 +7141,18 @@ async def api_update_kr(slug: str, kr_id: str, request: Request) -> dict:
     return result
 
 
+@router.delete("/api/product/{slug}/kr/{kr_id}")
+async def api_delete_kr(slug: str, kr_id: str) -> dict:
+    """Delete a key result from a product."""
+    from onemancompany.core import product as prod
+
+    try:
+        prod.delete_key_result(slug, kr_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"ok": True}
+
+
 # ── Issues ──────────────────────────────────────────────────────────────────
 
 
