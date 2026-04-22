@@ -10,6 +10,11 @@ from onemancompany.core.events import CompanyEvent
 @pytest.fixture(autouse=True)
 def _isolate(tmp_path, monkeypatch):
     monkeypatch.setattr(prod, "PRODUCTS_DIR", tmp_path)
+    emp_dir = tmp_path / "employees"
+    emp_dir.mkdir()
+    monkeypatch.setattr(prod, "EMPLOYEES_DIR", emp_dir)
+    for eid in ("00004", "00010", "00011", "emp-1"):
+        (emp_dir / eid).mkdir()
     yield
 
 
@@ -1346,13 +1351,15 @@ class TestNotifyOwner:
         assert await notify_owner(p["slug"], reason="test") is False
 
     @pytest.mark.asyncio
-    async def test_exception_returns_false(self):
+    async def test_unexpected_exception_propagates(self):
+        """Unexpected errors should NOT be silently swallowed."""
         from onemancompany.core.product_triggers import notify_owner
         p = prod.create_product(name="ErrProd", owner_id="00010",
                                 status=prod.ProductStatus.ACTIVE)
         prod.create_issue(slug=p["slug"], title="An issue", created_by="ceo")
         with patch("onemancompany.core.project_archive.list_projects", side_effect=RuntimeError("boom")):
-            assert await notify_owner(p["slug"], reason="test") is False
+            with pytest.raises(RuntimeError, match="boom"):
+                await notify_owner(p["slug"], reason="test")
 
     @pytest.mark.asyncio
     async def test_active_product_no_projects_creates_one(self):
@@ -1361,7 +1368,7 @@ class TestNotifyOwner:
                                 status=prod.ProductStatus.ACTIVE)
         prod.create_issue(slug=p["slug"], title="Backlog issue", created_by="ceo")
         with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
-             patch("onemancompany.core.product_triggers._create_project_for_issue", new_callable=AsyncMock, return_value=None):
+             patch("onemancompany.core.product_triggers._create_review_project", new_callable=AsyncMock, return_value=""):
             assert await notify_owner(p["slug"], reason="quarterly review") is False
 
     @pytest.mark.asyncio
@@ -1371,7 +1378,7 @@ class TestNotifyOwner:
                                 status=prod.ProductStatus.ACTIVE)
         prod.create_issue(slug=p["slug"], title="Issue", created_by="ceo")
         with patch("onemancompany.core.project_archive.list_projects", return_value=[]), \
-             patch("onemancompany.core.product_triggers._create_project_for_issue", new_callable=AsyncMock, return_value="proj_123"):
+             patch("onemancompany.core.product_triggers._create_review_project", new_callable=AsyncMock, return_value="proj_123"):
             assert await notify_owner(p["slug"], reason="test") is True
 
     @pytest.mark.asyncio

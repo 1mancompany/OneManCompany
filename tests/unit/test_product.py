@@ -20,8 +20,14 @@ from onemancompany.core.task_lifecycle import TaskPhase
 
 @pytest.fixture(autouse=True)
 def _redirect_products_dir(tmp_path, monkeypatch):
-    """Point PRODUCTS_DIR to a temp directory for every test."""
+    """Point PRODUCTS_DIR and EMPLOYEES_DIR to temp directories for every test."""
     monkeypatch.setattr(prod, "PRODUCTS_DIR", tmp_path)
+    emp_dir = tmp_path / "employees"
+    emp_dir.mkdir()
+    monkeypatch.setattr(prod, "EMPLOYEES_DIR", emp_dir)
+    # Create standard test employee directories used across tests
+    for eid in ("00010", "00011", "00012", "00004", "00005", "00020", "emp001", "emp002"):
+        (emp_dir / eid).mkdir()
 
 
 # ---------------------------------------------------------------------------
@@ -2053,13 +2059,14 @@ class TestReleaseVersionClosesFirstIfNeeded:
         assert v["version"] == "0.1.1"
 
     def test_release_version_with_non_done_issue(self):
-        """Edge case: issue is BACKLOG but included in release. Should not crash."""
+        """Edge case: issue is BACKLOG but included in release. Should skip, not force release."""
         p = prod.create_product(name="RelBack", owner_id="00010")
         issue = prod.create_issue(slug=p["slug"], title="Surprise", created_by="ceo")
-        # Issue is still in BACKLOG — release should handle gracefully
+        # Issue is still in BACKLOG — release should skip it (not force to RELEASED)
         v = prod.release_version(p["slug"], [issue["id"]])
         loaded = prod.load_issue(p["slug"], issue["id"])
-        assert loaded["status"] == IssueStatus.RELEASED.value
+        assert loaded["status"] == IssueStatus.BACKLOG.value  # stays BACKLOG
+        assert issue["id"] in v["skipped_issues"]
         assert v["version"] == "0.1.1"
 
 

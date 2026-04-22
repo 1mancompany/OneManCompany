@@ -198,6 +198,11 @@ class TestLifecycleHooks:
         monkeypatch.setattr(prod, "PRODUCTS_DIR", self.products_dir)
         monkeypatch.setattr(pa, "PRODUCTS_DIR", self.products_dir)
         monkeypatch.setattr(pa, "PROJECTS_DIR", self.projects_dir)
+        emp_dir = tmp_path / "employees"
+        emp_dir.mkdir()
+        monkeypatch.setattr(prod, "EMPLOYEES_DIR", emp_dir)
+        for eid in ("emp001", "00010"):
+            (emp_dir / eid).mkdir()
 
     def _create_product(self) -> dict:
         """Helper: create a product on disk and return its dict."""
@@ -303,6 +308,11 @@ class TestEndToEnd:
         monkeypatch.setattr(prod, "PRODUCTS_DIR", self.products_dir)
         monkeypatch.setattr(pa, "PRODUCTS_DIR", self.products_dir)
         monkeypatch.setattr(pa, "PROJECTS_DIR", self.projects_dir)
+        emp_dir = tmp_path / "employees"
+        emp_dir.mkdir()
+        monkeypatch.setattr(prod, "EMPLOYEES_DIR", emp_dir)
+        for eid in ("emp001", "00010"):
+            (emp_dir / eid).mkdir()
 
     def test_two_projects_promote_sequentially(self):
         """Two projects write different files, both promote cleanly."""

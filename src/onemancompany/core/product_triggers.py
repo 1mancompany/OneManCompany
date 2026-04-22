@@ -34,6 +34,12 @@ STALE_REVIEW_HOURS: int = 24            # Hours before an open review is conside
 BLOCKED_DAYS_THRESHOLD: int = 7         # Days before a blocked issue is flagged
 UNHANDLED_BACKLOG_THRESHOLD: int = 2    # Unhandled backlog issues before alert
 
+def _get_threshold(product: dict, key: str, default: int) -> int:
+    """Read per-product config threshold, falling back to module-level default."""
+    config = product.get("config") or {}
+    return config.get(key, default)
+
+
 # ---------------------------------------------------------------------------
 # Trigger handlers
 # ---------------------------------------------------------------------------
@@ -148,6 +154,76 @@ async def _create_project_for_issue(slug: str, issue: dict) -> str:
         return ""
 
 
+async def _create_review_project(product_slug: str, reason: str) -> str:
+    """Create a standalone review project for the product owner.
+
+    Unlike _create_project_for_issue, this doesn't take an issue dict —
+    it constructs a proper review-scoped project.
+    Returns project_id or empty string.
+    """
+    from pathlib import Path
+    from onemancompany.core.config import CEO_ID, EA_ID, TASK_TREE_FILENAME
+    from onemancompany.core.project_archive import async_create_project_from_task, get_project_dir
+    from onemancompany.core.task_lifecycle import NodeType, TaskPhase
+
+    product = prod.load_product(product_slug)
+    if not product:
+        return ""
+    product_id = product["id"]
+    owner_id = product.get("owner_id", "")
+    task_description = f"Product review for '{product['name']}': {reason}"
+
+    try:
+        project_id, iter_id = await async_create_project_from_task(
+            task_description,
+            product_id=product_id,
+        )
+        pdir = get_project_dir(project_id)
+        ctx_id = f"{project_id}/{iter_id}" if iter_id else project_id
+
+        product_ctx = prod.build_product_context(product_slug)
+        review_task = (
+            f"Product review needed: {reason}\n\n"
+            f"{product_ctx}\n\n"
+            f"[Project ID: {ctx_id}] [Project workspace: {pdir}]"
+        )
+
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import _save_project_tree
+
+        tree = TaskTree(project_id=ctx_id, mode="standard")
+        ceo_root = tree.create_root(employee_id=CEO_ID, description=task_description)
+        ceo_root.node_type = NodeType.CEO_PROMPT.value
+        ceo_root.set_status(TaskPhase.PROCESSING)
+
+        owner_node = tree.add_child(
+            parent_id=ceo_root.id,
+            employee_id=owner_id or EA_ID,
+            description=review_task,
+            acceptance_criteria=[],
+            title=f"Product review: {reason[:50]}",
+        )
+        _save_project_tree(pdir, tree)
+
+        from onemancompany.core.agent_loop import employee_manager
+        target_id = owner_id or EA_ID
+        tree_path = str(Path(pdir) / TASK_TREE_FILENAME)
+        employee_manager.schedule_node(target_id, owner_node.id, tree_path)
+        employee_manager._schedule_next(target_id)
+
+        logger.info(
+            "[PRODUCT_TRIGGER] Created review project {} for product '{}' (reason: {})",
+            project_id, product_slug, reason,
+        )
+        return project_id
+    except Exception:
+        logger.exception(
+            "[PRODUCT_TRIGGER] Failed to create review project for '{}'",
+            product_slug,
+        )
+        return ""
+
+
 async def handle_project_complete(event: CompanyEvent) -> None:
     """When a project with product context completes, close issues + release version."""
     slug = event.payload.get("product_slug", "")
@@ -236,78 +312,69 @@ async def notify_owner(product_slug: str, reason: str = "") -> bool:
         f"[skill: product-review]"
     )
 
-    try:
-        from pathlib import Path
-        from onemancompany.core.config import CEO_ID, TASK_TREE_FILENAME
-        from onemancompany.core.project_archive import list_projects, get_project_dir
-        from onemancompany.core.task_tree import get_tree
-        from onemancompany.core.vessel import _save_project_tree
+    from pathlib import Path
+    from onemancompany.core.config import CEO_ID, TASK_TREE_FILENAME
+    from onemancompany.core.project_archive import list_projects, get_project_dir
+    from onemancompany.core.task_tree import get_tree
+    from onemancompany.core.vessel import _save_project_tree
 
-        # Find existing active project for this product
-        all_projects = list_projects()
-        active_product_projects = [
-            p for p in all_projects
-            if p.get("product_id") == product["id"] and p.get("status") == "active"
-        ]
+    # Find existing active project for this product
+    all_projects = list_projects()
+    active_product_projects = [
+        p for p in all_projects
+        if p.get("product_id") == product["id"] and p.get("status") == "active"
+    ]
 
-        if active_product_projects:
-            # Add task to existing project's tree
-            proj = active_product_projects[0]
-            pdir = get_project_dir(proj["project_id"])
-            tree_path = Path(pdir) / TASK_TREE_FILENAME
-            if not tree_path.exists():
-                logger.debug("[PRODUCT_TRIGGER] Tree not found for project {}", proj["project_id"])
+    if active_product_projects:
+        # Add task to existing project's tree
+        proj = active_product_projects[0]
+        pdir = get_project_dir(proj["project_id"])
+        tree_path = Path(pdir) / TASK_TREE_FILENAME
+        if not tree_path.exists():
+            logger.debug("[PRODUCT_TRIGGER] Tree not found for project {}", proj["project_id"])
+            return False
+
+        tree = get_tree(str(tree_path))
+
+        # Check if owner already has a pending/processing review task — skip if so
+        from onemancompany.core.task_lifecycle import TaskPhase
+        for node in tree.all_nodes():
+            if (node.employee_id == owner_id
+                    and node.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value)
+                    and "review" in (node.title or node.description or "").lower()):
+                logger.debug("[PRODUCT_TRIGGER] Owner {} already has pending review task {}, skip",
+                             owner_id, node.id)
                 return False
 
-            tree = get_tree(str(tree_path))
+        # Find a suitable parent (EA node or root)
+        ea_node = tree.get_ea_node()
+        parent_id = ea_node.id if ea_node else tree.root_id
 
-            # Check if owner already has a pending/processing review task — skip if so
-            from onemancompany.core.task_lifecycle import TaskPhase
-            for node in tree.all_nodes():
-                if (node.employee_id == owner_id
-                        and node.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value)
-                        and "review" in (node.title or node.description or "").lower()):
-                    logger.debug("[PRODUCT_TRIGGER] Owner {} already has pending review task {}, skip",
-                                 owner_id, node.id)
-                    return False
+        child = tree.add_child(
+            parent_id=parent_id,
+            employee_id=owner_id,
+            description=task_desc,
+            acceptance_criteria=[],
+            title=f"Product review: {reason[:50]}",
+        )
+        _save_project_tree(pdir, tree)
 
-            # Find a suitable parent (EA node or root)
-            ea_node = tree.get_ea_node()
-            parent_id = ea_node.id if ea_node else tree.root_id
+        # Schedule owner to execute
+        from onemancompany.core.agent_loop import employee_manager
+        employee_manager.schedule_node(owner_id, child.id, str(tree_path))
+        employee_manager._schedule_next(owner_id)
 
-            child = tree.add_child(
-                parent_id=parent_id,
-                employee_id=owner_id,
-                description=task_desc,
-                acceptance_criteria=[],
-                title=f"Product review: {reason[:50]}",
-            )
-            _save_project_tree(pdir, tree)
+        logger.info("[PRODUCT_TRIGGER] Pushed review task to owner {} on project {} (reason: {})",
+                    owner_id, proj["project_id"], reason)
+    else:
+        # No active project — create a dedicated review project
+        project_id = await _create_review_project(product_slug, reason)
+        if not project_id:
+            return False
+        logger.info("[PRODUCT_TRIGGER] Created review project {} for owner {} (reason: {})",
+                    project_id, owner_id, reason)
 
-            # Schedule owner to execute
-            from onemancompany.core.agent_loop import employee_manager
-            employee_manager.schedule_node(owner_id, child.id, str(tree_path))
-            employee_manager._schedule_next(owner_id)
-
-            logger.info("[PRODUCT_TRIGGER] Pushed review task to owner {} on project {} (reason: {})",
-                        owner_id, proj["project_id"], reason)
-        else:
-            # No active project — create one
-            project_id = await _create_project_for_issue(product_slug, {
-                "id": f"review_{product_slug}",
-                "title": f"Product review: {product['name']}",
-                "description": task_desc,
-                "priority": IssuePriority.P2.value,
-            })
-            if not project_id:
-                return False
-            logger.info("[PRODUCT_TRIGGER] Created review project {} for owner {} (reason: {})",
-                        project_id, owner_id, reason)
-
-        return True
-    except Exception:
-        logger.exception("[PRODUCT_TRIGGER] Failed to push review task for '{}'", product_slug)
-        return False
+    return True
 
 
 def sync_issue_statuses(product_slug: str) -> list[dict]:
@@ -398,6 +465,8 @@ async def run_product_check(product_slug: str) -> dict:
     if not owner_id:
         return {"skipped": True, "reason": "no owner"}
 
+    max_active = _get_threshold(product, "max_active_projects", MAX_ACTIVE_PROJECTS)
+
     from onemancompany.core.project_archive import list_projects
     all_projects = list_projects()
     active_for_product = [
@@ -425,7 +494,7 @@ async def run_product_check(product_slug: str) -> dict:
 
         # High priority + no active project → create project
         if priority in _AUTO_PROJECT_PRIORITIES and not linked:
-            if len(active_for_product) >= MAX_ACTIVE_PROJECTS:
+            if len(active_for_product) >= max_active:
                 logger.debug("[PRODUCT_CHECK] Skipping project for issue {} — 3+ active projects", issue["id"])
                 continue
             project_id = await _create_project_for_issue(product_slug, issue)
@@ -440,7 +509,7 @@ async def run_product_check(product_slug: str) -> dict:
 
         # Has assignee but no project → create project
         elif issue.get("assignee_id") and not linked:
-            if len(active_for_product) >= MAX_ACTIVE_PROJECTS:
+            if len(active_for_product) >= max_active:
                 continue
             project_id = await _create_project_for_issue(product_slug, issue)
             if project_id:
@@ -460,10 +529,12 @@ async def run_product_check(product_slug: str) -> dict:
         if target <= 0 or current >= target:
             continue  # met or invalid
 
+        kr_id = kr.get("id", "")
         kr_title = kr.get("title", "")
-        # Check if any open issue is related to this KR (by title match)
+        kr_label = f"kr:{kr_id}"
+        # Check if any open issue is already tracking this KR (by kr_id label)
         has_issue = any(
-            kr_title in i.get("title", "") or kr.get("id", "") in i.get("title", "")
+            kr_label in i.get("labels", [])
             for i in all_issues
             if i.get("status") not in (IssueStatus.DONE.value, IssueStatus.RELEASED.value)
         )
@@ -475,7 +546,7 @@ async def run_product_check(product_slug: str) -> dict:
                 description=f"Key result '{kr_title}' is at {current}/{target}. Create and execute work to advance this metric.",
                 priority=IssuePriority.P2,
                 created_by="system",
-                labels=["kr-tracking", "auto-created"],
+                labels=["kr-tracking", "auto-created", kr_label],
             )
             actions_taken.append(f"Created issue for KR: {kr_title}")
             all_issues.append(issue)  # prevent duplicate creation in same cycle
@@ -663,6 +734,12 @@ async def handle_issue_assigned(event: CompanyEvent) -> None:
     linked = issue.get("linked_task_ids", [])
     if linked:
         logger.debug("[PRODUCT_TRIGGER] Issue {} already has linked tasks {}, skip", issue_id, linked)
+        return
+
+    # Re-read to guard against race with handle_issue_created
+    fresh_issue = prod.load_issue(slug, issue_id)
+    if fresh_issue and fresh_issue.get("linked_task_ids"):
+        logger.debug("[PRODUCT_TRIGGER] Race guard: issue {} got linked_task_ids before project creation", issue_id)
         return
 
     logger.info("[PRODUCT_TRIGGER] Issue {} assigned to {} — creating project", issue_id, assignee_id)
