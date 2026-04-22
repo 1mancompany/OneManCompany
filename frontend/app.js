@@ -8201,7 +8201,7 @@ class AppController {
         }
         sprintSel.value = issue.sprint || '';
       })
-      .catch(() => {});
+      .catch(err => console.warn('Failed to load sprints:', err));
     sprintSel.addEventListener('change', () => {
       fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issue.id)}`, {
         method: 'PUT',
@@ -8478,7 +8478,7 @@ class AppController {
           sprintSel.appendChild(opt);
         }
       })
-      .catch(() => {});
+      .catch(err => console.warn('Failed to load sprints:', err));
     row.querySelector('.issue-new-cancel').addEventListener('click', () => row.remove());
     row.querySelector('.issue-new-save').addEventListener('click', async () => {
       const title = row.querySelector('.issue-new-title').value.trim();
@@ -8854,7 +8854,7 @@ class AppController {
           });
         }
       })
-      .catch(() => {});
+      .catch(err => console.warn('Failed to load suggested capacity:', err));
     // Default dates: today → +14 days
     const today = new Date();
     const end = new Date(today);
@@ -9041,7 +9041,10 @@ class AppController {
     container.appendChild(toolbar);
 
     if (!reviews.length) {
-      container.innerHTML += '<div class="task-empty">No reviews yet.</div>';
+      const emptyMsg = document.createElement('div');
+      emptyMsg.className = 'task-empty';
+      emptyMsg.textContent = 'No reviews yet.';
+      container.appendChild(emptyMsg);
       return;
     }
 
