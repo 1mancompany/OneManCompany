@@ -6863,3 +6863,65 @@ body.resize-dragging {
 .release-form {
   margin-top: 8px;
 }
+
+/* ===== Responsive Breakpoints ===== */
+
+/* Tablet: stack left panels above, roster collapses */
+@media (max-width: 1024px) {
+  #app {
+    grid-template-columns: 200px 1fr;
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+      "left-top    canvas"
+      "left-bottom canvas"
+      "console     console";
+  }
+  #roster-panel {
+    display: none;
+  }
+  .floating-panel {
+    width: 280px !important;
+  }
+}
+
+/* Mobile: single column stack */
+@media (max-width: 768px) {
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 200px auto;
+    grid-template-areas:
+      "canvas"
+      "console"
+      "left-top"
+      "left-bottom";
+    height: auto;
+    min-height: 100vh;
+  }
+  #roster-panel {
+    display: none;
+  }
+  #office-panel .panel-header {
+    flex-wrap: wrap;
+  }
+  #status-bar {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .floating-panel {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    max-height: 60vh;
+    border-radius: 8px 8px 0 0;
+  }
+  #ceo-split {
+    flex-direction: column;
+  }
+  #ceo-project-list {
+    max-height: 120px;
+    overflow-y: auto;
+  }
+}
