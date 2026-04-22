@@ -2659,9 +2659,10 @@ async def delete_employee_session(employee_id: str, project_id: str) -> dict:
 # ===== Company Culture =====
 
 @router.get("/api/company-culture")
-async def get_company_culture() -> dict:
+async def get_company_culture(limit: int = 100, offset: int = 0) -> dict:
     """Get all company culture items."""
-    return {"items": _store.load_culture()}
+    items = _store.load_culture()
+    return {"items": items[offset:offset + limit], "total": len(items)}
 
 
 @router.post("/api/company-culture")
@@ -2846,10 +2847,11 @@ async def get_dashboard_costs() -> dict:
 
 
 @router.get("/api/projects")
-async def get_projects() -> dict:
+async def get_projects(limit: int = 100, offset: int = 0) -> dict:
     """List all projects (v1 + v2 summary view for the project wall)."""
     from onemancompany.core.project_archive import list_projects
-    return {"projects": list_projects()}
+    all_projects = list_projects()
+    return {"projects": all_projects[offset:offset + limit], "total": len(all_projects)}
 
 
 @router.post("/api/projects")
@@ -3792,44 +3794,6 @@ async def get_project_file(project_id: str, file_path: str):
         return Response(content=content, media_type=media)
 
 
-@router.get("/api/projects/{project_id}/download")
-async def download_project_files(project_id: str):
-    """Download all project workspace files as a zip archive."""
-    import io
-    import zipfile
-    from pathlib import Path
-
-    from fastapi.responses import StreamingResponse
-
-    from onemancompany.core.project_archive import get_project_dir, list_project_files
-
-    workspace = Path(get_project_dir(project_id))
-    if not workspace.exists():
-        raise HTTPException(status_code=404, detail="Project workspace not found")
-
-    files = list_project_files(project_id)
-    if not files:
-        raise HTTPException(status_code=404, detail="No files to download")
-
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for rel_path in files:
-            abs_path = workspace / rel_path
-            if abs_path.is_file():
-                zf.write(abs_path, rel_path)
-    buf.seek(0)
-
-    slug = project_id.split("/")[0]
-    from urllib.parse import quote as _quote_url
-    _safe = slug.encode("ascii", "ignore").decode() or "project"
-    _enc = _quote_url(f"{slug}-files.zip", safe="")
-    return StreamingResponse(
-        buf,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{_safe}-files.zip"; filename*=UTF-8\'\'{_enc}'},
-    )
-
-
 # ===== Employee Workspace =====
 
 @router.get("/api/employee/{employee_id}/workspace")
@@ -3970,10 +3934,11 @@ async def download_project_workspace(project_id: str):
 # ===== Ex-Employees =====
 
 @router.get("/api/ex-employees")
-async def get_ex_employees() -> dict:
+async def get_ex_employees(limit: int = 100, offset: int = 0) -> dict:
     """List all ex-employees."""
     ex_emps = _store.load_ex_employees()
-    return {"ex_employees": list(ex_emps.values())}
+    all_ex = list(ex_emps.values())
+    return {"ex_employees": all_ex[offset:offset + limit], "total": len(all_ex)}
 
 
 @router.post("/api/ex-employees/{employee_id}/rehire")
@@ -6060,35 +6025,6 @@ async def get_room_chat(room_id: str):
     """Room chat history — reads from disk."""
     from onemancompany.core.store import load_room_chat
     return load_room_chat(room_id)
-
-
-@router.get("/api/rooms/{room_id}/minutes")
-async def get_room_minutes(room_id: str):
-    """List archived meeting minutes for a room."""
-    from onemancompany.core.store import load_meeting_minutes
-    minutes = load_meeting_minutes(room_id)
-    # Return lightweight list (exclude full messages)
-    return [
-        {
-            "minute_id": m.get("minute_id", ""),
-            "topic": m.get("topic", ""),
-            "room_name": m.get("room_name", ""),
-            "participants": m.get("participants", []),
-            "summary": (m.get("summary", "") or "")[:200],
-            "message_count": len(m.get("messages", [])),
-        }
-        for m in minutes
-    ]
-
-
-@router.get("/api/meeting-minutes/{minute_id}")
-async def get_meeting_minute(minute_id: str):
-    """Get full content of a single meeting minute."""
-    from onemancompany.core.store import load_meeting_minute
-    data = load_meeting_minute(minute_id)
-    if not data:
-        raise HTTPException(status_code=404, detail="Meeting minute not found")
-    return data
 
 
 @router.post("/api/rooms/{room_id}/chat")
