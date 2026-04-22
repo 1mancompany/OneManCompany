@@ -468,3 +468,138 @@ class TestTransferOwnershipTool:
         assert "00011" in result or "transfer" in result.lower()
         loaded = prod.load_product(slug)
         assert loaded["owner_id"] == "00011"
+
+
+# ---------------------------------------------------------------------------
+# Coverage: _create_review_project full function (product_triggers.py:157-224)
+# ---------------------------------------------------------------------------
+
+
+class TestCreateReviewProjectFull:
+    """Exercise _create_review_project body to cover lines 164-224."""
+
+    @pytest.mark.asyncio
+    async def test_happy_path_creates_tree_and_schedules(self):
+        """Full flow: product exists, project created, tree built, owner scheduled."""
+        from onemancompany.core.product_triggers import _create_review_project
+
+        p = _make_product(name="ReviewFull", owner_id="00010")
+
+        mock_async_create = AsyncMock(return_value=("proj-rev-1", "iter-1"))
+        mock_get_dir = MagicMock(return_value="/tmp/proj-rev-1")
+        mock_tree_inst = MagicMock()
+        mock_root = MagicMock()
+        mock_root.id = "root-1"
+        mock_owner_node = MagicMock()
+        mock_owner_node.id = "owner-1"
+        mock_tree_inst.create_root.return_value = mock_root
+        mock_tree_inst.add_child.return_value = mock_owner_node
+        mock_tree_cls = MagicMock(return_value=mock_tree_inst)
+        mock_save = MagicMock()
+        mock_em = MagicMock()
+
+        with patch("onemancompany.core.project_archive.async_create_project_from_task", mock_async_create), \
+             patch("onemancompany.core.project_archive.get_project_dir", mock_get_dir), \
+             patch("onemancompany.core.task_tree.TaskTree", mock_tree_cls), \
+             patch("onemancompany.core.vessel._save_project_tree", mock_save), \
+             patch("onemancompany.core.agent_loop.employee_manager", mock_em):
+            result = await _create_review_project(p["slug"], "quarterly review")
+
+        assert result == "proj-rev-1"
+        mock_async_create.assert_called_once()
+        mock_tree_cls.assert_called_once_with(project_id="proj-rev-1/iter-1", mode="standard")
+        mock_tree_inst.create_root.assert_called_once()
+        mock_tree_inst.add_child.assert_called_once()
+        # Verify owner_id (00010) is used as employee_id for the child node
+        add_child_kwargs = mock_tree_inst.add_child.call_args
+        assert add_child_kwargs[1]["employee_id"] == "00010"
+        assert "quarterly review" in add_child_kwargs[1]["title"]
+        mock_save.assert_called_once()
+        mock_em.schedule_node.assert_called_once_with("00010", "owner-1", mock_em.schedule_node.call_args[0][2])
+        mock_em._schedule_next.assert_called_once_with("00010")
+
+    @pytest.mark.asyncio
+    async def test_product_not_found_returns_empty(self):
+        """Line 170-171: nonexistent product slug returns empty string."""
+        from onemancompany.core.product_triggers import _create_review_project
+
+        result = await _create_review_project("nonexistent-slug", "some reason")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_no_owner_falls_back_to_ea(self):
+        """Line 201: if owner_id is empty, falls back to EA_ID."""
+        from onemancompany.core.product_triggers import _create_review_project
+
+        p = _make_product(name="NoOwnerReview", owner_id="00010")
+        # Clear owner_id after creation
+        prod.update_product(p["slug"], owner_id="")
+
+        mock_async_create = AsyncMock(return_value=("proj-rev-2", ""))
+        mock_get_dir = MagicMock(return_value="/tmp/proj-rev-2")
+        mock_tree_inst = MagicMock()
+        mock_root = MagicMock()
+        mock_root.id = "root-1"
+        mock_child = MagicMock()
+        mock_child.id = "child-1"
+        mock_tree_inst.create_root.return_value = mock_root
+        mock_tree_inst.add_child.return_value = mock_child
+        mock_tree_cls = MagicMock(return_value=mock_tree_inst)
+        mock_em = MagicMock()
+
+        with patch("onemancompany.core.project_archive.async_create_project_from_task", mock_async_create), \
+             patch("onemancompany.core.project_archive.get_project_dir", mock_get_dir), \
+             patch("onemancompany.core.task_tree.TaskTree", mock_tree_cls), \
+             patch("onemancompany.core.vessel._save_project_tree", MagicMock()), \
+             patch("onemancompany.core.agent_loop.employee_manager", mock_em):
+            result = await _create_review_project(p["slug"], "no owner check")
+
+        assert result == "proj-rev-2"
+        # Should use EA_ID as fallback
+        from onemancompany.core.config import EA_ID
+        add_child_kwargs = mock_tree_inst.add_child.call_args
+        assert add_child_kwargs[1]["employee_id"] == EA_ID
+        mock_em.schedule_node.assert_called_once()
+        assert mock_em.schedule_node.call_args[0][0] == EA_ID
+
+    @pytest.mark.asyncio
+    async def test_no_iter_id_uses_project_id_only(self):
+        """Line 182: when iter_id is empty, ctx_id = project_id."""
+        from onemancompany.core.product_triggers import _create_review_project
+
+        p = _make_product(name="NoIterReview", owner_id="00010")
+
+        mock_async_create = AsyncMock(return_value=("proj-rev-3", ""))
+        mock_get_dir = MagicMock(return_value="/tmp/proj-rev-3")
+        mock_tree_inst = MagicMock()
+        mock_root = MagicMock()
+        mock_root.id = "root-1"
+        mock_child = MagicMock()
+        mock_child.id = "child-1"
+        mock_tree_inst.create_root.return_value = mock_root
+        mock_tree_inst.add_child.return_value = mock_child
+        mock_tree_cls = MagicMock(return_value=mock_tree_inst)
+        mock_em = MagicMock()
+
+        with patch("onemancompany.core.project_archive.async_create_project_from_task", mock_async_create), \
+             patch("onemancompany.core.project_archive.get_project_dir", mock_get_dir), \
+             patch("onemancompany.core.task_tree.TaskTree", mock_tree_cls), \
+             patch("onemancompany.core.vessel._save_project_tree", MagicMock()), \
+             patch("onemancompany.core.agent_loop.employee_manager", mock_em):
+            result = await _create_review_project(p["slug"], "no iter")
+
+        assert result == "proj-rev-3"
+        mock_tree_cls.assert_called_once_with(project_id="proj-rev-3", mode="standard")
+
+    @pytest.mark.asyncio
+    async def test_exception_returns_empty_string(self):
+        """Lines 219-224: exception during project creation returns empty string."""
+        from onemancompany.core.product_triggers import _create_review_project
+
+        p = _make_product(name="ExcReview", owner_id="00010")
+
+        mock_async_create = AsyncMock(side_effect=RuntimeError("project creation failed"))
+        with patch("onemancompany.core.project_archive.async_create_project_from_task", mock_async_create):
+            result = await _create_review_project(p["slug"], "exc test")
+
+        assert result == ""
