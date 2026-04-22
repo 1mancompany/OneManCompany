@@ -7294,6 +7294,18 @@ async def api_reopen_issue(slug: str, issue_id: str) -> dict:
     return result
 
 
+@router.delete("/api/product/{slug}/issue/{issue_id}")
+async def api_delete_issue(slug: str, issue_id: str) -> dict:
+    """Delete an issue and clean up all links."""
+    from onemancompany.core import product as prod
+
+    try:
+        prod.delete_issue(slug, issue_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"ok": True}
+
+
 # ── Versions ────────────────────────────────────────────────────────────────
 
 
@@ -7520,6 +7532,30 @@ async def api_close_sprint(slug: str, sprint_id: str) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return result
+
+
+@router.post("/api/product/{slug}/sprint/{sprint_id}/start")
+async def api_start_sprint(slug: str, sprint_id: str) -> dict:
+    """Start a sprint (set to active). Only one sprint can be active at a time."""
+    from onemancompany.core import product as prod
+
+    try:
+        result = prod.start_sprint(slug, sprint_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return result
+
+
+@router.delete("/api/product/{slug}/sprint/{sprint_id}")
+async def api_delete_sprint(slug: str, sprint_id: str) -> dict:
+    """Delete a sprint. Cannot delete active sprints."""
+    from onemancompany.core import product as prod
+
+    try:
+        prod.delete_sprint(slug, sprint_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True}
 
 
 @router.get("/api/product/{slug}/sprint/suggest-capacity")

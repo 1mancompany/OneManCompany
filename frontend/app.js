@@ -7368,13 +7368,13 @@ class AppController {
           if (result.status === 'imported') {
             this.updateProjectsPanel();
             this._refreshProductSelector();
-            alert(`Imported "${bundle.product.name}" — ${result.issues_created} issues, ${result.krs_created} KRs. Auto-activated.`);
+            this._showToast(`Imported "${bundle.product.name}" — ${result.issues_created} issues, ${result.krs_created} KRs`, 'success', 5000);
           } else {
-            alert('Import failed: ' + (result.detail || 'Unknown error'));
+            this._showToast('Import failed: ' + (result.detail || 'Unknown error'), 'error');
           }
         } catch (err) {
           console.error('Import failed:', err);
-          alert('Import failed: ' + err.message);
+          this._showToast('Import failed: ' + err.message, 'error');
         }
       });
       input.click();
@@ -7419,7 +7419,7 @@ class AppController {
     const ownerId = document.getElementById('create-product-owner')?.value || '';
 
     if (!name) {
-      alert('Product name is required');
+      this._showToast('Product name is required', 'warning');
       return;
     }
 
@@ -7460,7 +7460,7 @@ class AppController {
       this._refreshProductSelector();
     } catch (e) {
       console.error('Failed to create product:', e);
-      alert('Failed to create product');
+      this._showToast('Failed to create product', 'error');
     }
   }
 
@@ -7500,6 +7500,31 @@ class AppController {
       this._selectCeoProject(p.project_id);
     });
     return card;
+  }
+
+  // ===== Toast Notifications =====
+
+  _showToast(message, type = 'info', duration = 3000) {
+    let container = document.querySelector('.app-toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.className = 'app-toast-container';
+      document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = `app-toast toast-${type}`;
+    toast.textContent = message;
+    toast.addEventListener('click', () => {
+      toast.classList.add('toast-out');
+      setTimeout(() => toast.remove(), 200);
+    });
+    container.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.classList.add('toast-out');
+        setTimeout(() => toast.remove(), 200);
+      }
+    }, duration);
   }
 
   // ===== Product Detail Modal =====
@@ -7670,7 +7695,7 @@ class AppController {
         this._refreshProductSelector();
       } catch (err) {
         console.error('Delete failed:', err);
-        alert('Delete failed: ' + err.message);
+        this._showToast('Delete failed: ' + err.message, 'error');
       }
     });
     header.appendChild(deleteBtn);
@@ -7994,6 +8019,14 @@ class AppController {
     priSel.addEventListener('change', () => renderFiltered());
     toolbar.appendChild(priSel);
 
+    // Text search
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.className = 'issue-search-input';
+    searchInput.placeholder = 'Search...';
+    searchInput.addEventListener('input', () => renderFiltered());
+    toolbar.appendChild(searchInput);
+
     container.appendChild(toolbar);
 
     const issueList = document.createElement('div');
@@ -8005,9 +8038,15 @@ class AppController {
     const renderFiltered = () => {
       const sf = statusSel.value;
       const pf = priSel.value;
+      const q = (searchInput.value || '').toLowerCase().trim();
       let filtered = issues;
       if (sf) filtered = filtered.filter(i => i.status === sf);
       if (pf) filtered = filtered.filter(i => i.priority === pf);
+      if (q) filtered = filtered.filter(i =>
+        (i.title || '').toLowerCase().includes(q) ||
+        (i.description || '').toLowerCase().includes(q) ||
+        (i.labels || []).some(l => l.toLowerCase().includes(q))
+      );
       filtered.sort((a, b) => {
         const aDone = a.status === 'done' || a.status === 'released';
         const bDone = b.status === 'done' || b.status === 'released';
@@ -8160,6 +8199,30 @@ class AppController {
       body.appendChild(histEl);
     }
 
+    // Issue Links section
+    this._renderIssueLinks(body, slug, issue, fullData);
+
+    // Delete button
+    const deleteRow = document.createElement('div');
+    deleteRow.style.marginTop = '8px';
+    deleteRow.style.paddingTop = '6px';
+    deleteRow.style.borderTop = '1px solid rgba(255,255,255,0.05)';
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'issue-delete-btn';
+    deleteBtn.textContent = 'Delete Issue';
+    deleteBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete issue "${issue.title}"?`)) return;
+      try {
+        const r = await fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issue.id)}`, { method: 'DELETE' });
+        if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+        this._showToast('Issue deleted', 'success');
+        this._openProductDetail(slug);
+      } catch (err) { this._showToast(`Delete failed: ${err.message}`, 'error'); }
+    });
+    deleteRow.appendChild(deleteBtn);
+    body.appendChild(deleteRow);
+
     card.appendChild(body);
 
     header.addEventListener('click', () => {
@@ -8167,6 +8230,129 @@ class AppController {
     });
 
     return card;
+  }
+
+  _renderIssueLinks(container, slug, issue, fullData) {
+    const section = document.createElement('div');
+    section.className = 'issue-links-section';
+
+    const hdr = document.createElement('div');
+    hdr.className = 'issue-links-header';
+    const title = document.createElement('span');
+    title.className = 'issue-links-title';
+    title.textContent = 'Links';
+    hdr.appendChild(title);
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn-small';
+    addBtn.textContent = '+';
+    addBtn.style.padding = '0 4px';
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._showAddLinkForm(section, slug, issue, fullData);
+    });
+    hdr.appendChild(addBtn);
+    section.appendChild(hdr);
+
+    const list = document.createElement('div');
+    list.className = 'issue-links-list';
+
+    const links = issue.issue_links || [];
+    if (links.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'task-empty';
+      empty.style.fontSize = 'calc(5px + var(--font-boost))';
+      empty.textContent = 'No links';
+      list.appendChild(empty);
+    } else {
+      for (const link of links) {
+        const row = document.createElement('div');
+        row.className = 'issue-link-row';
+
+        const typeEl = document.createElement('span');
+        typeEl.className = 'issue-link-type';
+        typeEl.textContent = link.relation;
+        row.appendChild(typeEl);
+
+        const targetEl = document.createElement('span');
+        targetEl.className = 'issue-link-target';
+        const targetIssue = (fullData.issues || []).find(i => i.id === link.issue_id);
+        targetEl.textContent = targetIssue ? targetIssue.title : link.issue_id;
+        row.appendChild(targetEl);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'issue-link-remove';
+        removeBtn.textContent = '\u00d7';
+        removeBtn.title = 'Remove link';
+        removeBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          try {
+            const r = await fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issue.id)}/link/${encodeURIComponent(link.issue_id)}`, { method: 'DELETE' });
+            if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+            this._showToast('Link removed', 'success');
+            this._openProductDetail(slug);
+          } catch (err) { this._showToast(`Remove link failed: ${err.message}`, 'error'); }
+        });
+        row.appendChild(removeBtn);
+        list.appendChild(row);
+      }
+    }
+
+    section.appendChild(list);
+    container.appendChild(section);
+  }
+
+  _showAddLinkForm(container, slug, issue, fullData) {
+    if (container.querySelector('.issue-link-add-row')) return;
+    const row = document.createElement('div');
+    row.className = 'issue-link-add-row';
+
+    const relSel = document.createElement('select');
+    relSel.className = 'form-input';
+    relSel.style.width = 'auto';
+    relSel.innerHTML = '<option value="blocks">blocks</option><option value="blocked_by">blocked_by</option><option value="relates_to">relates_to</option>';
+    row.appendChild(relSel);
+
+    const targetSel = document.createElement('select');
+    targetSel.className = 'form-input';
+    targetSel.style.width = 'auto';
+    targetSel.innerHTML = '<option value="">Select issue...</option>';
+    for (const i of (fullData.issues || [])) {
+      if (i.id === issue.id) continue;
+      const opt = document.createElement('option');
+      opt.value = i.id;
+      opt.textContent = `[${i.priority || 'P2'}] ${i.title}`;
+      targetSel.appendChild(opt);
+    }
+    row.appendChild(targetSel);
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn-small';
+    saveBtn.textContent = 'Add';
+    saveBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!targetSel.value) return;
+      try {
+        const r = await fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issue.id)}/link`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target_id: targetSel.value, relation: relSel.value }),
+        });
+        if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+        this._showToast('Link added', 'success');
+        this._openProductDetail(slug);
+      } catch (err) { this._showToast(`Add link failed: ${err.message}`, 'error'); }
+    });
+    row.appendChild(saveBtn);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'kr-remove-btn';
+    cancelBtn.textContent = '\u00d7';
+    cancelBtn.addEventListener('click', (e) => { e.stopPropagation(); row.remove(); });
+    row.appendChild(cancelBtn);
+
+    container.appendChild(row);
+    targetSel.focus();
   }
 
   _makeIssueFieldEditable(el, slug, issueId, fieldName, fullData) {
@@ -8374,29 +8560,94 @@ class AppController {
       .then(data => {
         container.innerHTML = '';
 
-        if (!data.sprints.length && !data.versions.length && !data.milestoned_issues.length) {
-          container.innerHTML = '<div class="task-empty">No sprints, versions, or milestoned issues yet.</div>';
-          return;
-        }
-
-        // Sprints section
-        if (data.sprints.length) {
+        // Sprint section (always visible — has create button)
+        {
           const section = document.createElement('div');
           section.className = 'roadmap-section';
+          const hdr = document.createElement('div');
+          hdr.style.display = 'flex';
+          hdr.style.alignItems = 'center';
+          hdr.style.justifyContent = 'space-between';
           const h = document.createElement('h3');
           h.textContent = 'Sprints';
-          section.appendChild(h);
+          h.style.margin = '0';
+          hdr.appendChild(h);
+          const newBtn = document.createElement('button');
+          newBtn.className = 'btn-small';
+          newBtn.textContent = '+ New Sprint';
+          newBtn.addEventListener('click', () => this._showNewSprintForm(section, slug));
+          hdr.appendChild(newBtn);
+          section.appendChild(hdr);
 
           const timeline = document.createElement('div');
           timeline.className = 'roadmap-timeline';
+
+          if (data.sprints.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'task-empty';
+            empty.textContent = 'No sprints yet. Click "+ New Sprint" to plan your first sprint.';
+            timeline.appendChild(empty);
+          }
 
           for (const s of data.sprints) {
             const bar = document.createElement('div');
             bar.className = `roadmap-sprint-bar roadmap-status-${s.status}`;
 
+            const topRow = document.createElement('div');
+            topRow.style.display = 'flex';
+            topRow.style.alignItems = 'center';
+            topRow.style.justifyContent = 'space-between';
+
             const label = document.createElement('div');
             label.className = 'roadmap-bar-label';
             label.textContent = `${s.name} (${s.issue_count} issues)`;
+            topRow.appendChild(label);
+
+            // Sprint action buttons
+            const actions = document.createElement('div');
+            actions.className = 'sprint-actions';
+            if (s.status === 'planning') {
+              const startBtn = document.createElement('button');
+              startBtn.className = 'sprint-action-btn';
+              startBtn.textContent = 'Start';
+              startBtn.addEventListener('click', async () => {
+                try {
+                  const r = await fetch(`/api/product/${encodeURIComponent(slug)}/sprint/${encodeURIComponent(s.id)}/start`, { method: 'POST' });
+                  if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+                  this._showToast('Sprint started', 'success');
+                  this._renderProductRoadmap(slug, container);
+                } catch (err) { this._showToast(`Start failed: ${err.message}`, 'error'); }
+              });
+              actions.appendChild(startBtn);
+              const delBtn = document.createElement('button');
+              delBtn.className = 'sprint-action-btn danger';
+              delBtn.textContent = 'Delete';
+              delBtn.addEventListener('click', async () => {
+                if (!confirm(`Delete sprint "${s.name}"?`)) return;
+                try {
+                  const r = await fetch(`/api/product/${encodeURIComponent(slug)}/sprint/${encodeURIComponent(s.id)}`, { method: 'DELETE' });
+                  if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+                  this._showToast('Sprint deleted', 'success');
+                  this._renderProductRoadmap(slug, container);
+                } catch (err) { this._showToast(`Delete failed: ${err.message}`, 'error'); }
+              });
+              actions.appendChild(delBtn);
+            } else if (s.status === 'active') {
+              const closeBtn = document.createElement('button');
+              closeBtn.className = 'sprint-action-btn';
+              closeBtn.textContent = 'Close';
+              closeBtn.addEventListener('click', async () => {
+                try {
+                  const r = await fetch(`/api/product/${encodeURIComponent(slug)}/sprint/${encodeURIComponent(s.id)}/close`, { method: 'POST' });
+                  if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+                  this._showToast('Sprint closed', 'success');
+                  this._renderProductRoadmap(slug, container);
+                } catch (err) { this._showToast(`Close failed: ${err.message}`, 'error'); }
+              });
+              actions.appendChild(closeBtn);
+            }
+            topRow.appendChild(actions);
+            bar.appendChild(topRow);
 
             const dates = document.createElement('div');
             dates.className = 'roadmap-bar-dates';
@@ -8406,7 +8657,6 @@ class AppController {
             statusBadge.className = `roadmap-status-badge roadmap-status-${s.status}`;
             statusBadge.textContent = s.status;
 
-            bar.appendChild(label);
             bar.appendChild(dates);
             bar.appendChild(statusBadge);
             if (s.goal) {
@@ -8491,6 +8741,59 @@ class AppController {
         }
       })
       .catch(err => { container.innerHTML = `<div class="error-text">Failed to load roadmap: ${err.message}</div>`; });
+  }
+
+  _showNewSprintForm(section, slug) {
+    if (section.querySelector('.sprint-inline-add')) return;
+    const form = document.createElement('div');
+    form.className = 'sprint-inline-add';
+    form.innerHTML = `
+      <input type="text" class="form-input sprint-new-name" placeholder="Sprint name" />
+      <input type="text" class="form-input sprint-new-goal" placeholder="Goal (optional)" />
+      <div class="sprint-form-row">
+        <label style="color:var(--text-dim);font-size:calc(5px + var(--font-boost))">Start:</label>
+        <input type="date" class="form-input sprint-new-start" style="width:auto" />
+        <label style="color:var(--text-dim);font-size:calc(5px + var(--font-boost))">End:</label>
+        <input type="date" class="form-input sprint-new-end" style="width:auto" />
+      </div>
+      <div class="sprint-form-row">
+        <input type="number" class="form-input sprint-new-capacity" placeholder="Capacity (pts)" style="width:80px" />
+        <button class="btn-small sprint-save-btn">Create</button>
+        <button class="kr-remove-btn sprint-cancel-btn">&times;</button>
+      </div>
+    `;
+    // Default dates: today → +14 days
+    const today = new Date();
+    const end = new Date(today);
+    end.setDate(end.getDate() + 14);
+    form.querySelector('.sprint-new-start').value = today.toISOString().split('T')[0];
+    form.querySelector('.sprint-new-end').value = end.toISOString().split('T')[0];
+
+    form.querySelector('.sprint-cancel-btn').addEventListener('click', () => form.remove());
+    form.querySelector('.sprint-save-btn').addEventListener('click', async () => {
+      const name = form.querySelector('.sprint-new-name').value.trim();
+      if (!name) { this._showToast('Sprint name is required', 'warning'); return; }
+      const start_date = form.querySelector('.sprint-new-start').value;
+      const end_date = form.querySelector('.sprint-new-end').value;
+      if (!start_date || !end_date) { this._showToast('Dates are required', 'warning'); return; }
+      const goal = form.querySelector('.sprint-new-goal').value.trim();
+      const capacity = parseInt(form.querySelector('.sprint-new-capacity').value) || null;
+      try {
+        const r = await fetch(`/api/product/${encodeURIComponent(slug)}/sprint`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, start_date, end_date, goal, capacity }),
+        });
+        if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+        this._showToast('Sprint created', 'success');
+        this._openProductDetail(slug);
+      } catch (err) { this._showToast(`Create failed: ${err.message}`, 'error'); }
+    });
+
+    // Insert after the header
+    const timeline = section.querySelector('.roadmap-timeline');
+    section.insertBefore(form, timeline);
+    form.querySelector('.sprint-new-name').focus();
   }
 
   // ---------------------------------------------------------------------------
