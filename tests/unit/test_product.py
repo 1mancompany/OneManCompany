@@ -290,7 +290,7 @@ class TestIssueHistory:
         issue = prod.create_issue(slug=p["slug"], title="Bug", created_by="ceo", priority=IssuePriority.P1)
         prod.update_issue(p["slug"], issue["id"], priority="P0")
         loaded = prod.load_issue(p["slug"], issue["id"])
-        assert len(loaded.get("history", [])) >= 1
+        assert len(loaded.get("history", [])) == 1
         assert loaded["history"][-1]["field"] == "priority"
 
     def test_close_issue_records_history(self):
@@ -307,8 +307,8 @@ class TestIssueHistory:
         prod.reopen_issue(p["slug"], issue["id"])
         loaded = prod.load_issue(p["slug"], issue["id"])
         history = loaded.get("history", [])
-        # Should have at least 2 entries: close + reopen
-        assert len(history) >= 2
+        # Exactly 2 entries: close + reopen
+        assert len(history) == 2
 
     def test_kr_progress_records_history(self):
         p = prod.create_product(name="KRHist", owner_id="00004")
@@ -354,7 +354,7 @@ class TestIssueStatusDerivation:
         prod.update_issue(p["slug"], issue["id"], status=IssueStatus.IN_PROGRESS.value)
         changes = prod.sync_issue_statuses(p["slug"])
         # Should change back to backlog since no linked tasks
-        assert len(changes) >= 1
+        assert len(changes) == 1
         loaded = prod.load_issue(p["slug"], issue["id"])
         assert loaded["status"] == IssueStatus.BACKLOG.value
 
@@ -1865,3 +1865,57 @@ class TestSprintDateValidation:
         with pytest.raises(ValueError):
             prod.create_sprint(slug=p["slug"], name="Fmt",
                                start_date="not-a-date", end_date="2026-01-14")
+
+
+# ---------------------------------------------------------------------------
+# Batch 4 — Config + Query Filters + Assertion Fixes
+# ---------------------------------------------------------------------------
+
+
+class TestListIssuesAssigneeFilter:
+    """B4: list_issues should support assignee_id filter."""
+
+    def test_filter_by_assignee(self):
+        p = prod.create_product(name="AssignFilter", owner_id="00010")
+        i1 = prod.create_issue(slug=p["slug"], title="A", created_by="ceo")
+        i2 = prod.create_issue(slug=p["slug"], title="B", created_by="ceo")
+        prod.update_issue(p["slug"], i1["id"], assignee_id="emp001")
+        prod.update_issue(p["slug"], i2["id"], assignee_id="emp002")
+        result = prod.list_issues(p["slug"], assignee_id="emp001")
+        assert len(result) == 1
+        assert result[0]["id"] == i1["id"]
+
+    def test_filter_unassigned(self):
+        p = prod.create_product(name="Unassigned", owner_id="00010")
+        i1 = prod.create_issue(slug=p["slug"], title="A", created_by="ceo")
+        prod.create_issue(slug=p["slug"], title="B", created_by="ceo")
+        prod.update_issue(p["slug"], i1["id"], assignee_id="emp001")
+        result = prod.list_issues(p["slug"], assignee_id="")
+        # Empty string means unassigned — should return only i2
+        assert len(result) == 1
+        assert result[0]["assignee_id"] in (None, "")
+
+    def test_filter_no_match(self):
+        p = prod.create_product(name="NoMatch", owner_id="00010")
+        prod.create_issue(slug=p["slug"], title="A", created_by="ceo")
+        result = prod.list_issues(p["slug"], assignee_id="nobody")
+        assert result == []
+
+
+class TestConfigurableThresholds:
+    """B4: product_triggers thresholds should be module-level constants."""
+
+    def test_thresholds_are_module_constants(self):
+        from onemancompany.core import product_triggers as pt
+        # All thresholds should be accessible as module attributes
+        assert hasattr(pt, "KR_LAGGING_THRESHOLD")
+        assert hasattr(pt, "MAX_ACTIVE_PROJECTS")
+        assert hasattr(pt, "BACKLOG_GROOMING_THRESHOLD")
+        assert hasattr(pt, "STALE_REVIEW_HOURS")
+        assert hasattr(pt, "BLOCKED_DAYS_THRESHOLD")
+        assert hasattr(pt, "UNHANDLED_BACKLOG_THRESHOLD")
+
+    def test_history_cap_is_constant(self):
+        assert hasattr(prod, "HISTORY_MAX_ENTRIES")
+        assert isinstance(prod.HISTORY_MAX_ENTRIES, int)
+        assert prod.HISTORY_MAX_ENTRIES > 0

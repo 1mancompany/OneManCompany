@@ -38,6 +38,12 @@ from onemancompany.core.models import (
 from onemancompany.core.store import _read_yaml, _write_yaml, mark_dirty
 
 # ---------------------------------------------------------------------------
+# Configurable constants
+# ---------------------------------------------------------------------------
+
+HISTORY_MAX_ENTRIES: int = 100
+
+# ---------------------------------------------------------------------------
 # Per-slug threading locks (same pattern as project_archive.py)
 # ---------------------------------------------------------------------------
 
@@ -269,8 +275,8 @@ def _append_history(data: dict, field: str, old_value, new_value, changed_by: st
         "new_value": str(new_value) if new_value is not None else None,
         "changed_by": changed_by,
     })
-    if len(data["history"]) > 100:
-        data["history"] = data["history"][-100:]
+    if len(data["history"]) > HISTORY_MAX_ENTRIES:
+        data["history"] = data["history"][-HISTORY_MAX_ENTRIES:]
 
 
 def create_issue(
@@ -355,8 +361,12 @@ def list_issues(
     priority: IssuePriority | None = None,
     labels: list[str] | None = None,
     sprint: str | None = None,
+    assignee_id: str | None = None,
 ) -> list[dict]:
-    """List issues for a product, optionally filtered."""
+    """List issues for a product, optionally filtered.
+
+    assignee_id: filter by assignee. Empty string "" means unassigned.
+    """
     issues_path = _issues_dir(slug)
     if not issues_path.exists():
         return []
@@ -378,6 +388,14 @@ def list_issues(
                 continue
         if sprint is not None and data.get("sprint") != sprint:
             continue
+        if assignee_id is not None:
+            issue_assignee = data.get("assignee_id") or ""
+            if assignee_id == "":
+                # Filter for unassigned
+                if issue_assignee:
+                    continue
+            elif issue_assignee != assignee_id:
+                continue
         results.append(data)
     return results
 
