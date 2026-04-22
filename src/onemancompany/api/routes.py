@@ -7483,6 +7483,13 @@ async def api_create_sprint(slug: str, request: Request) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    await event_bus.publish(
+        CompanyEvent(
+            type=EventType.SPRINT_CREATED,
+            payload={"product_slug": slug, "sprint_id": result["id"]},
+            agent=SYSTEM_AGENT,
+        )
+    )
     return result
 
 
@@ -7531,6 +7538,13 @@ async def api_close_sprint(slug: str, sprint_id: str) -> dict:
         result = prod.close_sprint(slug, sprint_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    await event_bus.publish(
+        CompanyEvent(
+            type=EventType.SPRINT_CLOSED,
+            payload={"product_slug": slug, "sprint_id": sprint_id},
+            agent=SYSTEM_AGENT,
+        )
+    )
     return result
 
 
@@ -7543,6 +7557,13 @@ async def api_start_sprint(slug: str, sprint_id: str) -> dict:
         result = prod.start_sprint(slug, sprint_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    await event_bus.publish(
+        CompanyEvent(
+            type=EventType.SPRINT_STARTED,
+            payload={"product_slug": slug, "sprint_id": sprint_id},
+            agent=SYSTEM_AGENT,
+        )
+    )
     return result
 
 
@@ -7649,6 +7670,13 @@ async def api_create_review(slug: str, request: Request) -> dict:
         trigger_ref=trigger_ref,
         owner=owner,
     )
+    await event_bus.publish(
+        CompanyEvent(
+            type=EventType.REVIEW_CREATED,
+            payload={"product_slug": slug, "review_id": review["id"]},
+            agent=SYSTEM_AGENT,
+        )
+    )
     return review
 
 
@@ -7691,9 +7719,17 @@ async def api_complete_review(slug: str, review_id: str) -> dict:
     from onemancompany.core import product as prod
 
     try:
-        return prod.complete_review(slug, review_id)
+        result = prod.complete_review(slug, review_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    await event_bus.publish(
+        CompanyEvent(
+            type=EventType.REVIEW_COMPLETED,
+            payload={"product_slug": slug, "review_id": review_id},
+            agent=SYSTEM_AGENT,
+        )
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------
