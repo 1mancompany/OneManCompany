@@ -743,6 +743,46 @@ async def delete_product_tool(product_slug: str) -> str:
         return f"Error: {e}"
 
 
+@tool
+async def assign_issue_tool(
+    product_slug: str,
+    issue_id: str,
+    assignee_id: str,
+) -> str:
+    """Assign (or reassign) an issue to an employee.
+
+    Args:
+        product_slug: The product slug
+        issue_id: The issue ID
+        assignee_id: Employee ID to assign
+    """
+    try:
+        issue = prod.update_issue(product_slug, issue_id, assignee_id=assignee_id)
+        return f"Issue {issue_id} assigned to {assignee_id}"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
+async def transfer_product_ownership_tool(
+    product_slug: str,
+    new_owner_id: str,
+) -> str:
+    """Transfer product ownership to a different employee.
+
+    Args:
+        product_slug: The product slug
+        new_owner_id: Employee ID of the new owner
+    """
+    try:
+        result = prod.update_product(product_slug, owner_id=new_owner_id)
+        if result is None:
+            return f"Error: product '{product_slug}' not found"
+        return f"Product '{product_slug}' ownership transferred to {new_owner_id}"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
 # ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
@@ -770,4 +810,6 @@ PRODUCT_TOOLS = [
     version_management_tool,
     update_product_tool,
     delete_product_tool,
+    assign_issue_tool,
+    transfer_product_ownership_tool,
 ]

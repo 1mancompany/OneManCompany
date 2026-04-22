@@ -19,6 +19,7 @@ from loguru import logger
 
 from onemancompany.core.config import (
     ACTIVITY_LOG_DIR_NAME,
+    EMPLOYEES_DIR,
     ISSUES_DIR_NAME,
     PRODUCT_YAML_FILENAME,
     PRODUCTS_DIR,
@@ -99,6 +100,17 @@ def _gen_id(prefix: str) -> str:
     return f"{prefix}{uuid.uuid4().hex[:8]}"
 
 
+def _validate_employee_id(emp_id: str, label: str = "Employee") -> None:
+    """Raise ValueError if emp_id does not correspond to a valid employee directory.
+
+    Empty string is allowed (means "no owner/assignee assigned").
+    """
+    if not emp_id:
+        return  # empty = unassigned, valid
+    if not (EMPLOYEES_DIR / emp_id).is_dir():
+        raise ValueError(f"{label} '{emp_id}' not found in employee registry")
+
+
 # ---------------------------------------------------------------------------
 # Product CRUD
 # ---------------------------------------------------------------------------
@@ -112,6 +124,7 @@ def create_product(
     current_version: str = "0.1.0",
 ) -> dict:
     """Create a new product. Returns the product dict."""
+    _validate_employee_id(owner_id, label="Owner")
     slug = _dedup_slug(_slugify(name))
     product_id = _gen_id("prod_")
     now = datetime.now().isoformat()
@@ -165,6 +178,8 @@ def list_products() -> list[dict]:
 
 def update_product(slug: str, **fields) -> dict | None:
     """Update product fields. Returns updated dict or None if not found."""
+    if "owner_id" in fields and fields["owner_id"] is not None:
+        _validate_employee_id(fields["owner_id"], label="Owner")
     with _get_slug_lock(slug):
         path = _product_yaml_path(slug)
         data = _read_yaml(path)
@@ -314,6 +329,8 @@ def create_issue(
     product = load_product(slug)
     if not product:
         raise ValueError(f"Product '{slug}' not found")
+    if assignee_id:
+        _validate_employee_id(assignee_id, label="Assignee")
     issue_id = _gen_id("issue_")
     product_id = product["id"]
     now = datetime.now().isoformat()
@@ -424,6 +441,9 @@ def update_issue(slug: str, issue_id: str, *, _skip_transition_check: bool = Fal
     _skip_transition_check: internal flag for system-derived status updates
     that may jump non-adjacent states (e.g. sync_issue_statuses).
     """
+    new_assignee = fields.get("assignee_id")
+    if new_assignee is not None and new_assignee != "":
+        _validate_employee_id(new_assignee, label="Assignee")
     with _get_slug_lock(slug):
         path = _issues_dir(slug) / f"{issue_id}.yaml"
         data = _read_yaml(path)
@@ -441,6 +461,11 @@ def update_issue(slug: str, issue_id: str, *, _skip_transition_check: bool = Fal
                 if old_value != value:
                     _append_history(data, key, old_value, value, changed_by="system")
                 data[key] = value
+        # Auto-set closed_at and resolution when status transitions to DONE
+        if new_status == IssueStatus.DONE.value and not data.get("closed_at"):
+            data["closed_at"] = datetime.now().isoformat()
+            if not data.get("resolution"):
+                data["resolution"] = IssueResolution.FIXED.value
         _write_yaml(path, data)
     mark_dirty(DirtyCategory.PRODUCTS)
     return data
@@ -999,12 +1024,25 @@ def release_version(
         product["current_version"] = new_version
         _write_yaml(_product_yaml_path(product_slug), product)
 
-    # Mark resolved issues as released (bypass validation — release is a system operation)
+    # Mark resolved issues as released — only DONE issues are eligible
+    skipped_issues: list[str] = []
     for issue_id in resolved_issue_ids:
         issue = load_issue(product_slug, issue_id)
-        if issue and issue.get("status") != IssueStatus.RELEASED.value:
-            update_issue(product_slug, issue_id, _skip_transition_check=True, status=IssueStatus.RELEASED.value)
+        if not issue:
+            skipped_issues.append(issue_id)
+            continue
+        if issue.get("status") == IssueStatus.RELEASED.value:
+            continue  # already released
+        if issue.get("status") != IssueStatus.DONE.value:
+            skipped_issues.append(issue_id)
+            logger.warning(
+                "[VERSION] Skipping issue {} — status '{}' is not DONE",
+                issue_id, issue.get("status"),
+            )
+            continue
+        update_issue(product_slug, issue_id, _skip_transition_check=True, status=IssueStatus.RELEASED.value)
 
+    version_record["skipped_issues"] = skipped_issues
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.info("[VERSION] Released {} for product '{}'", new_version, product_slug)
     return version_record
@@ -1355,6 +1393,24 @@ def create_sprint(
             f"End date '{end_date}' must be after start date '{start_date}'"
         )
 
+    # Check for date overlap with non-closed sprints
+    existing_sprints = list_sprints(slug)
+    for existing in existing_sprints:
+        if existing.get("status") == SprintStatus.CLOSED.value:
+            continue
+        try:
+            ex_sd = datetime.strptime(existing["start_date"], "%Y-%m-%d")
+            ex_ed = datetime.strptime(existing["end_date"], "%Y-%m-%d")
+        except (ValueError, KeyError):
+            logger.debug("Skipping overlap check for sprint with invalid dates: {}", existing.get("id"))
+            continue
+        # Overlap: ranges overlap if start < other_end AND other_start < end
+        if sd < ex_ed and ex_sd < ed:
+            raise ValueError(
+                f"Sprint dates {start_date}..{end_date} overlap with "
+                f"'{existing['name']}' ({existing['start_date']}..{existing['end_date']})"
+            )
+
     sprint_id = _gen_id("sprint_")
     now = datetime.now().isoformat()
 
@@ -1478,8 +1534,9 @@ def close_sprint(slug: str, sprint_id: str) -> dict:
     total_count = len(all_issues)
     unfinished = [i for i in all_issues if i.get("status") not in _DONE_STATUSES]
 
-    # 3. Carry-over: find next planning sprint
+    # 3. Carry-over: find next planning sprint (sorted by start_date, earliest first)
     planning_sprints = list_sprints(slug, status=SprintStatus.PLANNING.value)
+    planning_sprints.sort(key=lambda s: s.get("start_date", ""))
     next_sprint = planning_sprints[0] if planning_sprints else None
 
     for issue in unfinished:

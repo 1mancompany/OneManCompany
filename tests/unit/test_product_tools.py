@@ -8,6 +8,11 @@ from onemancompany.core import product as prod
 @pytest.fixture(autouse=True)
 def _isolate(tmp_path, monkeypatch):
     monkeypatch.setattr(prod, "PRODUCTS_DIR", tmp_path)
+    emp_dir = tmp_path / "employees"
+    emp_dir.mkdir()
+    monkeypatch.setattr(prod, "EMPLOYEES_DIR", emp_dir)
+    for eid in ("00004", "00010", "00011", "emp-1", "agent", "emp001"):
+        (emp_dir / eid).mkdir()
     prod.create_product(name="ToolTest", owner_id="00004", description="test product")
     yield
 
@@ -205,7 +210,7 @@ class TestProductTools:
     async def test_product_tools_list(self):
         from onemancompany.agents.product_tools import PRODUCT_TOOLS
 
-        assert len(PRODUCT_TOOLS) == 22
+        assert len(PRODUCT_TOOLS) == 24
         names = {t.name for t in PRODUCT_TOOLS}
         assert "create_product_tool" in names
         assert "create_product_issue" in names
@@ -658,7 +663,7 @@ class TestProductTools:
         from onemancompany.agents.product_tools import PRODUCT_TOOLS
 
         assert isinstance(PRODUCT_TOOLS, list)
-        assert len(PRODUCT_TOOLS) == 22  # 7 original + 3 sprint tools
+        assert len(PRODUCT_TOOLS) == 24  # 7 original + 3 sprint tools
         for t in PRODUCT_TOOLS:
             assert hasattr(t, "ainvoke")
 
