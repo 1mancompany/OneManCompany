@@ -2061,3 +2061,46 @@ class TestReleaseVersionClosesFirstIfNeeded:
         loaded = prod.load_issue(p["slug"], issue["id"])
         assert loaded["status"] == IssueStatus.RELEASED.value
         assert v["version"] == "0.1.1"
+
+
+# ---------------------------------------------------------------------------
+# B5: build_product_context shows all active issues, not just BACKLOG
+# ---------------------------------------------------------------------------
+
+
+class TestBuildProductContextActiveIssues:
+    """build_product_context should include all non-terminal issues, not just BACKLOG."""
+
+    def test_context_includes_in_progress_issues(self):
+        p = prod.create_product(name="CtxActive", owner_id="00010")
+        slug = p["slug"]
+        prod.create_issue(slug=slug, title="Backlog Issue", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="In Progress Issue", created_by="ceo")
+        prod.update_issue(slug, i2["id"], status=IssueStatus.IN_PROGRESS.value)
+        ctx = prod.build_product_context(slug)
+        assert "Backlog Issue" in ctx
+        assert "In Progress Issue" in ctx
+
+    def test_context_excludes_done_and_released(self):
+        p = prod.create_product(name="CtxExclude", owner_id="00010")
+        slug = p["slug"]
+        prod.create_issue(slug=slug, title="Active One", created_by="ceo")
+        i2 = prod.create_issue(slug=slug, title="Done One", created_by="ceo")
+        i3 = prod.create_issue(slug=slug, title="Released One", created_by="ceo")
+        prod.update_issue(slug, i2["id"], status=IssueStatus.IN_PROGRESS.value)
+        prod.update_issue(slug, i2["id"], status=IssueStatus.DONE.value)
+        prod.update_issue(slug, i3["id"], status=IssueStatus.IN_PROGRESS.value)
+        prod.update_issue(slug, i3["id"], status=IssueStatus.DONE.value)
+        prod.update_issue(slug, i3["id"], _skip_transition_check=True, status=IssueStatus.RELEASED.value)
+        ctx = prod.build_product_context(slug)
+        assert "Active One" in ctx
+        assert "Done One" not in ctx
+        assert "Released One" not in ctx
+
+    def test_context_label_says_active_not_backlog(self):
+        """The section header should say 'Active Issues', not just 'Backlog'."""
+        p = prod.create_product(name="CtxLabel", owner_id="00010")
+        slug = p["slug"]
+        prod.create_issue(slug=slug, title="Something", created_by="ceo")
+        ctx = prod.build_product_context(slug)
+        assert "Active Issues" in ctx

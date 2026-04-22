@@ -1034,12 +1034,14 @@ def build_product_context(product_slug: str) -> str:
             unit = kr.get("unit", "")
             suffix = f" {unit}" if unit else ""
             parts.append(f"  - {kr['title']}: {current}/{target}{suffix} ({pct:.0f}%)")
-    issues = list_issues(product_slug, status=IssueStatus.BACKLOG)
+    _terminal = {IssueStatus.DONE.value, IssueStatus.RELEASED.value}
+    issues = [i for i in list_issues(product_slug) if i.get("status") not in _terminal]
     issues.sort(key=lambda i: i.get("priority", "P3"))
     if issues:
         parts.append(f"\nActive Issues ({len(issues)}):")
         for issue in issues[:10]:
-            parts.append(f"  - [{issue['priority']}] {issue['title']} ({issue['id']})")
+            status_tag = issue.get("status", "backlog")
+            parts.append(f"  - [{issue['priority']}][{status_tag}] {issue['title']} ({issue['id']})")
         if len(issues) > 10:
             parts.append(f"  ... and {len(issues) - 10} more")
     parts.append("=== End Product Context ===")
