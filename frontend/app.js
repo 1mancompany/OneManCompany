@@ -95,6 +95,7 @@ class AppController {
       const { employees, tasks, rooms, tools, activity_log, version, office_layout } = data;
       console.debug(`[bootstrap] /api/bootstrap took ${(performance.now() - t0).toFixed(0)}ms`);
 
+      this._cachedEmployees = employees || [];
       this.updateRoster(employees);
       this.updateOneononeDropdown(employees);
       this.updateProjectsPanel();
@@ -201,6 +202,7 @@ class AppController {
 
   async _fetchAndRenderRoster() {
     const employees = await fetch('/api/employees').then(r => r.json());
+    this._cachedEmployees = employees || [];
     this.updateRoster(employees);
     this.updateOneononeDropdown(employees);
     if (window.officeRenderer) {
@@ -2737,7 +2739,7 @@ class AppController {
     fetch('/api/ceo/dnd').then(r => r.json()).then(data => {
       dndBtn.classList.toggle('active', data.dnd);
       if (data.dnd) dndBtn.title = 'Do Not Disturb (ON)';
-    }).catch(() => {});
+    }).catch(err => console.warn('[dnd] state load failed:', err));
   }
 
   // ===== @Mention Autocomplete ===== //
@@ -7099,6 +7101,7 @@ class AppController {
   }
 
   _escapeHtml(text) {
+    if (text == null) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
@@ -7396,20 +7399,15 @@ class AppController {
     list.appendChild(row);
   }
 
-  async _populateProductOwnerDropdown() {
-    try {
-      const data = await fetch('/api/bootstrap').then(r => r.json());
-      const sel = document.getElementById('create-product-owner');
-      if (!sel) return;
-      sel.innerHTML = '<option value="">Select owner...</option>';
-      for (const emp of (data.employees || [])) {
-        const opt = document.createElement('option');
-        opt.value = emp.id;
-        opt.textContent = `${emp.name || emp.id} (${emp.role || ''})`;
-        sel.appendChild(opt);
-      }
-    } catch (e) {
-      console.debug('Failed to populate owner dropdown:', e);
+  _populateProductOwnerDropdown() {
+    const sel = document.getElementById('create-product-owner');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Select owner...</option>';
+    for (const emp of (this._cachedEmployees || [])) {
+      const opt = document.createElement('option');
+      opt.value = emp.id;
+      opt.textContent = `${emp.name || emp.id} (${emp.role || ''})`;
+      sel.appendChild(opt);
     }
   }
 
@@ -7725,15 +7723,13 @@ class AppController {
     ownerEl.className = 'form-input';
     ownerEl.style.width = 'auto';
     ownerEl.innerHTML = '<option value="">Unassigned</option>';
-    fetch('/api/bootstrap').then(r => r.json()).then(d => {
-      for (const emp of (d.employees || [])) {
-        const opt = document.createElement('option');
-        opt.value = emp.id;
-        opt.textContent = `${emp.name || emp.id}`;
-        ownerEl.appendChild(opt);
-      }
-      ownerEl.value = product.owner_id || '';
-    });
+    for (const emp of (this._cachedEmployees || [])) {
+      const opt = document.createElement('option');
+      opt.value = emp.id;
+      opt.textContent = `${emp.name || emp.id}`;
+      ownerEl.appendChild(opt);
+    }
+    ownerEl.value = product.owner_id || '';
     ownerEl.addEventListener('change', () => {
       fetch(`/api/product/${encodeURIComponent(slug)}`, {
         method: 'PUT',
@@ -8220,15 +8216,13 @@ class AppController {
     assignSel.style.width = 'auto';
     assignSel.style.display = 'inline';
     assignSel.innerHTML = '<option value="">Unassigned</option>';
-    fetch('/api/bootstrap').then(r => r.json()).then(d => {
-      for (const emp of (d.employees || [])) {
-        const opt = document.createElement('option');
-        opt.value = emp.id;
-        opt.textContent = emp.name || emp.id;
-        assignSel.appendChild(opt);
-      }
-      assignSel.value = issue.assignee_id || '';
-    });
+    for (const emp of (this._cachedEmployees || [])) {
+      const opt = document.createElement('option');
+      opt.value = emp.id;
+      opt.textContent = emp.name || emp.id;
+      assignSel.appendChild(opt);
+    }
+    assignSel.value = issue.assignee_id || '';
     assignSel.addEventListener('click', (e) => e.stopPropagation());
     assignSel.addEventListener('change', () => {
       fetch(`/api/product/${encodeURIComponent(slug)}/issue/${encodeURIComponent(issue.id)}`, {
@@ -9067,8 +9061,9 @@ class AppController {
         header.className = 'review-card-header';
         const trigger = rev.trigger || 'manual';
         const dateStr = rev.created_at ? new Date(rev.created_at).toLocaleDateString() : '';
-        header.innerHTML = `<span class="review-trigger">${this._escHtml(trigger)}</span> <span class="review-date">${dateStr}</span>`;
-        if (rev.owner) header.innerHTML += ` <span class="review-owner">Owner: ${this._escHtml(rev.owner)}</span>`;
+        let headerHtml = `<span class="review-trigger">${this._escHtml(trigger)}</span> <span class="review-date">${dateStr}</span>`;
+        if (rev.owner) headerHtml += ` <span class="review-owner">Owner: ${this._escHtml(rev.owner)}</span>`;
+        header.innerHTML = headerHtml;
         card.appendChild(header);
 
         // Checklist items
