@@ -31,7 +31,7 @@
 >
 > Not building a company — building any company.
 
-OneManCompany is an open-source OS that lets anyone build and run a complete AI-powered company from their browser.
+OneManCompany is an open-source OS that lets anyone build and run a complete AI-powered company from their browser. It doesn't replace tools like Claude Code, Codex, or other agent frameworks — it operates one level above them as an **agentic operating system**, orchestrating hierarchical AI teams built on top of these underlying tools.
 
 **You are the CEO — the only human.** Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously. (*No slacking, no sick days, no raise requests — just the occasional need for a pep talk.*)
 
@@ -198,7 +198,7 @@ These aren't toy demos — each AI company produces **product-level deliverables
 
 ## Quick Start
 
-You only need **Node.js 16+** and **Git**. Everything else is installed automatically.
+You only need **Node.js 18+** and **Git**. Everything else is installed automatically.
 
 ```bash
 npx @1mancompany/onemancompany
@@ -261,7 +261,7 @@ Founding employees (EA, HR, COO, CSO) support three execution modes, switchable 
 | --- | --- | --- |
 | **Company Hosted Agent** | OMC's built-in agent, calls LLMs via OpenRouter | OpenRouter API Key (configured in setup process) |
 | **Claude Code** | More capable, lower token cost | Install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) + [Claude Pro/Max subscription](https://claude.ai) |
-| **OpenClaw** *(Coming Soon)* | Open-source alternative, multiple LLM backends | Install [OpenClaw CLI](https://github.com/openclaw/openclaw) + compatible LLM API Key |
+| **OpenClaw** *(Experimental)* | Open-source alternative, multiple LLM backends | Install [OpenClaw CLI](https://github.com/openclaw/openclaw) + compatible LLM API Key |
 
 Defaults to Company Hosted Agent — no extra subscription needed to get started. See [Execution Modes docs](https://1mancompany.github.io/OneManCompany/docs/guide/execution-modes/) for details.
 
@@ -418,7 +418,7 @@ This is a living plan — [request a feature](https://github.com/1mancompany/One
 | [Vessel System](docs/vessel-system.md) | Vessel + Talent deep dive, Harness protocols |
 | [Task System](docs/task-system.md) | Task status state machine |
 | [Coding Guide](vibe-coding-guide.md) | Coding guidelines, testing rules, code style |
-| [Changelog](CHANGELOG.md) | Release history |
+| [Changelog](https://github.com/1mancompany/OneManCompany/releases) | Release history |
 
 ---
 
