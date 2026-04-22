@@ -595,7 +595,13 @@ settings = Settings()
 
 
 def update_env_var(key: str, value: str) -> None:
-    """Update or add a variable in the .env file, then reload settings."""
+    """Update or add a variable in the .env file, then reload settings.
+
+    Also syncs os.environ so that pydantic BaseSettings (which reads os.environ
+    with higher priority than .env files) sees the new value immediately.
+    """
+    import os as _os
+
     env_path = DATA_ROOT / DOT_ENV_FILENAME
     lines: list[str] = []
     found = False
@@ -610,6 +616,9 @@ def update_env_var(key: str, value: str) -> None:
     if not found:
         lines.append(f"{key}={value}")
     env_path.write_text("\n".join(lines) + "\n", encoding=ENCODING_UTF8)
+    # Sync os.environ — main.py's load_dotenv() seeds it at startup;
+    # without this, the stale env var wins over the updated .env file.
+    _os.environ[key] = value
     reload_settings()
 
 
