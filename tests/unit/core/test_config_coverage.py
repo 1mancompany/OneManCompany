@@ -80,6 +80,59 @@ class TestReloadSettings:
         assert config_mod.settings is not old_settings
 
 
+class TestUpdateEnvVarSyncsOsEnviron:
+    """Regression: update_env_var must sync os.environ so Settings() sees the
+    new value.  main.py calls load_dotenv() at startup which seeds os.environ;
+    pydantic BaseSettings reads os.environ with higher priority than .env file.
+    If update_env_var only writes the file, the stale os.environ value wins and
+    the setting appears to 'revert' on next read.
+    """
+
+    def test_update_env_var_updates_os_environ(self, tmp_path, monkeypatch):
+        """update_env_var must set os.environ[key] so reload_settings picks it up."""
+        import os
+        import onemancompany.core.config as config_mod
+
+        env_path = tmp_path / ".env"
+        env_path.write_text("DEFAULT_LLM_MODEL=old/model\n")
+        monkeypatch.setattr(config_mod, "DATA_ROOT", tmp_path)
+
+        # Simulate startup: load_dotenv seeds os.environ
+        os.environ["DEFAULT_LLM_MODEL"] = "old/model"
+
+        with patch.object(config_mod, "reload_settings"):
+            config_mod.update_env_var("DEFAULT_LLM_MODEL", "new/model")
+
+        # os.environ must reflect the new value
+        assert os.environ["DEFAULT_LLM_MODEL"] == "new/model"
+
+        # Cleanup
+        monkeypatch.delenv("DEFAULT_LLM_MODEL", raising=False)
+
+    def test_settings_sees_new_model_after_update(self, tmp_path, monkeypatch):
+        """End-to-end: after update_env_var, Settings().default_llm_model must
+        return the NEW value, not the stale os.environ value from startup."""
+        import onemancompany.core.config as config_mod
+
+        env_path = tmp_path / ".env"
+        env_path.write_text("DEFAULT_LLM_MODEL=startup/model\n")
+        monkeypatch.setattr(config_mod, "DATA_ROOT", tmp_path)
+
+        # Simulate startup: load_dotenv seeds os.environ with the old value
+        monkeypatch.setenv("DEFAULT_LLM_MODEL", "startup/model")
+
+        # Save a new model via update_env_var (calls reload_settings internally)
+        config_mod.update_env_var("DEFAULT_LLM_MODEL", "user-chosen/model")
+
+        # os.environ must have the new value so Settings() picks it up
+        import os
+        assert os.environ["DEFAULT_LLM_MODEL"] == "user-chosen/model"
+
+        # A fresh Settings instance must see the new value
+        fresh = config_mod.Settings()
+        assert fresh.default_llm_model == "user-chosen/model"
+
+
 # ---------------------------------------------------------------------------
 # sync_founding_defaults (line 629)
 # ---------------------------------------------------------------------------
