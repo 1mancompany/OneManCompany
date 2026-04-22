@@ -6786,3 +6786,53 @@ body.resize-dragging {
   border-color: #ff4444;
   color: #ff4444;
 }
+
+/* Review Cards */
+.review-card {
+  background: rgba(0,255,255,0.03);
+  border: 1px solid rgba(0,255,255,0.1);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.review-card.review-completed {
+  opacity: 0.7;
+  border-color: rgba(0,255,0,0.15);
+}
+.review-card-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: calc(5px + var(--font-boost));
+}
+.review-trigger {
+  color: var(--accent);
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: calc(5px + var(--font-boost));
+}
+.review-date { color: var(--text-dim); }
+.review-owner { color: var(--text-dim); }
+.review-items { margin: 4px 0; }
+.review-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: calc(6px + var(--font-boost));
+}
+.review-item-row input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+.review-item-checked {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+
+/* Release Form */
+.release-form {
+  margin-top: 8px;
+}

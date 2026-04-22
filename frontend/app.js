@@ -7555,6 +7555,7 @@ class AppController {
       { id: 'issues', label: `Issues (${issues.length})` },
       { id: 'kanban', label: 'Kanban' },
       { id: 'roadmap', label: 'Roadmap' },
+      { id: 'reviews', label: `Reviews (${(data.reviews || []).length})` },
       { id: 'activity', label: 'Activity' },
       { id: 'projects', label: `Projects (${projects.length})` },
     ];
@@ -7591,6 +7592,8 @@ class AppController {
       this._renderProductKanban(slug, container, data);
     } else if (tabId === 'roadmap') {
       this._renderProductRoadmap(slug, container);
+    } else if (tabId === 'reviews') {
+      this._renderProductReviews(data.reviews || [], slug, container);
     } else if (tabId === 'activity') {
       this._renderProductActivity(slug, container);
     } else if (tabId === 'projects') {
@@ -7803,11 +7806,12 @@ class AppController {
     container.appendChild(krList);
 
     // Version History
+    const verLabel = document.createElement('div');
+    verLabel.className = 'product-section-label';
+    verLabel.textContent = 'Version History';
+    container.appendChild(verLabel);
+
     if (versions.length > 0) {
-      const verLabel = document.createElement('div');
-      verLabel.className = 'product-section-label';
-      verLabel.textContent = 'Version History';
-      container.appendChild(verLabel);
       const verList = document.createElement('div');
       verList.className = 'product-version-list';
       for (const v of versions) {
@@ -7826,6 +7830,13 @@ class AppController {
       }
       container.appendChild(verList);
     }
+
+    // Release Version button
+    const releaseBtn = document.createElement('button');
+    releaseBtn.className = 'btn-small';
+    releaseBtn.textContent = '+ Release Version';
+    releaseBtn.addEventListener('click', () => this._showReleaseVersionForm(container, slug));
+    container.appendChild(releaseBtn);
   }
 
   _makeEditable(el, fieldName, slug) {
@@ -8758,10 +8769,26 @@ class AppController {
       </div>
       <div class="sprint-form-row">
         <input type="number" class="form-input sprint-new-capacity" placeholder="Capacity (pts)" style="width:80px" />
+        <span class="sprint-suggested-capacity" style="color:var(--text-dim);font-size:calc(5px + var(--font-boost));margin-left:4px"></span>
         <button class="btn-small sprint-save-btn">Create</button>
         <button class="kr-remove-btn sprint-cancel-btn">&times;</button>
       </div>
     `;
+    // Show suggested capacity if available
+    fetch(`/api/product/${encodeURIComponent(slug)}/sprint/suggest-capacity`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.suggested_capacity != null) {
+          const hint = form.querySelector('.sprint-suggested-capacity');
+          hint.textContent = `(suggested: ${d.suggested_capacity} pts)`;
+          hint.style.cursor = 'pointer';
+          hint.title = 'Click to use suggested capacity';
+          hint.addEventListener('click', () => {
+            form.querySelector('.sprint-new-capacity').value = d.suggested_capacity;
+          });
+        }
+      })
+      .catch(() => {});
     // Default dates: today → +14 days
     const today = new Date();
     const end = new Date(today);
@@ -8872,6 +8899,204 @@ class AppController {
         container.appendChild(feed);
       })
       .catch(err => { container.innerHTML = `<div class="error-text">Failed to load activity: ${err.message}</div>`; });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reviews Tab
+  // ---------------------------------------------------------------------------
+
+  _renderProductReviews(reviews, slug, container) {
+    container.innerHTML = '';
+
+    // Create Review button
+    const toolbar = document.createElement('div');
+    toolbar.className = 'issue-toolbar';
+    const createBtn = document.createElement('button');
+    createBtn.className = 'btn-small';
+    createBtn.textContent = '+ Create Review';
+    createBtn.addEventListener('click', async () => {
+      try {
+        const r = await fetch(`/api/product/${encodeURIComponent(slug)}/review`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trigger: 'manual', owner: '' }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        this._showToast('Review created', 'success');
+        this._openProductDetail(slug);
+      } catch (err) { this._showToast(`Failed: ${err.message}`, 'error'); }
+    });
+    toolbar.appendChild(createBtn);
+    container.appendChild(toolbar);
+
+    if (!reviews.length) {
+      container.innerHTML += '<div class="task-empty">No reviews yet.</div>';
+      return;
+    }
+
+    // Group: open first, then completed
+    const open = reviews.filter(r => r.status === 'open');
+    const completed = reviews.filter(r => r.status === 'completed');
+
+    for (const group of [{ label: 'Open', items: open }, { label: 'Completed', items: completed }]) {
+      if (!group.items.length) continue;
+      const heading = document.createElement('div');
+      heading.className = 'product-section-label';
+      heading.textContent = `${group.label} (${group.items.length})`;
+      container.appendChild(heading);
+
+      for (const rev of group.items) {
+        const card = document.createElement('div');
+        card.className = `review-card ${rev.status === 'completed' ? 'review-completed' : ''}`;
+
+        const header = document.createElement('div');
+        header.className = 'review-card-header';
+        const trigger = rev.trigger || 'manual';
+        const dateStr = rev.created_at ? new Date(rev.created_at).toLocaleDateString() : '';
+        header.innerHTML = `<span class="review-trigger">${this._escHtml(trigger)}</span> <span class="review-date">${dateStr}</span>`;
+        if (rev.owner) header.innerHTML += ` <span class="review-owner">Owner: ${this._escHtml(rev.owner)}</span>`;
+        card.appendChild(header);
+
+        // Checklist items
+        const itemsList = document.createElement('div');
+        itemsList.className = 'review-items';
+        for (const item of (rev.items || [])) {
+          const row = document.createElement('div');
+          row.className = 'review-item-row';
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.checked = !!item.checked;
+          checkbox.disabled = rev.status === 'completed';
+          checkbox.addEventListener('change', async () => {
+            try {
+              const r = await fetch(`/api/product/${encodeURIComponent(slug)}/review/${encodeURIComponent(rev.id)}/item/${encodeURIComponent(item.key)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ checked: checkbox.checked }),
+              });
+              if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            } catch (err) {
+              checkbox.checked = !checkbox.checked;
+              this._showToast(`Failed: ${err.message}`, 'error');
+            }
+          });
+          const label = document.createElement('span');
+          label.className = item.checked ? 'review-item-checked' : '';
+          label.textContent = item.label || item.key;
+          row.appendChild(checkbox);
+          row.appendChild(label);
+          itemsList.appendChild(row);
+        }
+        card.appendChild(itemsList);
+
+        // Complete button for open reviews
+        if (rev.status === 'open') {
+          const completeBtn = document.createElement('button');
+          completeBtn.className = 'btn-small';
+          completeBtn.textContent = 'Complete Review';
+          completeBtn.addEventListener('click', async () => {
+            try {
+              const r = await fetch(`/api/product/${encodeURIComponent(slug)}/review/${encodeURIComponent(rev.id)}/complete`, { method: 'POST' });
+              if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+              this._showToast('Review completed', 'success');
+              this._openProductDetail(slug);
+            } catch (err) { this._showToast(`Failed: ${err.message}`, 'error'); }
+          });
+          card.appendChild(completeBtn);
+        }
+
+        container.appendChild(card);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Release Version Form
+  // ---------------------------------------------------------------------------
+
+  _showReleaseVersionForm(container, slug) {
+    if (container.querySelector('.release-form')) return;
+    const form = document.createElement('div');
+    form.className = 'release-form sprint-inline-add';
+
+    // Show done issues that can be released
+    fetch(`/api/product/${encodeURIComponent(slug)}/detail`)
+      .then(r => r.json())
+      .then(data => {
+        const doneIssues = (data.issues || []).filter(i => i.status === 'done');
+        if (!doneIssues.length) {
+          form.innerHTML = '<div class="task-empty">No issues in DONE status to release.</div>';
+          const closeBtn = document.createElement('button');
+          closeBtn.className = 'kr-remove-btn';
+          closeBtn.innerHTML = '&times;';
+          closeBtn.addEventListener('click', () => form.remove());
+          form.appendChild(closeBtn);
+          return;
+        }
+
+        const label = document.createElement('div');
+        label.style.cssText = 'color:var(--text-dim);font-size:calc(5px + var(--font-boost));margin-bottom:4px';
+        label.textContent = `Select issues to include in release (${doneIssues.length} done):`;
+        form.appendChild(label);
+
+        const checkboxes = [];
+        for (const issue of doneIssues) {
+          const row = document.createElement('div');
+          row.className = 'review-item-row';
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = true;
+          cb.dataset.issueId = issue.id;
+          checkboxes.push(cb);
+          const text = document.createElement('span');
+          text.textContent = `[${issue.priority || 'P2'}] ${issue.title}`;
+          row.appendChild(cb);
+          row.appendChild(text);
+          form.appendChild(row);
+        }
+
+        const bumpRow = document.createElement('div');
+        bumpRow.className = 'sprint-form-row';
+        bumpRow.style.marginTop = '6px';
+        const bumpLabel = document.createElement('label');
+        bumpLabel.style.cssText = 'color:var(--text-dim);font-size:calc(5px + var(--font-boost))';
+        bumpLabel.textContent = 'Bump:';
+        const bumpSel = document.createElement('select');
+        bumpSel.className = 'form-input';
+        bumpSel.style.width = 'auto';
+        bumpSel.innerHTML = '<option value="patch">Patch</option><option value="minor">Minor</option><option value="major">Major</option>';
+        bumpRow.appendChild(bumpLabel);
+        bumpRow.appendChild(bumpSel);
+
+        const releaseBtn = document.createElement('button');
+        releaseBtn.className = 'btn-small';
+        releaseBtn.textContent = 'Release';
+        releaseBtn.addEventListener('click', async () => {
+          const selectedIds = checkboxes.filter(cb => cb.checked).map(cb => cb.dataset.issueId);
+          if (!selectedIds.length) { this._showToast('Select at least one issue', 'warning'); return; }
+          try {
+            const r = await fetch(`/api/product/${encodeURIComponent(slug)}/release`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ resolved_issue_ids: selectedIds, bump: bumpSel.value }),
+            });
+            if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+            const result = await r.json();
+            this._showToast(`Released v${result.version}`, 'success');
+            this._openProductDetail(slug);
+          } catch (err) { this._showToast(`Release failed: ${err.message}`, 'error'); }
+        });
+        bumpRow.appendChild(releaseBtn);
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'kr-remove-btn';
+        cancelBtn.innerHTML = '&times;';
+        cancelBtn.addEventListener('click', () => form.remove());
+        bumpRow.appendChild(cancelBtn);
+        form.appendChild(bumpRow);
+      });
+
+    container.appendChild(form);
   }
 
   _doUpdateProjectsPanel() {
