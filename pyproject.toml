@@ -32,6 +32,9 @@ sandbox = [
     "opensandbox>=0.1",
     "opensandbox-code-interpreter>=0.1",
 ]
+literature-researcher = [
+    "aigraph[real] @ git+https://github.com/iamlilAJ/literature-conflict-graph.git@v0.2.0",
+]
 
 [build-system]
 requires = ["hatchling"]

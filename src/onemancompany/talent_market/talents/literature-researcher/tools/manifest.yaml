@@ -1,0 +1,11 @@
+builtin_tools:
+- read_file
+- write_file
+- list_dir
+- bash
+custom_tools:
+- aigraph_corpus_build
+- aigraph_corpus_status
+- aigraph_extract_claims
+- aigraph_extract_open_questions
+- aigraph_pipeline_run
