@@ -85,11 +85,12 @@ def aigraph_pipeline_run(
     combined = critic + creator
     write_jsonl(out / "hypotheses.jsonl", combined)
 
-    scored = score_all(combined, anomalies, claims)
-    selected = select_mmr(scored, k=select_k, lambda_=0.7, min_anomalies=2)
+    scores = score_all(combined, anomalies, claims)
+    selected = select_mmr(combined, scores, k=select_k, lambda_=0.7, min_anomalies=2)
 
+    paper_lookup = {p.paper_id: p for p in papers}
     (out / "selected.md").write_text(
-        render_report(selected, combined, claims, anomalies, papers, []),
+        render_report(selected, anomalies, claims, scores, paper_lookup, []),
         encoding="utf-8",
     )
     render_visualization(out, out / "index.html")
