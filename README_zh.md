@@ -15,6 +15,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/1mancompany/OneManCompany" alt="License" /></a>
   <a href="https://github.com/1mancompany/OneManCompany/commits/main"><img src="https://img.shields.io/github/last-commit/1mancompany/OneManCompany" alt="Last commit" /></a>
   <a href="https://discord.gg/B6BfZ9tWa"><img src="https://img.shields.io/discord/1352123168498921472?color=5865F2&label=Discord&logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="https://huggingface.co/papers/2604.22446"><img src="https://img.shields.io/badge/%F0%9F%A4%97-Paper-yellow" alt="HuggingFace Paper" /></a>
 </p>
 
 <p align="center">
