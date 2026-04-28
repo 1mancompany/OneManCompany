@@ -15,7 +15,6 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/1mancompany/OneManCompany" alt="License" /></a>
   <a href="https://github.com/1mancompany/OneManCompany/commits/main"><img src="https://img.shields.io/github/last-commit/1mancompany/OneManCompany" alt="Last commit" /></a>
   <a href="https://discord.gg/B6BfZ9tWa"><img src="https://img.shields.io/discord/1352123168498921472?color=5865F2&label=Discord&logo=discord&logoColor=white" alt="Discord" /></a>
-  <a href="wechat.jpg"><img src="https://img.shields.io/badge/WeChat-07C160?logo=wechat&logoColor=white" alt="WeChat" /></a>
 </p>
 
 <p align="center">
@@ -24,10 +23,6 @@
 
 <p align="center">
   <a href="https://1mancompany.github.io/OneManCompany/">Homepage</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="README_zh.md">中文文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/docs/">Docs</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
-</p>
-
-<p align="right">
-  <a href="wechat.jpg"><img src="wechat.jpg" alt="WeChat QR code" width="120" /></a>
 </p>
 
 > Others use AI to write code. You use AI to run a company.
@@ -435,6 +430,16 @@ This is a living plan — [request a feature](https://github.com/1mancompany/One
 - **Improve the OS** — Core engine, frontend, documentation
 - **Share Demos** — Show what your AI company can build
 - **Report Issues** — Help us find and fix bugs
+
+<p align="center">
+  <a href="wechat.jpg">
+    <img src="wechat.jpg" alt="WeChat community QR code" width="160" />
+  </a>
+  <br>
+  <strong>👥 Community Contributors</strong>
+  <br>
+  <strong>WeChat</strong> — community.
+</p>
 
 See [vibe-coding-guide.md](vibe-coding-guide.md) for coding guidelines.
 
