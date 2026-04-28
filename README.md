@@ -432,13 +432,9 @@ This is a living plan — [request a feature](https://github.com/1mancompany/One
 - **Report Issues** — Help us find and fix bugs
 
 <p align="center">
-  <a href="wechat.jpg">
-    <img src="wechat.jpg" alt="WeChat community QR code" width="160" />
-  </a>
-  <br>
-  <strong>👥 Community Contributors</strong>
-  <br>
-  <strong>WeChat</strong> — community.
+  <a href="wechat.jpg"><img src="wechat.jpg" alt="WeChat QR — OMC 交流群" width="200" /></a>
+  <br />
+  <sub>Scan to join the OMC WeChat community group</sub>
 </p>
 
 See [vibe-coding-guide.md](vibe-coding-guide.md) for coding guidelines.
