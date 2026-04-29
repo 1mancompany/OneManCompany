@@ -28,7 +28,10 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from onemancompany.acp.client import AcpConnectionManager
 
 from langgraph.errors import GraphRecursionError
 
@@ -916,6 +919,7 @@ class EmployeeManager:
         # Tree completion event queue — serializes all child-complete callbacks
         self._completion_queue: asyncio.Queue | None = None
         self._completion_consumer: asyncio.Task | None = None
+        self._acp_manager: AcpConnectionManager | None = None
 
     # ------------------------------------------------------------------
     # ScheduleEntry-based node scheduling
@@ -1042,6 +1046,33 @@ class EmployeeManager:
         # not to the in-memory _schedule.  Re-add them now.
         self._recover_orphaned_tasks(employee_id)
 
+        return vessel
+
+    async def register_acp(
+        self,
+        employee_id: str,
+        executor_type: str,
+        extra_env: dict[str, str],
+        config: VesselConfig | None = None,
+    ) -> Vessel:
+        """Register employee via ACP. Spawns persistent subprocess."""
+        if self._acp_manager is None:
+            from onemancompany.acp.client import AcpConnectionManager
+            self._acp_manager = AcpConnectionManager()
+
+        await self._acp_manager.register_employee(employee_id, executor_type, extra_env)
+
+        # Same bookkeeping as register():
+        if config is not None:
+            self.configs[employee_id] = config
+        if employee_id not in self.task_histories:
+            entries, summary = _load_task_history(employee_id)
+            self.task_histories[employee_id] = entries
+            if summary:
+                self._history_summaries[employee_id] = summary
+        vessel = Vessel(self, employee_id)
+        self.vessels[employee_id] = vessel
+        self._recover_orphaned_tasks(employee_id)
         return vessel
 
     def _recover_orphaned_tasks(self, employee_id: str) -> None:
@@ -1585,26 +1616,40 @@ class EmployeeManager:
 
             launch_result: LaunchResult | None = None
             last_err: Exception | None = None
-            for attempt in range(max_retries):
-                try:
-                    launch_result = await asyncio.wait_for(
-                        executor.execute(task_with_ctx, context, on_log=_on_log),
-                        timeout=task_timeout,
-                    )
-                    last_err = None
-                    break
-                except GraphRecursionError as rec_err:
-                    last_err = rec_err
-                    self._log_node(employee_id, entry.node_id, "error", f"Agent hit recursion limit: {rec_err!s}")
-                    break
-                except TimeoutError:
-                    raise  # Don't retry task-level timeout — LLM request_timeout handles per-call retries
-                except Exception as run_err:
-                    last_err = run_err
-                    if attempt < max_retries - 1:
-                        delay = retry_delays[attempt] if attempt < len(retry_delays) else retry_delays[-1]
-                        self._log_node(employee_id, entry.node_id, "retry", f"Attempt {attempt + 1} failed: {run_err!s} — retrying in {delay}s")
-                        await asyncio.sleep(delay)
+
+            # ACP path: persistent subprocess via AcpConnectionManager
+            if self._acp_manager and employee_id in self._acp_manager._sessions:
+                mode = self._get_acp_mode(node)
+                if mode:
+                    await self._acp_manager.set_mode(employee_id, mode)
+
+                await asyncio.wait_for(
+                    self._acp_manager.send_prompt(employee_id, task_with_ctx),
+                    timeout=task_timeout,
+                )
+                launch_result = await self._acp_manager.collect_result(employee_id)
+            else:
+                # Legacy path (backward compat)
+                for attempt in range(max_retries):
+                    try:
+                        launch_result = await asyncio.wait_for(
+                            executor.execute(task_with_ctx, context, on_log=_on_log),
+                            timeout=task_timeout,
+                        )
+                        last_err = None
+                        break
+                    except GraphRecursionError as rec_err:
+                        last_err = rec_err
+                        self._log_node(employee_id, entry.node_id, "error", f"Agent hit recursion limit: {rec_err!s}")
+                        break
+                    except TimeoutError:
+                        raise  # Don't retry task-level timeout — LLM request_timeout handles per-call retries
+                    except Exception as run_err:
+                        last_err = run_err
+                        if attempt < max_retries - 1:
+                            delay = retry_delays[attempt] if attempt < len(retry_delays) else retry_delays[-1]
+                            self._log_node(employee_id, entry.node_id, "retry", f"Attempt {attempt + 1} failed: {run_err!s} — retrying in {delay}s")
+                            await asyncio.sleep(delay)
 
             if last_err is not None:
                 raise last_err
@@ -3464,6 +3509,15 @@ class EmployeeManager:
         if not emp_data:
             logger.warning("_get_role: employee {} not found in store, defaulting to 'Employee'", employee_id)
         return (emp_data or {}).get(PF_ROLE, "Employee")
+
+    def _get_acp_mode(self, node) -> str | None:
+        """Map task node type to ACP session mode."""
+        if node is None:
+            return None
+        node_type = getattr(node, "node_type", None)
+        if node_type and node_type.value in ("review",):
+            return "review"
+        return "execute"
 
     def _set_employee_status(self, employee_id: str, status: str) -> None:
         try:
