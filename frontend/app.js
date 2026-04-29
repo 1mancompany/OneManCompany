@@ -567,6 +567,38 @@ class AppController {
         return null;  // don't spam the activity log
       },
       'activity':            (p) => ({ text: p.message || '', cls: 'system', agent: 'SYSTEM' }),
+      'acp_update': (p) => {
+        const { kind, employee_id, data } = p;
+        switch (kind) {
+          case 'message':
+            console.debug('[ACP] message from', employee_id, data?.content?.substring?.(0, 100));
+            break;
+          case 'thought':
+            console.debug('[ACP] thought from', employee_id);
+            break;
+          case 'tool_call_start':
+            console.debug('[ACP] tool call:', data?.name, 'from', employee_id);
+            break;
+          case 'tool_call_progress':
+            console.debug('[ACP] tool progress from', employee_id);
+            break;
+          case 'plan':
+            console.debug('[ACP] plan update from', employee_id, data?.entries?.length, 'steps');
+            break;
+          case 'usage':
+            console.debug('[ACP] usage from', employee_id, data);
+            break;
+          case 'commands':
+            console.debug('[ACP] commands from', employee_id);
+            break;
+          case 'mode':
+            console.debug('[ACP] mode change:', data?.mode_id, 'for', employee_id);
+            break;
+          default:
+            console.debug('[ACP] unknown kind:', kind, 'from', employee_id);
+        }
+        return null; // no activity log entry
+      },
     };
 
     const formatter = formatters[msg.type];
