@@ -3521,6 +3521,17 @@ async def get_employee_projects(employee_id: str) -> list[dict]:
     return _scan_employee_projects(employee_id)
 
 
+@router.get("/api/employees/{employee_id}/acp-endpoint")
+async def get_acp_endpoint(employee_id: str):
+    """Return the HTTP port for IDE direct connection to this employee's ACP agent."""
+    mgr = _get_employee_manager()
+    if mgr._acp_manager:
+        port = mgr._acp_manager.get_ide_endpoint(employee_id)
+        if port:
+            return {"port": port, "transport": "streamable-http"}
+    return {"error": "No ACP endpoint available", "port": None}
+
+
 @router.get("/api/employees/{employee_id}/projects/{project_id}/retrospective")
 async def get_employee_project_retrospective(employee_id: str, project_id: str) -> dict:
     """Get an employee's retrospective summary for a specific project.
