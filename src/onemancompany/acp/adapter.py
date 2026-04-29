@@ -128,6 +128,16 @@ from acp.schema import (
     PlanEntryPriority,
     PlanEntryStatus,
     StopReason,
+    # Session capabilities
+    SessionCapabilities,
+    SessionCloseCapabilities,
+    SessionForkCapabilities,
+    SessionListCapabilities,
+    SessionResumeCapabilities,
+    # Session mode/model state
+    SessionMode,
+    SessionModeState,
+    SessionModelState,
 )
 
 # ---------------------------------------------------------------------------
@@ -292,6 +302,16 @@ __all__ = [
     "start_read_tool_call",
     "start_edit_tool_call",
     "update_tool_call",
+    # Session capabilities
+    "SessionCapabilities",
+    "SessionCloseCapabilities",
+    "SessionForkCapabilities",
+    "SessionListCapabilities",
+    "SessionResumeCapabilities",
+    # Session mode/model state
+    "SessionMode",
+    "SessionModeState",
+    "SessionModelState",
     # Exceptions
     "RequestError",
 ]
