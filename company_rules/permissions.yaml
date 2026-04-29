@@ -1,0 +1,11 @@
+default: allow
+rules:
+  - match: {tool: "write", target_exists: true, owner_is_self: false}
+    action: reject
+    reason: "Cannot overwrite files owned by other employees"
+  - match: {tool: "external_api"}
+    action: reject
+    reason: "External API calls require explicit policy allowance"
+  - match: {cost_usd_gt: 10.0}
+    action: reject
+    reason: "Single operation exceeds budget threshold"
