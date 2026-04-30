@@ -958,6 +958,17 @@ class BaseAgentRunner:
         now = datetime.now()
         parts.append(f"- Current time: {now.strftime('%Y-%m-%d %H:%M')}")
 
+        # Runtime model identity. This helps model-agnostic providers answer
+        # direct CEO questions about their configured runtime without guessing.
+        cfg = employee_configs.get(self.employee_id)
+        provider = (cfg.api_provider if cfg and cfg.api_provider else _cfg.settings.default_api_provider) or "unknown"
+        model = (cfg.llm_model if cfg and cfg.llm_model else _cfg.settings.default_llm_model) or "unknown"
+        parts.append(f"- Runtime LLM: provider={provider}, model={model}")
+        parts.append(
+            "- If the CEO asks what model/provider you are, answer using Runtime LLM above. "
+            "Do not infer or claim a different vendor from your role, tools, or framework."
+        )
+
         # Team roster summary (compact)
         from onemancompany.core.store import load_all_employees
         all_emps = load_all_employees()
@@ -1243,4 +1254,3 @@ class EmployeeAgent(BaseAgentRunner):
         self._set_status(STATUS_IDLE)
         await self._publish("agent_done", {"role": self.role, "summary": final[:MAX_SUMMARY_LEN]})
         return final
-
