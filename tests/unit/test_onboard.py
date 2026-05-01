@@ -273,3 +273,20 @@ class TestAiSearchPrompt:
 
         assert extras[ENV_KEY_TALENT_MARKET] == "tm-key-456"
         assert extras.get("USE_AI_SEARCH") == "false"
+
+
+class TestSandboxPromptRemoved:
+    """Interactive onboarding should not offer sandbox installation."""
+
+    def test_wizard_does_not_call_sandbox_step(self):
+        import inspect
+        from onemancompany.onboard import run_wizard
+
+        source = inspect.getsource(run_wizard)
+
+        assert "_step_sandbox(" not in source
+
+    def test_total_steps_excludes_sandbox(self):
+        from onemancompany.onboard import TOTAL_STEPS
+
+        assert TOTAL_STEPS == 5
