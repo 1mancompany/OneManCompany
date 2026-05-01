@@ -131,6 +131,7 @@ class TestMakeLlm:
 
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "gpt-4"
+        mock_settings.default_api_base_url = ""
         mock_settings.deepseek_api_key = "sk-ds-test"
         monkeypatch.setattr(config_mod, "settings", mock_settings)
 
@@ -144,6 +145,7 @@ class TestMakeLlm:
         llm = base_mod.make_llm("00010")
         assert llm.model_name == "deepseek-chat"
         assert "deepseek" in llm.openai_api_base
+        assert llm.extra_body == {"thinking": {"type": "disabled"}}
 
     def test_kimi_provider(self, monkeypatch):
         """Kimi provider should use ChatOpenAI with Moonshot base URL."""
