@@ -100,7 +100,7 @@ def _load_llm(profile: dict):
         if (provider_name or "").lower() == "deepseek":
             # DeepSeek V4 thinking mode requires reasoning_content replay
             # across tool calls; LangChain does not preserve it yet.
-            extra_body = {"thinking": {"type": "disabled"}}
+            extra_body = {{"thinking": {{"type": "disabled"}}}}
         return ChatOpenAI(
             model=model,
             api_key=key,
