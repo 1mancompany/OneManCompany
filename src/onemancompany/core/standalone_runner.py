@@ -96,7 +96,18 @@ def _load_llm(profile: dict):
         base_url = prov[0]
         if provider_name == "openrouter":
             base_url = os.environ.get("OPENROUTER_BASE_URL", base_url)
-        return ChatOpenAI(model=model, api_key=key, base_url=base_url, temperature=temperature)
+        extra_body = None
+        if (provider_name or "").lower() == "deepseek":
+            # DeepSeek V4 thinking mode requires reasoning_content replay
+            # across tool calls; LangChain does not preserve it yet.
+            extra_body = {"thinking": {"type": "disabled"}}
+        return ChatOpenAI(
+            model=model,
+            api_key=key,
+            base_url=base_url,
+            temperature=temperature,
+            extra_body=extra_body,
+        )
 
     # Unknown provider — fall back to OpenRouter
     key = api_key or os.environ.get("OPENROUTER_API_KEY", "")

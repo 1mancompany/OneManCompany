@@ -221,6 +221,11 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
                 base_url = settings.openrouter_base_url
             elif api_provider == "custom" or (settings.default_api_base_url and api_provider == settings.default_api_provider):
                 base_url = settings.default_api_base_url
+            extra_body = None
+            if (api_provider or "").lower() == "deepseek":
+                # DeepSeek V4 thinking mode currently requires reasoning_content
+                # replay across tool calls, which LangChain does not preserve.
+                extra_body = {"thinking": {"type": "disabled"}}
             return ChatOpenAI(
                 model=model,
                 api_key=effective_key,
@@ -229,6 +234,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
                 max_retries=3,
                 request_timeout=300.0,
                 stream_usage=True,
+                extra_body=extra_body,
             )
 
     # --- Fallback: unknown provider or no key → fall back to openrouter with default model ---
