@@ -262,6 +262,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
     fallback_key = settings.openrouter_api_key
     if not fallback_key:
         logger.warning("make_llm: no API key for provider '{}' and no OpenRouter fallback key; LLM calls will fail", api_provider)
+        fallback_key = "missing-openrouter-api-key"
 
     return ChatOpenAI(
         model=model,
