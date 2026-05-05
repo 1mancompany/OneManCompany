@@ -4229,23 +4229,16 @@ async def hire_candidate(body: HireRequest) -> dict:
 
 
 def _fill_talent_defaults(talent_data: dict) -> None:
-    """Fill missing LLM config fields with company defaults.
+    """Fill or repair LLM config fields with company defaults.
 
-    Non-self-hosted talents that lack llm_model, api_provider, or auth_method
-    get the company's default values instead of failing validation.
+    Non-self-hosted talents that lack usable llm_model, api_provider, or
+    auth_method get the company's default values instead of failing validation
+    or creating an employee that cannot start later.
     """
-    hosting = talent_data.get("hosting", "")
-    if hosting in ("self", HostingMode.SELF):
-        return
-    from onemancompany.core.config import settings as _settings
-    if not talent_data.get("llm_model"):
-        talent_data["llm_model"] = _settings.default_llm_model
-        logger.info("[hiring] Talent missing llm_model — using company default: {}", _settings.default_llm_model)
-    if not talent_data.get("api_provider"):
-        talent_data["api_provider"] = _settings.default_api_provider or "openrouter"
-        logger.info("[hiring] Talent missing api_provider — using default: {}", talent_data["api_provider"])
-    if not talent_data.get("auth_method"):
-        talent_data["auth_method"] = "api_key"
+    from onemancompany.core.config import normalize_llm_profile_defaults
+
+    label = talent_data.get("talent_id") or talent_data.get("id") or talent_data.get("name") or "talent"
+    normalize_llm_profile_defaults(talent_data, reason=f"talent {label}")
 
 
 def _check_talent_required_fields(talent_data: dict) -> list[str]:
