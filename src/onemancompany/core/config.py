@@ -655,6 +655,98 @@ def sync_founding_defaults(provider: str, model: str) -> int:
     return synced
 
 
+def resolve_provider_key(provider_name: str, employee_api_key: str = "") -> str:
+    """Resolve an API key from employee override first, then company settings."""
+    if employee_api_key:
+        return employee_api_key
+    provider_name = (provider_name or "").strip()
+    if not provider_name:
+        return ""
+    prov = get_provider(provider_name)
+    if prov and prov.env_key:
+        return getattr(settings, prov.env_key, "")
+    return ""
+
+
+def provider_has_credentials(provider_name: str, employee_api_key: str = "") -> bool:
+    """Return whether a provider can be used by this employee/company."""
+    return bool(resolve_provider_key(provider_name, employee_api_key))
+
+
+def normalize_llm_profile_defaults(profile: dict, *, reason: str = "employee") -> bool:
+    """Normalize company-hosted LLM settings in a profile-like dict.
+
+    Imported talents can carry provider-specific defaults such as OpenRouter.
+    If that provider has no credentials in this company, use the configured
+    company default provider/model instead of creating an employee that fails
+    during startup.
+    """
+    hosting = profile.get("hosting", "")
+    if hosting in ("self", "remote"):
+        return False
+
+    changed = False
+    default_provider = settings.default_api_provider or PROVIDER_OPENROUTER
+    default_model = settings.default_llm_model
+
+    provider = (profile.get("api_provider") or "").strip()
+    employee_key = (profile.get("api_key") or "").strip()
+    provider_missing_key = provider and not provider_has_credentials(provider, employee_key)
+    default_has_key = provider_has_credentials(default_provider)
+
+    if not profile.get("api_provider"):
+        profile["api_provider"] = default_provider
+        provider = default_provider
+        changed = True
+        logger.info("[llm-config] {} missing api_provider — using company default: {}", reason, default_provider)
+    elif provider != default_provider and provider_missing_key and default_has_key:
+        logger.info(
+            "[llm-config] {} provider '{}' has no credentials — using company default '{}'",
+            reason,
+            provider,
+            default_provider,
+        )
+        profile["api_provider"] = default_provider
+        provider = default_provider
+        changed = True
+        # Provider-specific model names are not always portable across gateways.
+        if default_model and profile.get("llm_model") != default_model:
+            profile["llm_model"] = default_model
+            changed = True
+
+    if not profile.get("llm_model") and default_model:
+        profile["llm_model"] = default_model
+        changed = True
+        logger.info("[llm-config] {} missing llm_model — using company default: {}", reason, default_model)
+
+    if not profile.get("auth_method"):
+        profile["auth_method"] = "api_key"
+        changed = True
+
+    return changed
+
+
+def sync_company_hosted_llm_defaults() -> int:
+    """Repair existing company-hosted employee profiles with unusable LLM config."""
+    synced = 0
+    if not EMPLOYEES_DIR.exists():
+        return synced
+
+    for emp_dir in sorted(EMPLOYEES_DIR.iterdir()):
+        if not emp_dir.is_dir():
+            continue
+        profile_path = emp_dir / PROFILE_FILENAME
+        if not profile_path.exists():
+            continue
+        data = yaml.safe_load(read_text_utf(profile_path)) or {}
+        if data.get(PF_REMOTE):
+            continue
+        if normalize_llm_profile_defaults(data, reason=f"employee {emp_dir.name}"):
+            write_text_utf(profile_path, yaml.dump(data, default_flow_style=False, allow_unicode=True))
+            synced += 1
+    return synced
+
+
 # ---------------------------------------------------------------------------
 # Application config (config.yaml at project root)
 # ---------------------------------------------------------------------------

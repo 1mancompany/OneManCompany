@@ -236,6 +236,57 @@ class TestMakeLlmBranches:
             llm = make_llm()
         assert llm is not None
 
+    def test_anthropic_empty_auth_method_uses_settings_default(self, monkeypatch):
+        """Company-default Anthropic can still recover when auth_method stays empty."""
+        from onemancompany.agents.base import make_llm, CHAT_CLASS_ANTHROPIC
+
+        mock_settings = MagicMock()
+        mock_settings.default_llm_model = "claude-3"
+        mock_settings.default_api_provider = "anthropic"
+        mock_settings.anthropic_auth_method = ""
+        mock_settings.anthropic_oauth_token = ""
+        mock_settings.anthropic_api_key = "sk-ant-api"
+        mock_settings.custom_chat_class = ""
+        mock_settings.openrouter_api_key = ""
+
+        mock_prov = MagicMock()
+        mock_prov.chat_class = CHAT_CLASS_ANTHROPIC
+        mock_prov.env_key = "anthropic_api_key"
+        mock_prov.base_url = ""
+
+        monkeypatch.setattr("onemancompany.agents.base._cfg.settings", mock_settings)
+        with patch("onemancompany.agents.base.get_provider", return_value=mock_prov), \
+             patch("onemancompany.agents.base.employee_configs", {}), \
+             patch("onemancompany.agents.base._cfg.normalize_llm_profile_defaults", lambda profile, reason: False):
+            llm = make_llm()
+        assert llm is not None
+
+    def test_custom_anthropic_base_url_override(self, monkeypatch):
+        """Custom Anthropic-compatible providers should honor DEFAULT_API_BASE_URL."""
+        from onemancompany.agents.base import make_llm, CHAT_CLASS_ANTHROPIC
+
+        mock_settings = MagicMock()
+        mock_settings.default_llm_model = "claude-3"
+        mock_settings.default_api_provider = "custom"
+        mock_settings.default_api_base_url = "http://custom-anthropic"
+        mock_settings.custom_chat_class = CHAT_CLASS_ANTHROPIC
+        mock_settings.anthropic_auth_method = "api_key"
+        mock_settings.anthropic_oauth_token = ""
+        mock_settings.anthropic_api_key = ""
+        mock_settings.custom_api_key = "sk-custom"
+        mock_settings.openrouter_api_key = ""
+
+        mock_prov = MagicMock()
+        mock_prov.chat_class = CHAT_CLASS_ANTHROPIC
+        mock_prov.env_key = "custom_api_key"
+        mock_prov.base_url = ""
+
+        monkeypatch.setattr("onemancompany.agents.base._cfg.settings", mock_settings)
+        with patch("onemancompany.agents.base.get_provider", return_value=mock_prov), \
+             patch("onemancompany.agents.base.employee_configs", {}):
+            llm = make_llm()
+        assert llm is not None
+
     def test_custom_base_url_override(self, monkeypatch):
         """Cover line 219: custom base_url for default_api_provider."""
         from onemancompany.agents.base import make_llm, CHAT_CLASS_OPENAI

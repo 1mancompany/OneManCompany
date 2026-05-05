@@ -1489,6 +1489,39 @@ class TestExecuteHireAdditional:
         assert emp.salary_per_1m_tokens == compute_salary("claude-sonnet")
 
     @pytest.mark.asyncio
+    async def test_hire_reports_progress_and_normalizes_llm_profile(self, tmp_path, monkeypatch):
+        cs, onboarding = self._setup_hire(tmp_path, monkeypatch)
+        progress_events = []
+        saved_profiles = {}
+
+        async def progress_callback(stage, message):
+            progress_events.append((stage, message))
+
+        async def fake_save_employee(emp_id, data):
+            saved_profiles[emp_id] = data
+
+        def fake_normalize(profile, *, reason):
+            profile["api_provider"] = "custom"
+            profile["llm_model"] = "company/default-model"
+            profile["auth_method"] = "api_key"
+            return True
+
+        monkeypatch.setattr(onboarding, "normalize_llm_profile_defaults", fake_normalize)
+        monkeypatch.setattr(onboarding._store, "save_employee", fake_save_employee)
+
+        emp = await onboarding.execute_hire(
+            name="Imported Dev", nickname="测试", role="Engineer", skills=[],
+            api_provider="openrouter", llm_model="openrouter/model",
+            progress_callback=progress_callback,
+        )
+
+        profile = saved_profiles[emp.id]
+        assert profile["api_provider"] == "custom"
+        assert profile["llm_model"] == "company/default-model"
+        assert ("assigning_id", "Assigned #00100") in progress_events
+        assert ("copying_skills", "Copying skill packages...") in progress_events
+
+    @pytest.mark.asyncio
     async def test_hire_agent_already_registered_skips_registration(self, tmp_path, monkeypatch):
         cs, onboarding = self._setup_hire(tmp_path, monkeypatch)
 
