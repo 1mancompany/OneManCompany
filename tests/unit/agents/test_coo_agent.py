@@ -768,6 +768,7 @@ class TestCOOAgent:
         monkeypatch.setattr(base_mod, "company_state", cs)
         monkeypatch.setattr(coo_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
+        monkeypatch.setattr(coo_mod, "make_llm", lambda eid: MagicMock())
         monkeypatch.setattr(base_mod, "load_employee_skills", lambda eid: {})
         monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", Path("/nonexistent"))
         monkeypatch.setattr(base_mod, "SHARED_PROMPTS_DIR", Path("/nonexistent"))
@@ -833,6 +834,7 @@ class TestCOOAgent:
         monkeypatch.setattr(base_mod, "company_state", cs)
         monkeypatch.setattr(coo_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
+        monkeypatch.setattr(coo_mod, "make_llm", lambda eid: MagicMock())
         monkeypatch.setattr(base_mod, "load_employee_skills", lambda eid: {})
         monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", Path("/nonexistent"))
         monkeypatch.setattr(base_mod, "SHARED_PROMPTS_DIR", Path("/nonexistent"))
@@ -911,5 +913,4 @@ class TestRevokeToolAccessNonexistent:
         })
         assert result["status"] == "error"
         assert "not found" in result["message"]
-
 
