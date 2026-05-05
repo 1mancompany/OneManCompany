@@ -275,9 +275,21 @@ class TestMakeLlmBranches:
 
         monkeypatch.setattr("onemancompany.agents.base._cfg.settings", mock_settings)
         monkeypatch.setattr("onemancompany.agents.base.employee_configs", {})
-        with patch("onemancompany.agents.base.get_provider", return_value=mock_prov):
+        mock_llm = MagicMock()
+        with patch("onemancompany.agents.base.get_provider", return_value=mock_prov), patch(
+            "onemancompany.agents.base.ChatOpenAI", return_value=mock_llm
+        ) as mock_chat:
             llm = make_llm()
-        assert llm is not None
+        assert llm is mock_llm
+        mock_chat.assert_called_once_with(
+            model="gpt-4",
+            api_key="",
+            base_url="https://openrouter.ai/api/v1",
+            temperature=0.7,
+            max_retries=3,
+            request_timeout=300.0,
+            stream_usage=True,
+        )
 
 
 class TestTrackedAinvokeBranches:
