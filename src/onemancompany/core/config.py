@@ -410,9 +410,9 @@ DEFAULT_TOOL_PERMISSIONS: dict[str, list[str]] = {
     "Engineering": [
         "bash", "use_tool",
     ],
-    "Design": ["use_tool"],
-    "Analytics": ["use_tool"],
-    "Marketing": ["use_tool"],
+    "Design": ["bash", "use_tool"],
+    "Analytics": ["bash", "use_tool"],
+    "Marketing": ["bash", "use_tool"],
     "General": [],
 }
 DEFAULT_TOOL_PERMISSIONS_FALLBACK: list[str] = []
