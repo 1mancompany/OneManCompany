@@ -267,3 +267,6 @@ docs/swe-bench-prompt.md
 docs/task-decomposition-algorithm.md
 docs/organizational-evolution-mcts.md
 docs/.DS_Store
+
+# Local dev scripts
+scripts/batch_submit_tasks.py

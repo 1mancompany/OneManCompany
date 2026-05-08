@@ -224,6 +224,26 @@ class TestRecoverScheduleFromTrees:
         assert root_b.id in scheduled_node_ids, "Active project node should be scheduled"
         assert root_a.id not in scheduled_node_ids, "Archived project node should NOT be scheduled"
 
+    def test_skips_completed_projects(self, tmp_path):
+        """Completed projects should not recover stale pending/processing handlers."""
+        from onemancompany.core.task_tree import TaskTree
+
+        tree = TaskTree("completed_proj")
+        root = tree.create_root("emp1", "completed task")
+        root.status = "processing"
+        proj_dir = tmp_path / "projects" / "completed_proj"
+        tree.save(proj_dir / "task_tree.yaml")
+        (proj_dir / "project.yaml").write_text(
+            yaml.dump({"status": "completed", "project_id": "completed_proj"})
+        )
+
+        em = _MockEM()
+        tp.recover_schedule_from_trees(em, tmp_path / "projects", tmp_path / "employees")
+
+        loaded = TaskTree.load(proj_dir / "task_tree.yaml")
+        assert loaded.get_node(root.id).status == "processing"
+        assert em.scheduled == []
+
     def test_empty_dirs(self, tmp_path):
         """No crash when projects/employees dirs don't exist."""
         em = _MockEM()

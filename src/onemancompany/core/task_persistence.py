@@ -16,17 +16,59 @@ import yaml
 from onemancompany.core.config import EMPLOYEES_DIR, PROJECT_YAML_FILENAME, TASK_TREE_FILENAME, read_text_utf
 from onemancompany.core.task_lifecycle import RESOLVED, TaskPhase, NodeType
 
+_CLOSED_PROJECT_STATUSES = {"archived", "completed", "failed", "cancelled"}
+
+
+def _project_metadata_paths(tree_path: Path) -> list[Path]:
+    """Return possible project/iteration metadata files for a task tree."""
+    project_dir = tree_path.parent
+    candidates = [
+        project_dir / PROJECT_YAML_FILENAME,
+    ]
+    if project_dir.parent.name == "iterations":
+        candidates.extend([
+            project_dir.parent / f"{project_dir.name}.yaml",
+            project_dir.parent.parent / PROJECT_YAML_FILENAME,
+        ])
+    else:
+        candidates.extend([
+            project_dir.parent / PROJECT_YAML_FILENAME,
+            project_dir.parent.parent / PROJECT_YAML_FILENAME,
+        ])
+
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for candidate in candidates:
+        if candidate not in seen:
+            seen.add(candidate)
+            unique.append(candidate)
+    return unique
+
+
+def _project_statuses(tree_path: Path) -> list[str]:
+    """Load all known status values for the tree's project/iteration."""
+    statuses: list[str] = []
+    for metadata_path in _project_metadata_paths(tree_path):
+        if not metadata_path.exists():
+            continue
+        try:
+            doc = yaml.safe_load(read_text_utf(metadata_path)) or {}
+        except Exception:
+            continue
+        status = doc.get("status")
+        if status:
+            statuses.append(str(status))
+    return statuses
+
 
 def _is_project_archived(tree_path: Path) -> bool:
     """Check if the project containing this tree file is archived."""
-    project_yaml = tree_path.parent / PROJECT_YAML_FILENAME
-    if not project_yaml.exists():
-        return False
-    try:
-        doc = yaml.safe_load(read_text_utf(project_yaml)) or {}
-        return doc.get("status") == "archived"
-    except Exception:
-        return False
+    return "archived" in _project_statuses(tree_path)
+
+
+def _is_project_closed(tree_path: Path) -> bool:
+    """Check if the project/iteration is already final and should not recover work."""
+    return any(status in _CLOSED_PROJECT_STATUSES for status in _project_statuses(tree_path))
 
 
 # ---------------------------------------------------------------------------
@@ -59,9 +101,9 @@ def recover_schedule_from_trees(
     # 1. Scan all task_tree.yaml files under projects_dir
     if projects_dir.exists():
         for tree_path in projects_dir.rglob(TASK_TREE_FILENAME):
-            # Skip archived projects — no need to restore tasks
-            if _is_project_archived(tree_path):
-                logger.debug("Skipping archived project tree: {}", tree_path)
+            # Skip closed projects — no need to restore tasks or stale handlers.
+            if _is_project_closed(tree_path):
+                logger.debug("Skipping closed project tree: {}", tree_path)
                 continue
             try:
                 tree = get_tree(tree_path)

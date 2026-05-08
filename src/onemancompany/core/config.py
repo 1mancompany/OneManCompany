@@ -406,13 +406,11 @@ ENGINEERING_DEPT = "Engineering"
 # Default tool permissions by department (set during hiring)
 # Note: read, ls, write, edit are now BASE_TOOLS (always available, no permission needed).
 # Only gated tools need to be listed here.
-DEFAULT_TOOL_PERMISSIONS: dict[str, list[str]] = {
-    "Engineering": [
-        "bash", "use_tool",
-    ],
-    "Design": ["use_tool"],
-    "Analytics": ["use_tool"],
-    "Marketing": ["use_tool"],
+DEFAULT_TOOL_PERMISSIONS = {
+    "Engineering": ["bash", "use_tool"],
+    "Design": ["bash", "use_tool"],
+    "Analytics": ["bash", "use_tool"],
+    "Marketing": ["bash", "use_tool"],
     "General": [],
 }
 DEFAULT_TOOL_PERMISSIONS_FALLBACK: list[str] = []
