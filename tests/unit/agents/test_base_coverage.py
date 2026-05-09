@@ -260,7 +260,7 @@ class TestMakeLlmBranches:
         assert llm is not None
 
     def test_fallback_no_key_warning(self, monkeypatch):
-        """Cover line 237: no API key warning."""
+        """Missing selected-provider key and fallback key still creates a deferred-failure LLM."""
         from onemancompany.agents.base import make_llm
         mock_settings = MagicMock()
         mock_settings.default_llm_model = "gpt-4"

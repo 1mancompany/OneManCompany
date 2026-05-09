@@ -384,21 +384,15 @@ def _step_llm(console: Console) -> tuple[str, str, str, str]:
         if not base_url:
             console.print("  [red]Base URL is required for custom providers.[/red]")
             base_url = _inq.text(message="Base URL:", style=INQ_STYLE).execute().strip()
-    elif provider != PROVIDER_OPENROUTER:
-        console.print(
-            f"  [dim]Custom API base URL (press Enter to keep default).[/dim]\n"
-            f"  [dim]Examples: https://api.openai.com/v1, https://your-server.com/v1[/dim]"
-        )
-        from onemancompany.core.config import PROVIDER_REGISTRY
-        default_url = PROVIDER_REGISTRY.get(provider, None)
-        default_url = default_url.base_url if default_url else ""
-        base_url = _inq.text(
-            message="Base URL:",
-            default=default_url,
-            style=INQ_STYLE,
-        ).execute().strip()
 
     # 4. Select model — try fetching from provider, fall back to manual input
+    model = _select_or_enter_model(console, provider, api_key)
+    return provider, api_key.strip(), model, base_url, custom_chat_class
+
+
+def _select_or_enter_model(console: Console, provider: str, api_key: str) -> str:
+    from InquirerPy import inquirer as _inq
+
     console.print()
     all_models = _fetch_provider_models(console, provider, api_key)
     if all_models:
@@ -412,8 +406,7 @@ def _step_llm(console: Console) -> tuple[str, str, str, str]:
             default=default_model,
             style=INQ_STYLE,
         ).execute().strip()
-
-    return provider, api_key.strip(), model, base_url, custom_chat_class
+    return model
 
 
 def _step_server(console: Console) -> tuple[str, int]:
