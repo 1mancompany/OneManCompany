@@ -146,6 +146,75 @@ class TestNoStaleRichUI:
         assert "custom model ID" not in source
 
 
+class TestStepLlmBaseUrlPrompt:
+    """Provider-specific Base URL prompt behavior."""
+
+    @pytest.mark.parametrize("selected_provider", [
+        "openai",
+        "anthropic",
+        "kimi",
+        "deepseek",
+        "qwen",
+        "zhipu",
+        "groq",
+        "together",
+        "openrouter",
+        "google",
+        "minimax",
+    ])
+    def test_known_providers_do_not_prompt_for_base_url(self, selected_provider):
+        from onemancompany.onboard import _step_llm
+
+        mock_console = MagicMock()
+        mock_select = MagicMock()
+        mock_select.execute.return_value = selected_provider
+        mock_secret = MagicMock()
+        mock_secret.execute.return_value = "sk-test"
+        mock_text = MagicMock()
+        mock_text.execute.return_value = "test-model"
+
+        with patch("InquirerPy.inquirer.select", return_value=mock_select), \
+             patch("InquirerPy.inquirer.secret", return_value=mock_secret), \
+             patch("InquirerPy.inquirer.text", return_value=mock_text) as mock_text_fn, \
+             patch("onemancompany.onboard._fetch_provider_models", return_value=[]):
+            provider, api_key, model, base_url, custom_chat_class = _step_llm(mock_console)
+
+        assert provider == selected_provider
+        assert api_key == "sk-test"
+        assert model == "test-model"
+        assert base_url == ""
+        assert custom_chat_class == ""
+        assert [call.kwargs["message"] for call in mock_text_fn.call_args_list] == ["Model ID:"]
+
+    def test_custom_provider_prompts_for_base_url(self):
+        from onemancompany.onboard import _step_llm
+
+        mock_console = MagicMock()
+        provider_select = MagicMock()
+        provider_select.execute.return_value = "custom"
+        compatibility_select = MagicMock()
+        compatibility_select.execute.return_value = "openai"
+        mock_secret = MagicMock()
+        mock_secret.execute.return_value = "sk-custom"
+        base_url_text = MagicMock()
+        base_url_text.execute.return_value = "https://llm.example.com/v1"
+        model_text = MagicMock()
+        model_text.execute.return_value = "custom-model"
+
+        with patch("InquirerPy.inquirer.select", side_effect=[provider_select, compatibility_select]), \
+             patch("InquirerPy.inquirer.secret", return_value=mock_secret), \
+             patch("InquirerPy.inquirer.text", side_effect=[base_url_text, model_text]) as mock_text_fn, \
+             patch("onemancompany.onboard._fetch_provider_models", return_value=[]):
+            provider, api_key, model, base_url, custom_chat_class = _step_llm(mock_console)
+
+        assert provider == "custom"
+        assert api_key == "sk-custom"
+        assert model == "custom-model"
+        assert base_url == "https://llm.example.com/v1"
+        assert custom_chat_class == "openai"
+        assert [call.kwargs["message"] for call in mock_text_fn.call_args_list] == ["Base URL:", "Model ID:"]
+
+
 class TestOpenclawLaunchShErrorHandling:
     """launch.sh must surface errors instead of silently returning 'No output returned'."""
 

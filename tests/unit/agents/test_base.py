@@ -1003,6 +1003,54 @@ class TestGetEmployeeTalentPersona:
 # ---------------------------------------------------------------------------
 
 class TestMakeLlmAnthropic:
+    def test_default_anthropic_with_company_api_key(self, monkeypatch):
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
+
+        mock_settings = MagicMock()
+        mock_settings.default_llm_model = "claude-sonnet-4-6"
+        mock_settings.default_api_provider = "anthropic"
+        mock_settings.anthropic_auth_method = "api_key"
+        mock_settings.anthropic_api_key = "sk-ant-test-key-123"
+        mock_settings.anthropic_oauth_token = ""
+        mock_settings.custom_chat_class = ""
+        mock_settings.openrouter_api_key = ""
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
+        monkeypatch.setattr(base_mod, "employee_configs", {})
+
+        mock_chat_anthropic = MagicMock()
+        mock_module = MagicMock()
+        mock_module.ChatAnthropic = mock_chat_anthropic
+        monkeypatch.setitem(__import__("sys").modules, "langchain_anthropic", mock_module)
+
+        base_mod.make_llm()
+
+        mock_chat_anthropic.assert_called_once()
+        call_kwargs = mock_chat_anthropic.call_args[1]
+        assert call_kwargs["model"] == "claude-sonnet-4-6"
+        assert call_kwargs["api_key"] == "sk-ant-test-key-123"
+
+    def test_missing_default_provider_key_does_not_require_openai_env(self, monkeypatch):
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
+
+        mock_settings = MagicMock()
+        mock_settings.default_llm_model = "claude-sonnet-4-6"
+        mock_settings.default_api_provider = "anthropic"
+        mock_settings.anthropic_auth_method = "api_key"
+        mock_settings.anthropic_api_key = ""
+        mock_settings.anthropic_oauth_token = ""
+        mock_settings.custom_chat_class = ""
+        mock_settings.openrouter_api_key = ""
+        mock_settings.openrouter_base_url = "https://openrouter.ai/api/v1"
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
+        monkeypatch.setattr(base_mod, "employee_configs", {})
+
+        llm = base_mod.make_llm()
+
+        assert llm is not None
+        assert llm.model_name == "claude-sonnet-4-6"
+
     def test_anthropic_with_api_key(self, monkeypatch):
         from onemancompany.agents import base as base_mod
         from onemancompany.core import config as config_mod
