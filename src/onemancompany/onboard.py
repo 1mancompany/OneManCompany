@@ -158,8 +158,8 @@ def _step_welcome(console: Console) -> None:
 
 def _format_price(price_str: str | None) -> str:
     """Format per-token price string to $/M tokens."""
-    if not price_str:
-        return PRICE_FREE
+    if price_str is None or price_str == "":
+        return PRICE_NA
     try:
         per_token = float(price_str)
         per_million = per_token * 1_000_000
@@ -226,8 +226,8 @@ def _fetch_provider_models(console: Console, provider: str, api_key: str) -> lis
         models.append({
             MODEL_KEY_ID: model_id,
             MODEL_KEY_NAME: display_name,
-            MODEL_KEY_PROMPT_PRICE: _format_price(pricing.get(OR_FIELD_PROMPT)) if pricing else "",
-            MODEL_KEY_COMPLETION_PRICE: _format_price(pricing.get(OR_FIELD_COMPLETION)) if pricing else "",
+            MODEL_KEY_PROMPT_PRICE: _format_price(pricing.get(OR_FIELD_PROMPT) if pricing else None),
+            MODEL_KEY_COMPLETION_PRICE: _format_price(pricing.get(OR_FIELD_COMPLETION) if pricing else None),
             MODEL_KEY_CONTEXT: m.get(OR_FIELD_CONTEXT_LENGTH) or m.get("context_length") or 0,
         })
 
@@ -294,8 +294,8 @@ def _select_model_interactive(console: Console, all_models: list[dict]) -> str:
     # Build choices with pricing info
     choices = []
     for m in all_models:
-        prompt_price = _format_price(m.get(MODEL_KEY_PROMPT_PRICE))
-        comp_price = _format_price(m.get(MODEL_KEY_COMPLETION_PRICE))
+        prompt_price = m.get(MODEL_KEY_PROMPT_PRICE) or PRICE_NA
+        comp_price = m.get(MODEL_KEY_COMPLETION_PRICE) or PRICE_NA
         label = f"{m[MODEL_KEY_ID]}  [{prompt_price} / {comp_price}]"
         choices.append({"name": label, "value": m[MODEL_KEY_ID]})
 
