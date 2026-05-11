@@ -45,7 +45,7 @@ from onemancompany.core.config import (
     load_employee_skills,
     read_text_utf,
 )
-from onemancompany.core.models import AuthMethod
+from onemancompany.core.models import AuthMethod, HostingMode
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.agents.prompt_builder import PromptBuilder
@@ -60,6 +60,7 @@ _TC_ATTR = "tool_calls"  # AIMessage attribute name
 _UNKNOWN_TOOL = "unknown"
 _NO_OUTPUT = "(no output)"
 _MISSING_API_KEY_SENTINEL = "missing-api-key"
+_COMPANY_HOSTING = HostingMode.COMPANY.value
 
 
 def _extract_text(content) -> str:
@@ -176,7 +177,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
 
     original_auth_method = auth_method
     llm_profile = {
-        "hosting": "company",
+        "hosting": _COMPANY_HOSTING,
         "api_provider": api_provider,
         "api_key": api_key,
         "llm_model": model,
