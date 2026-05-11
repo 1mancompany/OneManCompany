@@ -4531,6 +4531,49 @@ class TestHireCandidate:
 
         assert "not found" in resp.json()["error"].lower()
 
+    async def test_do_hire_single_overrides_talent_model_and_provider_with_company_defaults(self):
+        from onemancompany.api import routes
+
+        execute_hire = AsyncMock(return_value=_make_employee(id="00099", name="New Hire"))
+        pending = {"b1": [{"id": "c1", "name": "New Hire"}]}
+        mock_settings = MagicMock(default_llm_model="company/model", default_api_provider="openai")
+        mock_employee_manager = MagicMock(find_holding_task=MagicMock(return_value=None))
+        candidate = {
+            "id": "c1",
+            "talent_id": "talent-1",
+            "name": "New Hire",
+            "role": "Engineer",
+            "skill_set": ["Python"],
+        }
+
+        with patch("onemancompany.api.routes.event_bus", MagicMock(publish=AsyncMock())), \
+             patch("onemancompany.core.config.settings", mock_settings), \
+             patch("onemancompany.core.config.load_talent_profile", return_value={
+                 "hosting": "company",
+                 "llm_model": "talent/model",
+                 "api_provider": "anthropic",
+                 "temperature": 0.3,
+                 "auth_method": "api_key",
+             }), \
+             patch("onemancompany.agents.onboarding.execute_hire", execute_hire), \
+             patch("onemancompany.agents.recruitment.pending_candidates", pending), \
+             patch("onemancompany.agents.recruitment._persist_candidates", lambda: None), \
+             patch("onemancompany.agents.hr_agent._pending_project_ctx", {}), \
+             patch("onemancompany.core.vessel.employee_manager", mock_employee_manager):
+            await routes._do_hire_single(
+                batch_id="b1",
+                candidate_id="c1",
+                nickname="GivenNick",
+                candidate=candidate,
+                coo_ctx={"role": "Engineer", "department": "Engineering"},
+            )
+
+        execute_hire.assert_awaited_once()
+        kwargs = execute_hire.await_args.kwargs
+        assert kwargs["llm_model"] == "company/model"
+        assert kwargs["api_provider"] == "openai"
+        assert kwargs["temperature"] == 0.3
+
 
 # ---------------------------------------------------------------------------
 # Hiring request approved (lines 2249-2260)

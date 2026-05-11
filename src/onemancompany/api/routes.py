@@ -4229,21 +4229,27 @@ async def hire_candidate(body: HireRequest) -> dict:
 
 
 def _fill_talent_defaults(talent_data: dict) -> None:
-    """Fill missing LLM config fields with company defaults.
+    """Apply company-managed LLM config to Talent Market hires by default.
 
-    Non-self-hosted talents that lack llm_model, api_provider, or auth_method
-    get the company's default values instead of failing validation.
+    Non-self-hosted talents inherit the company's provider/model so hired
+    employees run on the same stack unless they are explicitly self-hosted.
+    Missing auth_method still falls back to api_key.
     """
     hosting = talent_data.get("hosting", "")
     if hosting in ("self", HostingMode.SELF):
         return
     from onemancompany.core.config import settings as _settings
-    if not talent_data.get("llm_model"):
-        talent_data["llm_model"] = _settings.default_llm_model
-        logger.info("[hiring] Talent missing llm_model — using company default: {}", _settings.default_llm_model)
-    if not talent_data.get("api_provider"):
-        talent_data["api_provider"] = _settings.default_api_provider or "openrouter"
-        logger.info("[hiring] Talent missing api_provider — using default: {}", talent_data["api_provider"])
+    company_model = _settings.default_llm_model
+    company_provider = _settings.default_api_provider or "openrouter"
+    if company_model:
+        if talent_data.get("llm_model") != company_model:
+            logger.info("[hiring] Overriding talent llm_model '{}' with company default '{}'",
+                        talent_data.get("llm_model", ""), company_model)
+        talent_data["llm_model"] = company_model
+    if talent_data.get("api_provider") != company_provider:
+        logger.info("[hiring] Overriding talent api_provider '{}' with company default '{}'",
+                    talent_data.get("api_provider", ""), company_provider)
+    talent_data["api_provider"] = company_provider
     if not talent_data.get("auth_method"):
         talent_data["auth_method"] = "api_key"
 
