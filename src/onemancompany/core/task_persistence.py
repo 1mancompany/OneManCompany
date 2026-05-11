@@ -53,7 +53,8 @@ def _project_statuses(tree_path: Path) -> list[str]:
             continue
         try:
             doc = yaml.safe_load(read_text_utf(metadata_path)) or {}
-        except Exception:
+        except Exception as exc:
+            logger.debug("Skipping unreadable project metadata {}: {}", metadata_path, exc)
             continue
         status = doc.get("status")
         if status:
