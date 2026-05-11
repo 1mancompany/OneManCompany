@@ -8,6 +8,8 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from onemancompany.core import project_archive as pa
+from onemancompany.core.task_lifecycle import NodeType, TaskPhase
+from onemancompany.core.task_tree import TaskTree
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +469,77 @@ class TestRecordProjectCost:
         assert cost["token_usage"]["output"] == 150
         assert cost["token_usage"]["total"] == 450
         assert len(cost["breakdown"]) == 2
+
+    def test_load_iteration_repairs_missing_parent_costs_from_task_tree(self, tmp_path):
+        slug = pa.create_named_project("Repair Cost")
+        iter_id = pa.create_iteration(slug, "task", "COO")
+        doc = pa.load_iteration(slug, iter_id)
+        iter_dir = Path(doc["project_dir"])
+
+        tree = TaskTree(project_id=f"{slug}/{iter_id}")
+        root = tree.create_root("00001", "CEO prompt")
+        root.node_type = NodeType.CEO_PROMPT.value
+        root.status = TaskPhase.PROCESSING.value
+
+        ea = tree.add_child(root.id, "00004", "EA orchestration", [])
+        ea.node_type = NodeType.TASK.value
+        ea.status = TaskPhase.HOLDING.value
+        ea.model_used = "anthropic/claude-4.6-sonnet"
+        ea.input_tokens = 230215
+        ea.output_tokens = 2338
+        ea.cost_usd = 0.237229
+
+        coo_parent = tree.add_child(ea.id, "00003", "COO phase parent", [])
+        coo_parent.node_type = NodeType.TASK.value
+        coo_parent.status = TaskPhase.FINISHED.value
+        coo_parent.model_used = "anthropic/claude-4.6-sonnet"
+        coo_parent.input_tokens = 213879
+        coo_parent.output_tokens = 2371
+        coo_parent.cost_usd = 0.220992
+
+        coo_review = tree.add_child(coo_parent.id, "00003", "COO review", [])
+        coo_review.node_type = NodeType.REVIEW.value
+        coo_review.status = TaskPhase.FINISHED.value
+        coo_review.model_used = "anthropic/claude-4.6-sonnet"
+        coo_review.input_tokens = 146333
+        coo_review.output_tokens = 955
+        coo_review.cost_usd = 0.149198
+
+        tree.save(iter_dir / "task_tree.yaml")
+
+        # Simulate the stale project cost snapshot: only the review node was recorded.
+        doc["cost"] = {
+            "budget_estimate_usd": 0.0,
+            "actual_cost_usd": 0.298396,
+            "token_usage": {"input": 292666, "output": 1910, "total": 294576},
+            "breakdown": [{
+                "employee_id": "00003",
+                "model": "anthropic/claude-4.6-sonnet",
+                "input_tokens": 146333,
+                "output_tokens": 955,
+                "total_tokens": 147288,
+                "cost_usd": 0.149198,
+            }, {
+                "employee_id": "00003",
+                "model": "anthropic/claude-4.6-sonnet",
+                "input_tokens": 146333,
+                "output_tokens": 955,
+                "total_tokens": 147288,
+                "cost_usd": 0.149198,
+            }],
+        }
+        iter_yaml = Path(pa.PROJECTS_DIR) / slug / "iterations" / f"{iter_id}.yaml"
+        _write_yaml(iter_yaml, doc)
+
+        repaired = pa.load_iteration(slug, iter_id)
+        cost = repaired["cost"]
+        assert cost["actual_cost_usd"] == pytest.approx(0.607419)
+        assert cost["token_usage"]["input"] == 590427
+        assert cost["token_usage"]["output"] == 5664
+        assert cost["token_usage"]["total"] == 596091
+        assert len(cost["breakdown"]) == 3
+        assert {entry["employee_id"] for entry in cost["breakdown"]} == {"00003", "00004"}
+        assert {entry["node_id"] for entry in cost["breakdown"]} == {ea.id, coo_parent.id, coo_review.id}
 
     def test_noop_on_missing_project(self, tmp_path):
         pa.record_project_cost("nonexistent-slug", "00005", "m", 0, 0, 0.0)

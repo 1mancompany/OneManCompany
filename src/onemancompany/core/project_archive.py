@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from collections import defaultdict
 from loguru import logger
 import shutil
 import threading
@@ -487,7 +488,12 @@ def load_iteration(project_id: str, iteration_id: str) -> dict | None:
     lock_key = f"{project_id}/{iteration_id}"
     lock = _get_project_lock(lock_key)
     with lock, open_utf(path) as f:
-        return yaml.safe_load(f) or {}
+        doc = yaml.safe_load(f) or {}
+    changed = _sync_iteration_cost_from_tree(project_id, iteration_id, doc)
+    if changed:
+        with lock, open_utf(path, "w") as f:
+            yaml.dump(doc, f, allow_unicode=True, default_flow_style=False)
+    return doc
 
 
 def _save_iteration(project_id: str, iteration_id: str, doc: dict) -> None:
@@ -499,6 +505,137 @@ def _save_iteration(project_id: str, iteration_id: str, doc: dict) -> None:
     lock = _get_project_lock(lock_key)
     with lock, open_utf(path, "w") as f:
         yaml.dump(doc, f, allow_unicode=True, default_flow_style=False)
+
+
+def _breakdown_signature(entry: dict) -> tuple:
+    """Build a stable signature for matching cost entries across migrations."""
+    return (
+        entry.get(TL_FIELD_EMPLOYEE_ID, ""),
+        entry.get("model", ""),
+        int(entry.get("input_tokens", 0) or 0),
+        int(entry.get("output_tokens", 0) or 0),
+        round(float(entry.get("cost_usd", 0.0) or 0.0), 6),
+    )
+
+
+def _sync_iteration_cost_from_tree(project_id: str, iteration_id: str, doc: dict) -> bool:
+    """Repair iteration cost totals from task_tree node usage.
+
+    Some parent/orchestrator nodes transition from HOLDING to FINISHED during
+    child-complete propagation and bypass the normal post-task cleanup path that
+    appends to ``cost.breakdown``. When that happens, the task tree has the
+    correct token/cost totals on the node, but the iteration YAML under-reports
+    them. On load, merge any missing task-tree entries into the breakdown and
+    recompute totals.
+    """
+    project_dir = doc.get("project_dir", "")
+    iter_dir = _rebase_project_dir(project_dir) if project_dir else (
+        PROJECTS_DIR / project_id / ITERATIONS_DIR_NAME / iteration_id
+    )
+    tree_path = iter_dir / TASK_TREE_FILENAME
+    if not tree_path.exists():
+        return False
+
+    try:
+        from onemancompany.core.task_lifecycle import NodeType
+        from onemancompany.core.task_tree import TaskTree
+
+        tree = TaskTree.load(tree_path, project_id=f"{project_id}/{iteration_id}")
+    except Exception as exc:  # pragma: no cover - defensive: corrupted tree should not break project load
+        logger.debug("Failed to sync cost from {}: {}", tree_path, exc)
+        return False
+
+    cost = doc.setdefault(PA_COST, {})
+    budget = float(cost.get("budget_estimate_usd", 0.0) or 0.0)
+    breakdown = list(cost.get(PA_BREAKDOWN, []) or [])
+
+    existing_by_node_id = {
+        str(entry.get("node_id")): idx
+        for idx, entry in enumerate(breakdown)
+        if entry.get("node_id")
+    }
+    existing_sig_indices: dict[tuple, list[int]] = defaultdict(list)
+    for idx, entry in enumerate(breakdown):
+        existing_sig_indices[_breakdown_signature(entry)].append(idx)
+
+    tree_entries: list[dict] = []
+    for node in tree.all_nodes():
+        if node.node_type in (NodeType.CEO_PROMPT.value, NodeType.CEO_PROMPT):
+            continue
+        if not (node.input_tokens or node.output_tokens or node.cost_usd):
+            continue
+        tree_entries.append({
+            "node_id": node.id,
+            TL_FIELD_EMPLOYEE_ID: node.employee_id,
+            "model": node.model_used,
+            "input_tokens": node.input_tokens,
+            "output_tokens": node.output_tokens,
+            "total_tokens": node.input_tokens + node.output_tokens,
+            "cost_usd": node.cost_usd,
+        })
+
+    if not tree_entries:
+        return False
+
+    matched_existing: set[int] = set()
+    tree_sigs = {_breakdown_signature(entry) for entry in tree_entries}
+    rebuilt_breakdown: list[dict] = []
+    changed = False
+
+    for entry in tree_entries:
+        node_id = str(entry["node_id"])
+        idx = existing_by_node_id.get(node_id)
+        if idx is not None:
+            rebuilt_breakdown.append(dict(breakdown[idx]))
+            matched_existing.add(idx)
+            continue
+
+        sig = _breakdown_signature(entry)
+        match_idx = None
+        for candidate_idx in existing_sig_indices.get(sig, []):
+            if candidate_idx in matched_existing:
+                continue
+            match_idx = candidate_idx
+            break
+
+        if match_idx is None:
+            rebuilt_breakdown.append(entry)
+            changed = True
+            continue
+
+        merged_entry = dict(breakdown[match_idx])
+        matched_existing.add(match_idx)
+        if merged_entry.get("node_id") != node_id:
+            merged_entry["node_id"] = node_id
+            changed = True
+        rebuilt_breakdown.append(merged_entry)
+
+    for idx, entry in enumerate(breakdown):
+        if idx in matched_existing:
+            continue
+        sig = _breakdown_signature(entry)
+        if sig in tree_sigs and not entry.get("node_id"):
+            changed = True
+            continue
+        rebuilt_breakdown.append(entry)
+
+    if not changed and rebuilt_breakdown == breakdown:
+        return False
+
+    total_input = sum(int(entry.get("input_tokens", 0) or 0) for entry in rebuilt_breakdown)
+    total_output = sum(int(entry.get("output_tokens", 0) or 0) for entry in rebuilt_breakdown)
+    total_cost = sum(float(entry.get("cost_usd", 0.0) or 0.0) for entry in rebuilt_breakdown)
+    doc[PA_COST] = {
+        "budget_estimate_usd": budget,
+        "actual_cost_usd": total_cost,
+        PA_TOKEN_USAGE: {
+            "input": total_input,
+            "output": total_output,
+            "total": total_input + total_output,
+        },
+        PA_BREAKDOWN: rebuilt_breakdown,
+    }
+    return True
 
 
 def load_named_project(project_id: str) -> dict | None:
@@ -1002,5 +1139,4 @@ def get_cost_summary() -> dict:
         },
         "recent_projects": recent_projects,
     }
-
 
