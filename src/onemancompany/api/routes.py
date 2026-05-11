@@ -4217,7 +4217,14 @@ async def hire_candidate(body: HireRequest) -> dict:
 
     # Launch onboarding as background task
     spawn_background(
-        _do_hire_single(body.batch_id, body.candidate_id, body.nickname, candidate, coo_ctx)
+        _do_hire_single(
+            body.batch_id,
+            body.candidate_id,
+            body.nickname,
+            candidate,
+            coo_ctx,
+            use_talent_llm_config=body.use_talent_llm_config,
+        )
     )
 
     return {
@@ -4228,11 +4235,12 @@ async def hire_candidate(body: HireRequest) -> dict:
     }
 
 
-def _fill_talent_defaults(talent_data: dict) -> None:
-    """Apply company-managed LLM config to Talent Market hires by default.
+def _fill_talent_defaults(talent_data: dict, *, use_talent_llm_config: bool = False) -> None:
+    """Normalize Talent Market LLM config against company defaults.
 
     Non-self-hosted talents inherit the company's provider/model so hired
-    employees run on the same stack unless they are explicitly self-hosted.
+    employees run on the same stack unless they are explicitly self-hosted or
+    the hirer opts into the talent's preferred provider/model for this hire.
     Missing auth_method still falls back to api_key.
     """
     hosting = talent_data.get("hosting", "")
@@ -4241,15 +4249,21 @@ def _fill_talent_defaults(talent_data: dict) -> None:
     from onemancompany.core.config import settings as _settings
     company_model = _settings.default_llm_model
     company_provider = _settings.default_api_provider or "openrouter"
-    if company_model:
-        if talent_data.get("llm_model") != company_model:
-            logger.info("[hiring] Overriding talent llm_model '{}' with company default '{}'",
-                        talent_data.get("llm_model", ""), company_model)
-        talent_data["llm_model"] = company_model
-    if talent_data.get("api_provider") != company_provider:
-        logger.info("[hiring] Overriding talent api_provider '{}' with company default '{}'",
-                    talent_data.get("api_provider", ""), company_provider)
-    talent_data["api_provider"] = company_provider
+    if use_talent_llm_config:
+        if not talent_data.get("llm_model") and company_model:
+            talent_data["llm_model"] = company_model
+        if not talent_data.get("api_provider"):
+            talent_data["api_provider"] = company_provider
+    else:
+        if company_model:
+            if talent_data.get("llm_model") != company_model:
+                logger.info("[hiring] Overriding talent llm_model '{}' with company default '{}'",
+                            talent_data.get("llm_model", ""), company_model)
+            talent_data["llm_model"] = company_model
+        if talent_data.get("api_provider") != company_provider:
+            logger.info("[hiring] Overriding talent api_provider '{}' with company default '{}'",
+                        talent_data.get("api_provider", ""), company_provider)
+        talent_data["api_provider"] = company_provider
     if not talent_data.get("auth_method"):
         talent_data["auth_method"] = "api_key"
 
@@ -4336,6 +4350,7 @@ async def _cleanup_single_hire_failure(
 async def _do_hire_single(
     batch_id: str, candidate_id: str, nickname: str,
     candidate: dict, coo_ctx: dict,
+    *, use_talent_llm_config: bool = False,
 ) -> None:
     """Background task: execute hire + post-hire notifications."""
     from pathlib import Path
@@ -4385,7 +4400,7 @@ async def _do_hire_single(
             talent_data = candidate
 
         # Fill missing LLM config with company defaults
-        _fill_talent_defaults(talent_data)
+        _fill_talent_defaults(talent_data, use_talent_llm_config=use_talent_llm_config)
 
         # Validate required fields
         missing = _check_talent_required_fields(talent_data)
@@ -4817,7 +4832,10 @@ async def _do_batch_hire(
                 talent_data = candidate
 
             # Fill missing LLM config with company defaults
-            _fill_talent_defaults(talent_data)
+            _fill_talent_defaults(
+                talent_data,
+                use_talent_llm_config=bool(sel.get("use_talent_llm_config", False)),
+            )
 
             # Validate required fields
             missing = _check_talent_required_fields(talent_data)

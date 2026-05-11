@@ -29,6 +29,18 @@ class TestFillTalentDefaults:
         assert data["api_provider"] == "openai"
         assert data["auth_method"] == "api_key"
 
+    @patch("onemancompany.core.config.settings")
+    def test_preserves_existing_model_and_provider_when_talent_config_requested(self, mock_settings):
+        from onemancompany.api.routes import _fill_talent_defaults
+        mock_settings.default_llm_model = "test/model"
+        mock_settings.default_api_provider = "openai"
+
+        data = {"llm_model": "custom/model", "api_provider": "anthropic"}
+        _fill_talent_defaults(data, use_talent_llm_config=True)
+        assert data["llm_model"] == "custom/model"
+        assert data["api_provider"] == "anthropic"
+        assert data["auth_method"] == "api_key"
+
     def test_skips_self_hosted(self):
         from onemancompany.api.routes import _fill_talent_defaults
 

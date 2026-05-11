@@ -2259,6 +2259,15 @@ h3.pixel-title { font-size: var(--text-label); }
   width: 100%;
   max-width: 105px;
 }
+.card-config-warning {
+  margin-top: 4px;
+  padding: 2px 4px;
+  font-size: var(--text-micro);
+  color: #000;
+  background: var(--pixel-yellow);
+  border: 1px solid #000;
+  text-align: center;
+}
 
 /* ===== Candidate Detail Panel ===== */
 .candidate-detail-panel.hidden { display: none; }
@@ -2296,6 +2305,30 @@ h3.pixel-title { font-size: var(--text-label); }
   overflow-y: auto;
   flex: 1;
   min-height: 0;
+}
+.detail-config-warning-box {
+  margin-top: 4px;
+  padding: 6px;
+  border: 1px solid var(--pixel-yellow);
+  background: rgba(255, 204, 0, 0.08);
+  color: var(--pixel-white);
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+.detail-config-warning-note {
+  margin-top: 6px;
+  color: var(--text-dim);
+}
+.detail-config-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--pixel-yellow);
+  font-size: var(--text-body);
+}
+.detail-config-toggle input {
+  margin: 0;
 }
 .detail-header {
   display: flex;

@@ -4510,6 +4510,38 @@ class TestHireCandidate:
 
         assert resp.json()["status"] == "onboarding"
 
+    async def test_hire_candidate_passes_talent_config_opt_in_to_background_task(self):
+        state = _make_state()
+        bus = EventBus()
+
+        candidate = {"id": "c1", "name": "New Hire", "role": "Engineer", "skill_set": []}
+        candidates = {"b1": [candidate]}
+
+        with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
+             patch("onemancompany.api.routes.event_bus", bus), \
+             patch("onemancompany.agents.recruitment.pending_candidates", candidates), \
+             patch("onemancompany.api.routes.spawn_background") as mock_spawn, \
+             patch("onemancompany.api.routes._do_hire_single", new_callable=AsyncMock) as mock_do_hire_single:
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.post("/api/candidates/hire", json={
+                    "batch_id": "b1",
+                    "candidate_id": "c1",
+                    "use_talent_llm_config": True,
+                })
+
+        assert resp.json()["status"] == "onboarding"
+        mock_do_hire_single.assert_called_once_with(
+            "b1",
+            "c1",
+            "",
+            candidate,
+            {},
+            use_talent_llm_config=True,
+        )
+        mock_spawn.assert_called_once()
+
     async def test_hire_candidate_not_found_returns_error(self):
         """Candidate not in batch returns error synchronously."""
         state = _make_state()
@@ -4572,6 +4604,50 @@ class TestHireCandidate:
         kwargs = execute_hire.await_args.kwargs
         assert kwargs["llm_model"] == "company/model"
         assert kwargs["api_provider"] == "openai"
+        assert kwargs["temperature"] == 0.3
+
+    async def test_do_hire_single_keeps_talent_model_and_provider_when_requested(self):
+        from onemancompany.api import routes
+
+        execute_hire = AsyncMock(return_value=_make_employee(id="00099", name="New Hire"))
+        pending = {"b1": [{"id": "c1", "name": "New Hire"}]}
+        mock_settings = MagicMock(default_llm_model="company/model", default_api_provider="openai")
+        mock_employee_manager = MagicMock(find_holding_task=MagicMock(return_value=None))
+        candidate = {
+            "id": "c1",
+            "talent_id": "talent-1",
+            "name": "New Hire",
+            "role": "Engineer",
+            "skill_set": ["Python"],
+        }
+
+        with patch("onemancompany.api.routes.event_bus", MagicMock(publish=AsyncMock())), \
+             patch("onemancompany.core.config.settings", mock_settings), \
+             patch("onemancompany.core.config.load_talent_profile", return_value={
+                 "hosting": "company",
+                 "llm_model": "talent/model",
+                 "api_provider": "anthropic",
+                 "temperature": 0.3,
+                 "auth_method": "api_key",
+             }), \
+             patch("onemancompany.agents.onboarding.execute_hire", execute_hire), \
+             patch("onemancompany.agents.recruitment.pending_candidates", pending), \
+             patch("onemancompany.agents.recruitment._persist_candidates", lambda: None), \
+             patch("onemancompany.agents.hr_agent._pending_project_ctx", {}), \
+             patch("onemancompany.core.vessel.employee_manager", mock_employee_manager):
+            await routes._do_hire_single(
+                batch_id="b1",
+                candidate_id="c1",
+                nickname="GivenNick",
+                candidate=candidate,
+                coo_ctx={"role": "Engineer", "department": "Engineering"},
+                use_talent_llm_config=True,
+            )
+
+        execute_hire.assert_awaited_once()
+        kwargs = execute_hire.await_args.kwargs
+        assert kwargs["llm_model"] == "talent/model"
+        assert kwargs["api_provider"] == "anthropic"
         assert kwargs["temperature"] == 0.3
 
 
