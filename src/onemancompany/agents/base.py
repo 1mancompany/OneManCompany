@@ -59,6 +59,7 @@ _TC_NAME_KEY = "name"  # tool_call dict key
 _TC_ATTR = "tool_calls"  # AIMessage attribute name
 _UNKNOWN_TOOL = "unknown"
 _NO_OUTPUT = "(no output)"
+_MISSING_API_KEY_SENTINEL = "missing-api-key"
 
 
 def _extract_text(content) -> str:
@@ -244,7 +245,14 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
 
     fallback_key = settings.openrouter_api_key
     if not fallback_key:
-        logger.warning("make_llm: no API key for provider '{}' and no OpenRouter fallback key; LLM calls will fail", api_provider)
+        logger.warning(
+            "make_llm: no API key for provider '{}' and no OpenRouter fallback key; "
+            "LLM calls will fail. Set DEFAULT_API_PROVIDER with the matching provider API key in {}, "
+            "or set OPENROUTER_API_KEY for fallback.",
+            api_provider,
+            _cfg.DATA_ROOT / _cfg.DOT_ENV_FILENAME,
+        )
+        fallback_key = _MISSING_API_KEY_SENTINEL
 
     return ChatOpenAI(
         model=model,

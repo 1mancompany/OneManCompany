@@ -146,6 +146,158 @@ class TestNoStaleRichUI:
         assert "custom model ID" not in source
 
 
+class TestStepLlmBaseUrlPrompt:
+    """Provider-specific Base URL prompt behavior."""
+
+    @pytest.mark.parametrize("selected_provider", [
+        "openai",
+        "anthropic",
+        "kimi",
+        "deepseek",
+        "qwen",
+        "zhipu",
+        "groq",
+        "together",
+        "openrouter",
+        "google",
+        "minimax",
+    ])
+    def test_known_providers_do_not_prompt_for_base_url(self, selected_provider):
+        from onemancompany.onboard import _step_llm
+
+        mock_console = MagicMock()
+        mock_select = MagicMock()
+        mock_select.execute.return_value = selected_provider
+        mock_secret = MagicMock()
+        mock_secret.execute.return_value = "sk-test"
+        mock_text = MagicMock()
+        mock_text.execute.return_value = "test-model"
+
+        with patch("InquirerPy.inquirer.select", return_value=mock_select), \
+             patch("InquirerPy.inquirer.secret", return_value=mock_secret), \
+             patch("InquirerPy.inquirer.text", return_value=mock_text) as mock_text_fn, \
+             patch("onemancompany.onboard._fetch_provider_models", return_value=[]):
+            provider, api_key, model, base_url, custom_chat_class = _step_llm(mock_console)
+
+        assert provider == selected_provider
+        assert api_key == "sk-test"
+        assert model == "test-model"
+        assert base_url == ""
+        assert custom_chat_class == ""
+        assert [call.kwargs["message"] for call in mock_text_fn.call_args_list] == ["Model ID:"]
+
+    def test_custom_provider_prompts_for_base_url(self):
+        from onemancompany.onboard import _step_llm
+
+        mock_console = MagicMock()
+        provider_select = MagicMock()
+        provider_select.execute.return_value = "custom"
+        compatibility_select = MagicMock()
+        compatibility_select.execute.return_value = "openai"
+        mock_secret = MagicMock()
+        mock_secret.execute.return_value = "sk-custom"
+        base_url_text = MagicMock()
+        base_url_text.execute.return_value = "https://llm.example.com/v1"
+        model_text = MagicMock()
+        model_text.execute.return_value = "custom-model"
+
+        with patch("InquirerPy.inquirer.select", side_effect=[provider_select, compatibility_select]), \
+             patch("InquirerPy.inquirer.secret", return_value=mock_secret), \
+             patch("InquirerPy.inquirer.text", side_effect=[base_url_text, model_text]) as mock_text_fn, \
+             patch("onemancompany.onboard._fetch_provider_models", return_value=[]):
+            provider, api_key, model, base_url, custom_chat_class = _step_llm(mock_console)
+
+        assert provider == "custom"
+        assert api_key == "sk-custom"
+        assert model == "custom-model"
+        assert base_url == "https://llm.example.com/v1"
+        assert custom_chat_class == "openai"
+        assert [call.kwargs["message"] for call in mock_text_fn.call_args_list] == ["Base URL:", "Model ID:"]
+
+
+class TestModelPricingDisplay:
+    """Model list pricing display must distinguish free from unknown."""
+
+    def test_format_price_missing_is_na_zero_is_free(self):
+        from onemancompany.onboard import PRICE_FREE, PRICE_NA, _format_price
+
+        assert _format_price(None) == PRICE_NA
+        assert _format_price("") == PRICE_NA
+        assert _format_price("0") == PRICE_FREE
+
+    def test_select_model_uses_existing_price_labels_without_reformatting(self):
+        from onemancompany.onboard import (
+            MODEL_KEY_COMPLETION_PRICE,
+            MODEL_KEY_CONTEXT,
+            MODEL_KEY_ID,
+            MODEL_KEY_NAME,
+            MODEL_KEY_PROMPT_PRICE,
+            PRICE_FREE,
+            PRICE_NA,
+            _select_model_interactive,
+        )
+
+        mock_console = MagicMock()
+        fuzzy_prompt = MagicMock()
+        fuzzy_prompt.execute.return_value = "claude-haiku-4-5-20251001"
+        models = [
+            {
+                MODEL_KEY_ID: "claude-haiku-4-5-20251001",
+                MODEL_KEY_NAME: "Claude Haiku 4.5",
+                MODEL_KEY_PROMPT_PRICE: "",
+                MODEL_KEY_COMPLETION_PRICE: "",
+                MODEL_KEY_CONTEXT: 0,
+            },
+            {
+                MODEL_KEY_ID: "openrouter/free-model",
+                MODEL_KEY_NAME: "Free Model",
+                MODEL_KEY_PROMPT_PRICE: PRICE_FREE,
+                MODEL_KEY_COMPLETION_PRICE: PRICE_FREE,
+                MODEL_KEY_CONTEXT: 0,
+            },
+            {
+                MODEL_KEY_ID: "priced-model",
+                MODEL_KEY_NAME: "Priced Model",
+                MODEL_KEY_PROMPT_PRICE: "$0.25/M",
+                MODEL_KEY_COMPLETION_PRICE: "$1.25/M",
+                MODEL_KEY_CONTEXT: 0,
+            },
+        ]
+
+        with patch("InquirerPy.inquirer.fuzzy", return_value=fuzzy_prompt) as mock_fuzzy:
+            selected = _select_model_interactive(mock_console, models)
+
+        choices = mock_fuzzy.call_args.kwargs["choices"]
+        assert selected == "claude-haiku-4-5-20251001"
+        assert choices[0]["name"] == f"claude-haiku-4-5-20251001  [{PRICE_NA} / {PRICE_NA}]"
+        assert choices[1]["name"] == "openrouter/free-model  [free / free]"
+        assert choices[2]["name"] == "priced-model  [$0.25/M / $1.25/M]"
+
+    def test_fetch_provider_models_missing_pricing_is_na(self):
+        from onemancompany.onboard import (
+            MODEL_KEY_COMPLETION_PRICE,
+            MODEL_KEY_PROMPT_PRICE,
+            PRICE_NA,
+            _fetch_provider_models,
+        )
+
+        mock_console = MagicMock()
+        mock_console.status.return_value.__enter__.return_value = None
+        mock_console.status.return_value.__exit__.return_value = None
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "data": [
+                {"id": "claude-haiku-4-5-20251001", "display_name": "Claude Haiku 4.5"}
+            ]
+        }
+
+        with patch("httpx.get", return_value=mock_resp):
+            models = _fetch_provider_models(mock_console, "anthropic", "sk-ant-test")
+
+        assert models[0][MODEL_KEY_PROMPT_PRICE] == PRICE_NA
+        assert models[0][MODEL_KEY_COMPLETION_PRICE] == PRICE_NA
+
+
 class TestOpenclawLaunchShErrorHandling:
     """launch.sh must surface errors instead of silently returning 'No output returned'."""
 
