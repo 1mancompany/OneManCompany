@@ -47,6 +47,14 @@ class TestTasksDir:
         expected = tmp_path / "00010" / "tasks"
         assert tp._tasks_dir("00010") == expected
 
+    def test_iteration_tree_metadata_paths_include_iteration_yaml(self, tmp_path):
+        tree_path = tmp_path / "projects" / "proj1" / "iterations" / "iter1" / "task_tree.yaml"
+        paths = tp._project_metadata_paths(tree_path)
+
+        assert tree_path.parent / "project.yaml" in paths
+        assert tree_path.parent.parent / "iter1.yaml" in paths
+        assert tree_path.parent.parent.parent / "project.yaml" in paths
+
 
 # ---------------------------------------------------------------------------
 # recover_schedule_from_trees

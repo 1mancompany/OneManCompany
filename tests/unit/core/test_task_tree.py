@@ -412,6 +412,14 @@ class TestTaskNodeSSoT:
         c1.status = "processing"
         assert tree.all_children_done(root.id) is False
 
+    def test_tree_all_children_done_ignores_system_only_children(self):
+        tree = TaskTree(project_id="p1")
+        root = tree.create_root("e1", "root")
+        c1 = tree.add_child(root.id, "e2", "watchdog", [])
+        c1.node_type = "watchdog_nudge"
+        c1.status = "processing"
+        assert tree.all_children_done(root.id) is True
+
     def test_tree_all_deps_resolved(self):
         tree = TaskTree(project_id="p1")
         root = tree.create_root("e1", "root")
@@ -476,6 +484,16 @@ class TestTaskNodeContentExternalization:
         node.description = "x"
         node.save_content(tmp_path)
         assert node._content_dirty is False
+
+    def test_save_content_cleanup_failure_is_swallowed(self, tmp_path, monkeypatch):
+        node = TaskNode(employee_id="e1")
+        node.description = "x"
+
+        monkeypatch.setattr("os.replace", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("replace failed")))
+        monkeypatch.setattr("os.unlink", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("unlink failed")))
+
+        with pytest.raises(RuntimeError, match="replace failed"):
+            node.save_content(tmp_path)
 
     def test_load_content_reads_file(self, tmp_path):
         node = TaskNode(employee_id="e1", id="test123")
@@ -710,6 +728,18 @@ class TestTaskTreeContentExternalization:
         assert loaded_root.description == "Full description"
         assert loaded_root.result == "Full result"
 
+    def test_save_cleanup_failure_is_swallowed(self, tmp_path, monkeypatch):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("e1", "Root description")
+        root._content_dirty = False
+        path = tmp_path / "task_tree.yaml"
+
+        monkeypatch.setattr("os.replace", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("replace failed")))
+        monkeypatch.setattr("os.unlink", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("unlink failed")))
+
+        with pytest.raises(RuntimeError, match="replace failed"):
+            tree.save(path)
+
     def test_backward_compat_old_format(self, tmp_path):
         """Load a tree saved in old format (description/result inline)."""
         import yaml
@@ -811,6 +841,32 @@ class TestCyclicDependencyDetection:
         assert a.depends_on == []
         assert b.depends_on == [a.id]
         assert c.depends_on == [b.id]
+
+    def test_corrupt_existing_graph_cycle_is_rejected(self):
+        """Existing corrupted cycles should still be detected when adding a child."""
+        tree = TaskTree(project_id="proj")
+        root = tree.create_root("ceo", "root")
+        a = tree.add_child(root.id, "e1", "A", [])
+        b = tree.add_child(root.id, "e2", "B", [], depends_on=[a.id])
+        a.depends_on = [b.id]
+
+        with pytest.raises(ValueError, match="Circular dependency detected"):
+            tree.add_child(root.id, "e3", "C", [], depends_on=[a.id])
+
+    def test_has_cycle_tolerates_shared_upstreams(self):
+        tree = TaskTree(project_id="proj")
+        root = tree.create_root("ceo", "root")
+        a = tree.add_child(root.id, "e1", "A", [])
+        b = tree.add_child(root.id, "e2", "B", [])
+        c = tree.add_child(root.id, "e3", "C", [])
+        a.depends_on = [b.id, c.id]
+        b.depends_on = [c.id]
+
+        assert tree._has_cycle([a.id, b.id]) is False
+
+    def test_has_cycle_ignores_missing_nodes(self):
+        tree = TaskTree(project_id="proj")
+        assert tree._has_cycle(["ghost-node"]) is False
 
     def test_multiple_dangling_deps_rejected(self):
         """Multiple deps where one doesn't exist — should raise ValueError."""
