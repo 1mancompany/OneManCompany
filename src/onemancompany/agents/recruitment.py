@@ -76,6 +76,10 @@ class HireRequest(BaseModel):
     batch_id: str = Field(description="Batch ID from the shortlist")
     candidate_id: str = Field(description="ID of the selected candidate")
     nickname: str = Field(default="", description="Optional nickname")
+    use_talent_llm_config: bool = Field(
+        default=False,
+        description="When true, preserve the talent's provider/model instead of company defaults",
+    )
 
 
 class InterviewRequest(BaseModel):

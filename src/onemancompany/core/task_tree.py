@@ -95,6 +95,15 @@ class TaskNode:
     # (agent promised action but didn't call tools). Capped at MAX_STALL_RETRIES.
     stall_retry_count: int = 0
 
+    # Child failure event ids already surfaced to this parent. This makes
+    # failure notifications edge-triggered instead of repeatedly firing while a
+    # failed child remains in the tree.
+    handled_child_failure_ids: list[str] = field(default_factory=list)
+
+    # Stable key for system-generated notification nodes so callers can dedupe
+    # retries/recovery without relying on prompt text.
+    event_key: str = ""
+
     # --- Content externalization tracking (not part of equality/repr) ---
     _content_dirty: bool = field(default=False, init=False, repr=False, compare=False)
     _content_loaded: bool = field(default=False, init=False, repr=False, compare=False)
@@ -215,6 +224,8 @@ class TaskNode:
             "hold_started_at": self.hold_started_at,
             "retry_count": self.retry_count,
             "stall_retry_count": self.stall_retry_count,
+            "handled_child_failure_ids": list(self.handled_child_failure_ids),
+            "event_key": self.event_key,
             "directives_count": len(self.directives),
         }
 

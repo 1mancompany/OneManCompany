@@ -70,6 +70,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+docs/report/long-running-task-loop-optimization.md
 
 # PyBuilder
 .pybuilder/
@@ -267,3 +268,6 @@ docs/swe-bench-prompt.md
 docs/task-decomposition-algorithm.md
 docs/organizational-evolution-mcts.md
 docs/.DS_Store
+
+# Local dev scripts
+scripts/batch_submit_tasks.py

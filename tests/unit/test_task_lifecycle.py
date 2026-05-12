@@ -166,6 +166,37 @@ class TestTaskNodeProductId:
         assert node.product_id == ""
 
 
+class TestTaskNodeFailureMetadata:
+    """Verify failure notification metadata round-trips."""
+
+    def test_failure_metadata_defaults(self):
+        from onemancompany.core.task_tree import TaskNode
+        node = TaskNode()
+        assert node.handled_child_failure_ids == []
+        assert node.event_key == ""
+
+    def test_failure_metadata_serializes(self):
+        from onemancompany.core.task_tree import TaskNode
+        node = TaskNode(
+            handled_child_failure_ids=["child_1"],
+            event_key="child_failure:parent:child_1",
+        )
+        data = node.to_dict()
+        assert data["handled_child_failure_ids"] == ["child_1"]
+        assert data["event_key"] == "child_failure:parent:child_1"
+
+    def test_failure_metadata_deserializes(self):
+        from onemancompany.core.task_tree import TaskNode
+        node = TaskNode.from_dict({
+            "id": "abc123",
+            "description": "task",
+            "handled_child_failure_ids": ["child_1"],
+            "event_key": "child_failure:parent:child_1",
+        })
+        assert node.handled_child_failure_ids == ["child_1"]
+        assert node.event_key == "child_failure:parent:child_1"
+
+
 class TestSafeCancelTerminal:
     def test_safe_cancel_finished_returns_false(self):
         """Line 186: terminal states return False immediately."""

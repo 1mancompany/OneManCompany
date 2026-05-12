@@ -4217,7 +4217,14 @@ async def hire_candidate(body: HireRequest) -> dict:
 
     # Launch onboarding as background task
     spawn_background(
-        _do_hire_single(body.batch_id, body.candidate_id, body.nickname, candidate, coo_ctx)
+        _do_hire_single(
+            body.batch_id,
+            body.candidate_id,
+            body.nickname,
+            candidate,
+            coo_ctx,
+            use_talent_llm_config=body.use_talent_llm_config,
+        )
     )
 
     return {
@@ -4228,22 +4235,45 @@ async def hire_candidate(body: HireRequest) -> dict:
     }
 
 
-def _fill_talent_defaults(talent_data: dict) -> None:
-    """Fill missing LLM config fields with company defaults.
+def _fill_talent_defaults(talent_data: dict, *, use_talent_llm_config: bool = False) -> None:
+    """Normalize Talent Market LLM config against company defaults.
 
-    Non-self-hosted talents that lack llm_model, api_provider, or auth_method
-    get the company's default values instead of failing validation.
+    Company-hosted hires use the company's provider/model by default so newly
+    hired employees run on the configured company stack. When the CEO
+    explicitly opts in, preserve the talent's preferred provider/model where
+    possible while still repairing missing fields.
     """
     hosting = talent_data.get("hosting", "")
-    if hosting in ("self", HostingMode.SELF):
+    if hosting in ("self", "remote", HostingMode.SELF, HostingMode.REMOTE):
         return
-    from onemancompany.core.config import settings as _settings
-    if not talent_data.get("llm_model"):
-        talent_data["llm_model"] = _settings.default_llm_model
-        logger.info("[hiring] Talent missing llm_model — using company default: {}", _settings.default_llm_model)
-    if not talent_data.get("api_provider"):
-        talent_data["api_provider"] = _settings.default_api_provider or "openrouter"
-        logger.info("[hiring] Talent missing api_provider — using default: {}", talent_data["api_provider"])
+
+    from onemancompany.core.config import normalize_llm_profile_defaults, settings as _settings
+
+    if use_talent_llm_config:
+        label = talent_data.get("talent_id") or talent_data.get("id") or talent_data.get("name") or "talent"
+        normalize_llm_profile_defaults(talent_data, reason=f"talent {label}")
+        return
+
+    company_model = _settings.default_llm_model
+    company_provider = _settings.default_api_provider or "openrouter"
+
+    if company_model:
+        if talent_data.get("llm_model") != company_model:
+            logger.info(
+                "[hiring] Overriding talent llm_model '{}' with company default '{}'",
+                talent_data.get("llm_model", ""),
+                company_model,
+            )
+        talent_data["llm_model"] = company_model
+
+    if talent_data.get("api_provider") != company_provider:
+        logger.info(
+            "[hiring] Overriding talent api_provider '{}' with company default '{}'",
+            talent_data.get("api_provider", ""),
+            company_provider,
+        )
+    talent_data["api_provider"] = company_provider
+
     if not talent_data.get("auth_method"):
         talent_data["auth_method"] = "api_key"
 
@@ -4330,6 +4360,7 @@ async def _cleanup_single_hire_failure(
 async def _do_hire_single(
     batch_id: str, candidate_id: str, nickname: str,
     candidate: dict, coo_ctx: dict,
+    *, use_talent_llm_config: bool = False,
 ) -> None:
     """Background task: execute hire + post-hire notifications."""
     from pathlib import Path
@@ -4378,8 +4409,8 @@ async def _do_hire_single(
             logger.debug("[hiring] No local profile for talent {}, using candidate data", talent_id)
             talent_data = candidate
 
-        # Fill missing LLM config with company defaults
-        _fill_talent_defaults(talent_data)
+        # Default to company config unless the hirer explicitly opts in.
+        _fill_talent_defaults(talent_data, use_talent_llm_config=use_talent_llm_config)
 
         # Validate required fields
         missing = _check_talent_required_fields(talent_data)
@@ -4810,8 +4841,11 @@ async def _do_batch_hire(
                 logger.debug("[batch-hire] No local profile for talent {}, using candidate data", talent_id)
                 talent_data = candidate
 
-            # Fill missing LLM config with company defaults
-            _fill_talent_defaults(talent_data)
+            # Default to company config unless the hirer explicitly opts in.
+            _fill_talent_defaults(
+                talent_data,
+                use_talent_llm_config=bool(sel.get("use_talent_llm_config", False)),
+            )
 
             # Validate required fields
             missing = _check_talent_required_fields(talent_data)

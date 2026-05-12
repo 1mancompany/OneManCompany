@@ -45,7 +45,7 @@ from onemancompany.core.config import (
     load_employee_skills,
     read_text_utf,
 )
-from onemancompany.core.models import AuthMethod
+from onemancompany.core.models import AuthMethod, HostingMode
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.agents.prompt_builder import PromptBuilder
@@ -60,6 +60,7 @@ _TC_ATTR = "tool_calls"  # AIMessage attribute name
 _UNKNOWN_TOOL = "unknown"
 _NO_OUTPUT = "(no output)"
 _MISSING_API_KEY_SENTINEL = "missing-api-key"
+_COMPANY_HOSTING = HostingMode.COMPANY.value
 
 
 def _extract_text(content) -> str:
@@ -160,6 +161,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
     effective_temp = 0.7
     api_provider = settings.default_api_provider or "openrouter"
     api_key = ""
+    auth_method = ""
 
     if employee_id and employee_id in employee_configs:
         cfg = employee_configs[employee_id]
@@ -168,9 +170,28 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
         effective_temp = cfg.temperature
         api_provider = cfg.api_provider
         api_key = cfg.api_key
+        auth_method = cfg.auth_method
 
     if temperature is not None:
         effective_temp = temperature
+
+    original_auth_method = auth_method
+    llm_profile = {
+        "hosting": _COMPANY_HOSTING,
+        "api_provider": api_provider,
+        "api_key": api_key,
+        "llm_model": model,
+        "auth_method": auth_method,
+    }
+    _cfg.normalize_llm_profile_defaults(
+        llm_profile,
+        reason=f"employee {employee_id}" if employee_id else "company default",
+    )
+    api_provider = llm_profile.get("api_provider", api_provider)
+    model = llm_profile.get("llm_model", model)
+    auth_method = llm_profile.get("auth_method", auth_method)
+    if not original_auth_method and api_provider == "anthropic":
+        auth_method = settings.anthropic_auth_method
 
     prov = get_provider(api_provider)
 
@@ -183,9 +204,6 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
     if prov and effective_chat_class == CHAT_CLASS_ANTHROPIC:
         from langchain_anthropic import ChatAnthropic
 
-        auth_method = ""
-        if employee_id and employee_id in employee_configs:
-            auth_method = employee_configs[employee_id].auth_method
         if not auth_method:
             auth_method = settings.anthropic_auth_method
 
