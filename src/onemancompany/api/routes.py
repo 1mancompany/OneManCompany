@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import re
 import shutil
 import uuid as _uuid
@@ -137,17 +138,21 @@ def _save_file_deduped(upload_dir: Path, filename: str, content: bytes) -> Path:
 
 
 def _build_attachment_prompt(attachments: list[dict]) -> str:
-    """Describe attachments and tell agents how to read their contents."""
+    """Describe attachments and emit read() calls with JSON-quoted paths.
+
+    JSON quoting keeps backslashes, quotes, and newlines safe inside the
+    prompt's read("...") instruction without inventing our own escaping rules.
+    """
     if not attachments:
         return ""
 
     lines: list[str] = []
     for attachment in attachments:
         filename = attachment.get("filename", "file")
-        path = str(attachment.get("path", "") or "").strip()
+        raw_path = attachment.get("path", "")
+        path = "" if raw_path is None else str(raw_path).strip()
         if path:
-            read_path = path.replace("\\", "\\\\").replace('"', '\\"')
-            lines.append(f'- Attachment: {filename} (saved at {path}) [read("{read_path}")]')
+            lines.append(f"- Attachment: {filename} (saved at {path}) [read({_json.dumps(path)})]")
         else:
             lines.append(f"- Attachment: {filename}")
 

@@ -7,6 +7,7 @@ All singletons (company_state, event_bus, agent loops, etc.) are mocked.
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -2537,7 +2538,7 @@ class TestCeoSubmitTaskPaths:
         ea_prompt = children[0].description
         expected_path = str(tmp_path / "attachments" / "notes.txt")
         assert expected_path in ea_prompt
-        assert f'read("{expected_path}")' in ea_prompt
+        assert f"[read({json.dumps(expected_path)})]" in ea_prompt
 
 
 # ---------------------------------------------------------------------------
