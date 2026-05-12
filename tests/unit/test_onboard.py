@@ -1,6 +1,7 @@
 """Tests for onboard.py — TDD coverage for onboarding wizard logic."""
 from __future__ import annotations
 
+import json
 import yaml
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -123,6 +124,41 @@ class TestApplyFounderFamilies:
             _apply_founder_families(console, {"00002": "self"})
 
         mock_run.assert_not_called()
+
+
+class TestGenerateMcpConfigs:
+    """MCP config generation should honor configured server host/port."""
+
+    def test_uses_configured_host_and_port(self, tmp_path):
+        from onemancompany.onboard import _generate_mcp_configs
+
+        emp_dir = tmp_path / "00002"
+        emp_dir.mkdir()
+
+        with patch("onemancompany.onboard.EMPLOYEES_DIR", tmp_path), \
+             patch("onemancompany.onboard.TOOLS_DIR", tmp_path), \
+             patch("onemancompany.core.config.EXEC_IDS", {"00002"}):
+            _generate_mcp_configs("skills-key", "127.0.0.1", 8001)
+
+        cfg = json.loads((emp_dir / "mcp_config.json").read_text())
+        env = cfg["mcpServers"]["onemancompany"]["env"]
+        assert env["OMC_SERVER_URL"] == "http://127.0.0.1:8001"
+        assert cfg["mcpServers"]["fastskills"]["env"]["SKILLSMP_API_KEY"] == "skills-key"
+
+    def test_maps_wildcard_host_to_localhost(self, tmp_path):
+        from onemancompany.onboard import _generate_mcp_configs
+
+        emp_dir = tmp_path / "00002"
+        emp_dir.mkdir()
+
+        with patch("onemancompany.onboard.EMPLOYEES_DIR", tmp_path), \
+             patch("onemancompany.onboard.TOOLS_DIR", tmp_path), \
+             patch("onemancompany.core.config.EXEC_IDS", {"00002"}):
+            _generate_mcp_configs("", "0.0.0.0", 8001)
+
+        cfg = json.loads((emp_dir / "mcp_config.json").read_text())
+        env = cfg["mcpServers"]["onemancompany"]["env"]
+        assert env["OMC_SERVER_URL"] == "http://localhost:8001"
 
 
 class TestNoStaleRichUI:
@@ -345,6 +381,30 @@ class TestStepExecuteSignature:
         sig = inspect.signature(_step_execute)
         assert "founder_families" in sig.parameters
         assert sig.parameters["founder_families"].default is None
+
+    def test_passes_host_and_port_to_mcp_config_generation(self, tmp_path):
+        from rich.console import Console
+        from onemancompany.onboard import _step_execute
+
+        source_root = tmp_path / "src"
+        source_root.mkdir()
+
+        with patch("onemancompany.onboard.DATA_ROOT", tmp_path / "data"), \
+             patch("onemancompany.onboard.SOURCE_ROOT", source_root), \
+             patch("onemancompany.onboard._assign_default_avatars"), \
+             patch("onemancompany.onboard._generate_mcp_configs") as mock_generate, \
+             patch("onemancompany.core.config.sync_founding_defaults", return_value=False):
+            _step_execute(
+                Console(quiet=True),
+                provider="anthropic",
+                api_key="sk-test",
+                model="claude-test",
+                host="127.0.0.1",
+                port=8001,
+                extras={},
+            )
+
+        mock_generate.assert_called_once_with("", "127.0.0.1", 8001)
 
 
 class TestCreateExecutorForHosting:
