@@ -1331,6 +1331,107 @@ class EmployeeManager:
 
         return count
 
+    def quiesce_project(self, project_id: str, tree_path: str = "", reason: str = "Project completed") -> int:
+        """Stop stale scheduled/system work for a project that has reached a final state.
+
+        Work results remain in the tree for audit. Only active system nodes
+        (watchdog nudges, reviews, CEO requests, adhoc/system handlers) are
+        cancelled, and all schedule entries for the project are removed so
+        recovery or in-memory dispatch cannot keep old handlers alive.
+        """
+        from onemancompany.core.task_lifecycle import safe_cancel
+        from onemancompany.core.task_tree import get_tree, save_tree_async
+
+        def _matches(candidate: str, tree_project_id: str = "") -> bool:
+            ids = {p for p in (candidate, tree_project_id) if p}
+            for existing in ids:
+                if (
+                    existing == project_id
+                    or existing.startswith(f"{project_id}/")
+                    or project_id.startswith(f"{existing}/")
+                ):
+                    return True
+            return False
+
+        touched_tree_paths: set[str] = {tree_path} if tree_path else set()
+        removed_entries = 0
+
+        for emp_id, entries in list(self._schedule.items()):
+            keep: list[ScheduleEntry] = []
+            for entry in entries:
+                remove_entry = False
+                try:
+                    tree = get_tree(entry.tree_path)
+                    node = tree.get_node(entry.node_id)
+                    if node and _matches(node.project_id, tree.project_id):
+                        remove_entry = True
+                        touched_tree_paths.add(entry.tree_path)
+                except Exception as e:
+                    logger.debug("[quiesce_project] Could not inspect scheduled node {}: {}", entry.node_id, e)
+                if remove_entry:
+                    removed_entries += 1
+                else:
+                    keep.append(entry)
+            self._schedule[emp_id] = keep
+
+        for emp_id, entry in list(self._current_entries.items()):
+            try:
+                tree = get_tree(entry.tree_path)
+                node = tree.get_node(entry.node_id)
+                if not node or not _matches(node.project_id, tree.project_id):
+                    continue
+                touched_tree_paths.add(entry.tree_path)
+                if node.node_type in SYSTEM_NODE_TYPES and TaskPhase(node.status) not in TERMINAL:
+                    running = self._running_tasks.get(emp_id)
+                    if running and not running.done():
+                        running.cancel()
+                        logger.info(
+                            "[quiesce_project] Cancelled running stale system task {} for project {}",
+                            entry.node_id, project_id,
+                        )
+            except Exception as e:
+                logger.debug("[quiesce_project] Could not inspect running node {}: {}", entry.node_id, e)
+
+        cancelled_nodes = 0
+        for tp in touched_tree_paths:
+            if not tp:
+                continue
+            try:
+                tree = get_tree(tp)
+            except Exception as e:
+                logger.debug("[quiesce_project] Could not load tree {}: {}", tp, e)
+                continue
+
+            dirty = False
+            for node in tree.all_nodes():
+                if not _matches(node.project_id, tree.project_id):
+                    continue
+                if node.node_type not in SYSTEM_NODE_TYPES:
+                    continue
+                if TaskPhase(node.status) in TERMINAL:
+                    continue
+                if safe_cancel(node):
+                    node.result = reason
+                    node.completed_at = node.completed_at or datetime.now().isoformat()
+                    cancelled_nodes += 1
+                    dirty = True
+                    for cron_name in (f"reply_{node.id}", f"holding_{node.id}"):
+                        try:
+                            stop_cron(node.employee_id, cron_name)
+                        except Exception as exc:
+                            logger.debug("[quiesce_project] Could not stop cron {}/{}: {}", node.employee_id, cron_name, exc)
+                    self._publish_node_update(node.employee_id, node)
+            if dirty:
+                save_tree_async(tp)
+
+        total = removed_entries + cancelled_nodes
+        if total:
+            logger.info(
+                "[quiesce_project] Quieted project {}: {} schedule entries removed, {} system nodes cancelled",
+                project_id, removed_entries, cancelled_nodes,
+            )
+        return total
+
     def abort_employee(self, employee_id: str) -> int:
         """Cancel all tasks for an employee. Returns count cancelled."""
         from onemancompany.core.task_tree import get_tree, save_tree_async
@@ -2666,11 +2767,14 @@ class EmployeeManager:
                     if c.node_type == NodeType.REVIEW
                     and c.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value)
                 )
-                # Check for failed children when parent is HOLDING — resume parent
-                # so it can react (retry via reject_child, reassign, or escalate).
-                has_failed_child = any(
-                    c for c in non_review_children
-                    if c.status == TaskPhase.FAILED.value
+                # Check whether the CURRENT completing node is a failed
+                # substantive child. Failure notifications must be edge-triggered
+                # per child id; otherwise completed watchdog/review nodes keep
+                # re-notifying about old failed siblings.
+                current_failed_child = (
+                    node.status == TaskPhase.FAILED.value
+                    and node.node_type not in SYSTEM_NODE_TYPES
+                    and node.parent_id == parent_node.id
                 )
                 # Check if the CURRENT completing node was cancelled — resume parent
                 # so it can reassess (e.g. cancelled CEO_REQUEST should unblock parent).
@@ -2678,15 +2782,22 @@ class EmployeeManager:
                 # siblings — otherwise WATCHDOG_NUDGE completions re-trigger the cancelled
                 # branch in an infinite loop.
                 has_cancelled_child = node.status == TaskPhase.CANCELLED.value
-                if has_failed_child and parent_node.status in (TaskPhase.HOLDING.value, TaskPhase.PROCESSING.value):
-                    failed_children = [
-                        c for c in non_review_children
-                        if c.status == TaskPhase.FAILED.value
-                    ]
-                    failure_summary = "; ".join(
-                        f"[{c.employee_id}] {c.description_preview}: {c.result or 'no details'}"
-                        for c in failed_children
+                handled_failures = getattr(parent_node, "handled_child_failure_ids", []) or []
+                failure_event_key = f"child_failure:{parent_node.id}:{node.id}"
+                failure_already_handled = node.id in handled_failures
+                if current_failed_child and failure_already_handled:
+                    logger.debug(
+                        "[ON_CHILD_COMPLETE] child {} failure already handled for parent {} — skipping duplicate notification",
+                        node.id, parent_node.id,
                     )
+
+                if (
+                    current_failed_child
+                    and not failure_already_handled
+                    and parent_node.status in (TaskPhase.HOLDING.value, TaskPhase.PROCESSING.value)
+                ):
+                    parent_node.handled_child_failure_ids = [*handled_failures, node.id]
+                    failure_summary = f"[{node.employee_id}] {node.description_preview}: {node.result or 'no details'}"
                     resume_desc = (
                         f"[Child Task Failure] The following child tasks have failed:\n\n"
                         f"{failure_summary}\n\n"
@@ -2713,19 +2824,39 @@ class EmployeeManager:
                         logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (child failed, resuming)", parent_node.id)
                     else:
                         logger.debug("[TASK LIFECYCLE] parent={} already PROCESSING (child failed, re-dispatching)", parent_node.id)
-                    # Inject failure context into parent's description for re-execution
-                    notify_node = tree.add_child(
-                        parent_id=parent_node.id,
-                        employee_id=parent_node.employee_id,
-                        description=resume_desc,
-                        acceptance_criteria=[],
+                    # Inject failure context into a short-lived system node. The
+                    # event_key protects against duplicate creation if recovery
+                    # or a concurrent callback sees the same failure event.
+                    notify_node = next(
+                        (
+                            c for c in children
+                            if c.node_type == NodeType.WATCHDOG_NUDGE
+                            and getattr(c, "event_key", "") == failure_event_key
+                            and TaskPhase(c.status) not in TERMINAL
+                        ),
+                        None,
                     )
-                    notify_node.node_type = NodeType.WATCHDOG_NUDGE
-                    notify_node.project_id = project_id
-                    notify_node.project_dir = parent_node.project_dir or str(Path(entry.tree_path).parent)
+                    if notify_node:
+                        logger.debug(
+                            "[ON_CHILD_COMPLETE] failure notification {} already exists for event {}",
+                            notify_node.id, failure_event_key,
+                        )
+                    else:
+                        notify_node = tree.add_child(
+                            parent_id=parent_node.id,
+                            employee_id=parent_node.employee_id,
+                            description=resume_desc,
+                            acceptance_criteria=[],
+                            timeout_seconds=180,
+                        )
+                        notify_node.node_type = NodeType.WATCHDOG_NUDGE
+                        notify_node.event_key = failure_event_key
+                        notify_node.project_id = project_id
+                        notify_node.project_dir = parent_node.project_dir or str(Path(entry.tree_path).parent)
                     save_tree_async(entry.tree_path)
-                    self.schedule_node(parent_node.employee_id, notify_node.id, entry.tree_path)
-                    self._schedule_next(parent_node.employee_id)
+                    if notify_node.status == TaskPhase.PENDING.value:
+                        self.schedule_node(parent_node.employee_id, notify_node.id, entry.tree_path)
+                        self._schedule_next(parent_node.employee_id)
 
                 elif has_cancelled_child and parent_node.status in (TaskPhase.HOLDING.value, TaskPhase.PROCESSING.value):
                     cancelled_children = [
@@ -3249,6 +3380,9 @@ class EmployeeManager:
                 await _store.save_project_status(project_id, ITER_STATUS_FAILED)
             else:
                 complete_project(project_id, label)
+            tree_path = str(Path(node.project_dir) / TASK_TREE_FILENAME) if node.project_dir else ""
+            quiet_reason = "Superseded: project failed" if agent_error else "Superseded: project completed"
+            self.quiesce_project(project_id, tree_path=tree_path, reason=quiet_reason)
 
         # --- Resource cleanup: evict tree cache, task logs, Claude sessions ---
         self._release_project_resources(employee_id, node, project_id)

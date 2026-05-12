@@ -14,7 +14,8 @@
   <a href="https://github.com/1mancompany/OneManCompany/stargazers"><img src="https://img.shields.io/github/stars/1mancompany/OneManCompany?style=social" alt="GitHub stars" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/1mancompany/OneManCompany" alt="License" /></a>
   <a href="https://github.com/1mancompany/OneManCompany/commits/main"><img src="https://img.shields.io/github/last-commit/1mancompany/OneManCompany" alt="Last commit" /></a>
-  <a href="https://discord.gg/MGsdrARx"><img src="https://img.shields.io/discord/1352123168498921472?color=5865F2&label=Discord&logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="https://discord.gg/B6BfZ9tWa"><img src="https://img.shields.io/discord/1352123168498921472?color=5865F2&label=Discord&logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="https://huggingface.co/papers/2604.22446"><img src="https://img.shields.io/badge/%F0%9F%A4%97-Paper-yellow" alt="HuggingFace Paper" /></a>
 </p>
 
 <p align="center">
@@ -105,7 +106,7 @@ npx @1mancompany/onemancompany
 </table>
 
 <p align="center">
-  <img src="docs/img/task_tree_1.jpg" alt="OneManCompany — Task Tree" width="80%" />
+  <img src="docs/img/task_tree_2.jpg" alt="OneManCompany — Task Tree" width="80%" />
   <br><i>Hierarchical task breakdown — CEO delegates, AI employees execute.</i>
 </p>
 
@@ -430,6 +431,12 @@ This is a living plan — [request a feature](https://github.com/1mancompany/One
 - **Improve the OS** — Core engine, frontend, documentation
 - **Share Demos** — Show what your AI company can build
 - **Report Issues** — Help us find and fix bugs
+
+<p align="center">
+  <a href="wechat.jpg"><img src="wechat.jpg" alt="WeChat QR — OMC 交流群" width="200" /></a>
+  <br />
+  <sub>Scan to join the OMC WeChat community group</sub>
+</p>
 
 See [vibe-coding-guide.md](vibe-coding-guide.md) for coding guidelines.
 

@@ -20,4 +20,3 @@ capabilities:
   file_upload: false
   websocket: false
   sandbox: false
-  image_generation: false

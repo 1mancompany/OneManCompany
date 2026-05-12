@@ -102,10 +102,18 @@ def _build_conversation_prompt(
     conversation: Conversation, messages: list[Message], new_message: Message,
 ) -> str:
     """Build a prompt with conversation history for the executor."""
-    from onemancompany.core.config import get_workspace_dir
+    from onemancompany.core.config import employee_configs, get_workspace_dir, settings
 
     lines = []
     lines.append("You are in a conversation with the CEO.")
+    cfg = employee_configs.get(conversation.employee_id)
+    provider = (cfg.api_provider if cfg and cfg.api_provider else settings.default_api_provider) or "unknown"
+    model = (cfg.llm_model if cfg and cfg.llm_model else settings.default_llm_model) or "unknown"
+    lines.append(f"Runtime LLM: provider={provider}, model={model}.")
+    lines.append(
+        "If the CEO asks what model/provider you are, answer from Runtime LLM above. "
+        "Do not infer or claim a different vendor from your role, tools, or framework."
+    )
     if conversation.type == ConversationType.ONE_ON_ONE:
         lines.append("This is a 1-on-1 meeting. Be direct and professional.")
         workspace_dir = get_workspace_dir(conversation.employee_id).resolve()

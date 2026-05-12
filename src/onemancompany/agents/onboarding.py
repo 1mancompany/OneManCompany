@@ -42,6 +42,7 @@ from onemancompany.core.config import (
     WORKSPACE_DIR_NAME,
     EmployeeConfig,
     ensure_employee_dir,
+    normalize_llm_profile_defaults,
     settings,
     read_text_utf,
     write_text_utf,
@@ -927,11 +928,16 @@ async def execute_hire(
         department, DEFAULT_TOOL_PERMISSIONS_FALLBACK
     ))
 
-    # Default model from settings if not specified
-    if not llm_model:
-        from onemancompany.core.config import load_app_config
-        _settings = load_app_config()
-        llm_model = _settings.get("default_llm_model", "") if isinstance(_settings, dict) else getattr(_settings, "default_llm_model", "")
+    llm_profile = {
+        "hosting": hosting,
+        "api_provider": api_provider,
+        "llm_model": llm_model,
+        "auth_method": auth_method,
+    }
+    normalize_llm_profile_defaults(llm_profile, reason=f"new hire {name}")
+    api_provider = llm_profile.get("api_provider", "")
+    llm_model = llm_profile.get("llm_model", "")
+    auth_method = llm_profile.get("auth_method", "api_key")
 
     # Salary
     salary = compute_salary(llm_model) if llm_model else 0.0

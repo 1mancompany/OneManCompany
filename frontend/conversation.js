@@ -10,6 +10,7 @@ class ChatPanel {
         this._closeBtn = null;
         this._typingEl = null;
         this._fileInput = null;
+        this._isComposing = false;
         this._onSendCb = null;
         this._onClearCb = null;
         this._onCloseCb = null;
@@ -47,6 +48,12 @@ class ChatPanel {
         `;
         this._messagesEl = this._container.querySelector('.chat-panel-messages');
         this._inputEl = this._container.querySelector('.chat-panel-input');
+        this._inputEl.addEventListener('compositionstart', () => {
+            this._isComposing = true;
+        });
+        this._inputEl.addEventListener('compositionend', () => {
+            this._isComposing = false;
+        });
         this._sendBtn = this._container.querySelector('.chat-panel-send-btn');
         this._clearBtn = this._container.querySelector('.chat-panel-clear-btn');
         this._closeBtn = this._container.querySelector('.chat-panel-close-btn');
@@ -61,6 +68,7 @@ class ChatPanel {
         });
         this._inputEl.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.isComposing || this._isComposing) return;
                 e.preventDefault();
                 this._handleSend();
             }

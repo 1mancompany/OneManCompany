@@ -801,6 +801,36 @@ class TestAbortProject:
         mock_task_02.cancel.assert_not_called()
 
 
+class TestQuiesceProject:
+    """Tests for EmployeeManager.quiesce_project."""
+
+    def test_quiesce_cancels_scheduled_system_nodes(self, tmp_path):
+        mgr = EmployeeManager()
+
+        tree = TaskTree(project_id="proj-A")
+        root = tree.create_root(employee_id="ceo", description="CEO prompt")
+        root.node_type = "ceo_prompt"
+        nudge = tree.add_child(root.id, "emp01", "stale failure notification", [])
+        nudge.node_type = "watchdog_nudge"
+        nudge.project_id = "proj-A"
+
+        tree_path = tmp_path / "task_tree.yaml"
+        tree.save(tree_path)
+        mgr._schedule["emp01"] = [ScheduleEntry(node_id=nudge.id, tree_path=str(tree_path))]
+
+        with patch("onemancompany.core.task_tree.get_tree", return_value=tree), \
+             patch("onemancompany.core.task_tree.save_tree_async") as mock_save, \
+             patch("onemancompany.core.vessel.stop_cron"), \
+             patch.object(mgr, "_publish_node_update"):
+            quieted = mgr.quiesce_project("proj-A", tree_path=str(tree_path), reason="Superseded: project completed")
+
+        assert mgr._schedule["emp01"] == []
+        assert nudge.status == TaskPhase.CANCELLED.value
+        assert nudge.result == "Superseded: project completed"
+        assert quieted >= 2
+        mock_save.assert_called()
+
+
 # ---------------------------------------------------------------------------
 # _on_child_complete_inner — child FAILED resumes HOLDING parent
 # ---------------------------------------------------------------------------
@@ -863,6 +893,115 @@ class TestChildFailedResumesHoldingParent:
         # to process again with the failure context
         assert ea_parent.status != TaskPhase.HOLDING.value, \
             "Parent should not remain HOLDING after child FAILS"
+
+    @pytest.mark.asyncio
+    async def test_child_failed_notification_is_idempotent(self, tmp_path):
+        """The same failed child should only create one failure notification."""
+        mgr = EmployeeManager()
+
+        tree = TaskTree(project_id="proj-stuck")
+        root = tree.create_root(employee_id="ceo", description="CEO prompt")
+        root.node_type = "ceo_prompt"
+        root.status = TaskPhase.PENDING.value
+
+        ea_parent = tree.add_child(
+            parent_id=root.id, employee_id="00002",
+            description="EA manages project", acceptance_criteria=[],
+        )
+        ea_parent.set_status(TaskPhase.PROCESSING)
+        ea_parent.set_status(TaskPhase.HOLDING)
+        ea_parent.project_id = "proj-stuck"
+        ea_parent.project_dir = str(tmp_path)
+
+        worker_child = tree.add_child(
+            parent_id=ea_parent.id, employee_id="emp10",
+            description="Do the work", acceptance_criteria=[],
+        )
+        worker_child.set_status(TaskPhase.PROCESSING)
+        worker_child.set_status(TaskPhase.FAILED)
+        worker_child.result = "Error: connection timeout"
+        worker_child.project_id = "proj-stuck"
+        worker_child.project_dir = str(tmp_path)
+
+        tree_path = tmp_path / "task_tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=worker_child.id, tree_path=str(tree_path))
+
+        with patch("onemancompany.core.task_tree.get_tree", return_value=tree), \
+             patch("onemancompany.core.task_tree.save_tree_async"), \
+             patch("onemancompany.core.vessel._store") as mock_store, \
+             patch.object(mgr, "_publish_node_update"), \
+             patch.object(mgr, "schedule_node") as mock_schedule, \
+             patch.object(mgr, "_schedule_next"):
+            mock_store.save_employee_runtime = AsyncMock()
+
+            await mgr._on_child_complete_inner("emp10", entry, project_id="proj-stuck")
+            await mgr._on_child_complete_inner("emp10", entry, project_id="proj-stuck")
+
+        notifications = [
+            c for c in tree.get_children(ea_parent.id)
+            if c.node_type == "watchdog_nudge"
+            and getattr(c, "event_key", "").startswith("child_failure:")
+        ]
+        assert [n.event_key for n in notifications] == [
+            f"child_failure:{ea_parent.id}:{worker_child.id}"
+        ]
+        assert ea_parent.handled_child_failure_ids == [worker_child.id]
+        assert mock_schedule.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_watchdog_completion_does_not_retrigger_failed_sibling(self, tmp_path):
+        """Completing a failure notification must not notify again about old failed siblings."""
+        mgr = EmployeeManager()
+
+        tree = TaskTree(project_id="proj-stuck")
+        root = tree.create_root(employee_id="ceo", description="CEO prompt")
+        root.node_type = "ceo_prompt"
+        root.status = TaskPhase.PENDING.value
+
+        ea_parent = tree.add_child(root.id, "00002", "EA manages project", [])
+        ea_parent.set_status(TaskPhase.PROCESSING)
+        ea_parent.set_status(TaskPhase.HOLDING)
+        ea_parent.project_id = "proj-stuck"
+        ea_parent.project_dir = str(tmp_path)
+
+        worker_child = tree.add_child(ea_parent.id, "emp10", "Do the work", [])
+        worker_child.set_status(TaskPhase.PROCESSING)
+        worker_child.set_status(TaskPhase.FAILED)
+        worker_child.result = "Error"
+        worker_child.project_id = "proj-stuck"
+
+        tree_path = tmp_path / "task_tree.yaml"
+        tree.save(tree_path)
+        failed_entry = ScheduleEntry(node_id=worker_child.id, tree_path=str(tree_path))
+
+        with patch("onemancompany.core.task_tree.get_tree", return_value=tree), \
+             patch("onemancompany.core.task_tree.save_tree_async"), \
+             patch("onemancompany.core.vessel._store") as mock_store, \
+             patch.object(mgr, "_publish_node_update"), \
+             patch.object(mgr, "schedule_node") as mock_schedule, \
+             patch.object(mgr, "_schedule_next"):
+            mock_store.save_employee_runtime = AsyncMock()
+
+            await mgr._on_child_complete_inner("emp10", failed_entry, project_id="proj-stuck")
+            notifications = [
+                c for c in tree.get_children(ea_parent.id)
+                if c.node_type == "watchdog_nudge"
+                and getattr(c, "event_key", "").startswith("child_failure:")
+            ]
+            assert len(notifications) == 1
+
+            notifications[0].status = TaskPhase.FINISHED.value
+            notify_entry = ScheduleEntry(node_id=notifications[0].id, tree_path=str(tree_path))
+            await mgr._on_child_complete_inner("00002", notify_entry, project_id="proj-stuck")
+
+        notifications_after = [
+            c for c in tree.get_children(ea_parent.id)
+            if c.node_type == "watchdog_nudge"
+            and getattr(c, "event_key", "").startswith("child_failure:")
+        ]
+        assert len(notifications_after) == 1
+        assert mock_schedule.call_count == 1
 
     @pytest.mark.asyncio
     async def test_child_completed_does_not_trigger_failure_resume(self, tmp_path):

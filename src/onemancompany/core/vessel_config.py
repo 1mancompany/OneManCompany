@@ -72,7 +72,6 @@ class CapabilitiesConfig:
     file_upload: bool = False
     websocket: bool = False
     sandbox: bool = False
-    image_generation: bool = False
 
 
 @dataclass
@@ -138,7 +137,6 @@ def _parse_vessel_dict(raw: dict) -> VesselConfig:
             file_upload=caps_raw.get("file_upload", False),
             websocket=caps_raw.get("websocket", False),
             sandbox=caps_raw.get("sandbox", False),
-            image_generation=caps_raw.get("image_generation", False),
         ),
     )
 
@@ -207,11 +205,9 @@ def save_vessel_config(emp_dir: Path, config: VesselConfig) -> None:
             "file_upload": config.capabilities.file_upload,
             "websocket": config.capabilities.websocket,
             "sandbox": config.capabilities.sandbox,
-            "image_generation": config.capabilities.image_generation,
         },
     }
 
     with open_utf(vessel_dir / VESSEL_YAML_FILENAME, "w") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
-
 

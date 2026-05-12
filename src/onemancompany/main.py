@@ -489,7 +489,15 @@ async def lifespan(app: FastAPI):
         logger.warning("Talent Market connection failed (configure in Settings): {}", e)
 
     from onemancompany.core.vessel_config import load_vessel_config
-    from onemancompany.core.config import EMPLOYEES_DIR as _EMPLOYEES_DIR, employee_configs as _emp_cfgs
+    from onemancompany.core.config import (
+        EMPLOYEES_DIR as _EMPLOYEES_DIR,
+        employee_configs as _emp_cfgs,
+        sync_company_hosted_llm_defaults,
+    )
+
+    _synced_llm_profiles = sync_company_hosted_llm_defaults()
+    if _synced_llm_profiles:
+        logger.info("[startup] Repaired {} employee LLM profile(s) to use available company defaults", _synced_llm_profiles)
 
     # Founding employees — hosting-aware registration
     from onemancompany.core.vessel import register_founding_employee

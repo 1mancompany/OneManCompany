@@ -1,9 +1,0 @@
-id: background_removal
-name: Background Removal
-description: >
-  Remove image backgrounds and export transparent PNGs.
-  USE THIS after generating an image when you need a transparent version
-  (e.g., for logos, stickers, overlays). Call remove_image_background(input_path, output_path).
-added_by: CEO
-type: langchain_module
-sprite: desk_equipment

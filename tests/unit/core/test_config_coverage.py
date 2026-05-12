@@ -145,6 +145,113 @@ class TestSyncFoundingDefaults:
         assert count == 0
 
 
+class TestCompanyHostedLlmDefaults:
+    class DummySettings:
+        default_api_provider = "custom"
+        default_llm_model = "claude-sonnet-4-6"
+        custom_api_key = "sk-custom"
+        openrouter_api_key = ""
+        openai_api_key = ""
+        anthropic_api_key = ""
+        kimi_api_key = ""
+        deepseek_api_key = ""
+        qwen_api_key = ""
+        zhipu_api_key = ""
+        groq_api_key = ""
+        together_api_key = ""
+        google_api_key = ""
+        minimax_api_key = ""
+
+    def test_resolve_provider_key_uses_employee_then_company_key(self, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "settings", self.DummySettings())
+
+        assert config_mod.resolve_provider_key("custom", "sk-employee") == "sk-employee"
+        assert config_mod.resolve_provider_key("custom") == "sk-custom"
+        assert config_mod.resolve_provider_key("") == ""
+        assert config_mod.resolve_provider_key("missing-provider") == ""
+        assert config_mod.provider_has_credentials("openrouter") is False
+
+    def test_normalize_missing_profile_values(self, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "settings", self.DummySettings())
+        profile = {}
+
+        changed = config_mod.normalize_llm_profile_defaults(profile, reason="test employee")
+
+        assert changed is True
+        assert profile["api_provider"] == "custom"
+        assert profile["llm_model"] == "claude-sonnet-4-6"
+        assert profile["auth_method"] == "api_key"
+
+    def test_normalize_replaces_unusable_imported_provider(self, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "settings", self.DummySettings())
+        profile = {
+            "api_provider": "openrouter",
+            "llm_model": "openrouter/model",
+        }
+
+        changed = config_mod.normalize_llm_profile_defaults(profile, reason="imported talent")
+
+        assert changed is True
+        assert profile["api_provider"] == "custom"
+        assert profile["llm_model"] == "claude-sonnet-4-6"
+        assert profile["auth_method"] == "api_key"
+
+    @pytest.mark.parametrize("hosting", ["self", "remote"])
+    def test_normalize_skips_self_and_remote_hosting(self, monkeypatch, hosting):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "settings", self.DummySettings())
+        profile = {"hosting": hosting, "api_provider": "openrouter"}
+
+        changed = config_mod.normalize_llm_profile_defaults(profile, reason="remote talent")
+
+        assert changed is False
+        assert profile["api_provider"] == "openrouter"
+
+    def test_sync_company_hosted_llm_defaults_repairs_only_local_profiles(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "settings", self.DummySettings())
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+
+        (tmp_path / "README.txt").write_text("skip non-dir", encoding="utf-8")
+        (tmp_path / "00001").mkdir()
+        local_dir = tmp_path / "00002"
+        local_dir.mkdir()
+        (local_dir / "profile.yaml").write_text(
+            yaml.dump({"api_provider": "openrouter", "llm_model": "openrouter/model"}),
+            encoding="utf-8",
+        )
+        remote_dir = tmp_path / "00003"
+        remote_dir.mkdir()
+        (remote_dir / "profile.yaml").write_text(
+            yaml.dump({"remote": True, "api_provider": "openrouter"}),
+            encoding="utf-8",
+        )
+
+        synced = config_mod.sync_company_hosted_llm_defaults()
+
+        assert synced == 1
+        repaired = yaml.safe_load((local_dir / "profile.yaml").read_text(encoding="utf-8"))
+        remote = yaml.safe_load((remote_dir / "profile.yaml").read_text(encoding="utf-8"))
+        assert repaired["api_provider"] == "custom"
+        assert repaired["llm_model"] == "claude-sonnet-4-6"
+        assert remote["api_provider"] == "openrouter"
+
+    def test_sync_company_hosted_llm_defaults_missing_employee_dir(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path / "missing")
+
+        assert config_mod.sync_company_hosted_llm_defaults() == 0
+
+
 # ---------------------------------------------------------------------------
 # load_employee_configs — corrupt profile (lines 699-701)
 # ---------------------------------------------------------------------------

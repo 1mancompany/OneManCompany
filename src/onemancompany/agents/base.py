@@ -45,7 +45,7 @@ from onemancompany.core.config import (
     load_employee_skills,
     read_text_utf,
 )
-from onemancompany.core.models import AuthMethod
+from onemancompany.core.models import AuthMethod, HostingMode
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.agents.prompt_builder import PromptBuilder
@@ -59,6 +59,8 @@ _TC_NAME_KEY = "name"  # tool_call dict key
 _TC_ATTR = "tool_calls"  # AIMessage attribute name
 _UNKNOWN_TOOL = "unknown"
 _NO_OUTPUT = "(no output)"
+_MISSING_API_KEY_SENTINEL = "missing-api-key"
+_COMPANY_HOSTING = HostingMode.COMPANY.value
 
 
 def _extract_text(content) -> str:
@@ -159,6 +161,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
     effective_temp = 0.7
     api_provider = settings.default_api_provider or "openrouter"
     api_key = ""
+    auth_method = ""
 
     if employee_id and employee_id in employee_configs:
         cfg = employee_configs[employee_id]
@@ -167,9 +170,28 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
         effective_temp = cfg.temperature
         api_provider = cfg.api_provider
         api_key = cfg.api_key
+        auth_method = cfg.auth_method
 
     if temperature is not None:
         effective_temp = temperature
+
+    original_auth_method = auth_method
+    llm_profile = {
+        "hosting": _COMPANY_HOSTING,
+        "api_provider": api_provider,
+        "api_key": api_key,
+        "llm_model": model,
+        "auth_method": auth_method,
+    }
+    _cfg.normalize_llm_profile_defaults(
+        llm_profile,
+        reason=f"employee {employee_id}" if employee_id else "company default",
+    )
+    api_provider = llm_profile.get("api_provider", api_provider)
+    model = llm_profile.get("llm_model", model)
+    auth_method = llm_profile.get("auth_method", auth_method)
+    if not original_auth_method and api_provider == "anthropic":
+        auth_method = settings.anthropic_auth_method
 
     prov = get_provider(api_provider)
 
@@ -182,9 +204,6 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
     if prov and effective_chat_class == CHAT_CLASS_ANTHROPIC:
         from langchain_anthropic import ChatAnthropic
 
-        auth_method = ""
-        if employee_id and employee_id in employee_configs:
-            auth_method = employee_configs[employee_id].auth_method
         if not auth_method:
             auth_method = settings.anthropic_auth_method
 
@@ -198,9 +217,13 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
             extra_headers = {}
             if auth_method == AuthMethod.OAUTH or effective_key.startswith("sk-ant-oat"):
                 extra_headers["anthropic-beta"] = "oauth-2025-04-20"
+            base_url = None
+            if api_provider == "custom" and settings.default_api_base_url:
+                base_url = settings.default_api_base_url
             return ChatAnthropic(
                 model=model,
                 api_key=effective_key,
+                base_url=base_url,
                 temperature=effective_temp,
                 max_retries=3,
                 timeout=300.0,
@@ -217,6 +240,11 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
                 base_url = settings.openrouter_base_url
             elif api_provider == "custom" or (settings.default_api_base_url and api_provider == settings.default_api_provider):
                 base_url = settings.default_api_base_url
+            extra_body = None
+            if (api_provider or "").lower() == "deepseek":
+                # DeepSeek V4 thinking mode currently requires reasoning_content
+                # replay across tool calls, which LangChain does not preserve.
+                extra_body = {"thinking": {"type": "disabled"}}
             return ChatOpenAI(
                 model=model,
                 api_key=effective_key,
@@ -225,6 +253,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
                 max_retries=3,
                 request_timeout=300.0,
                 stream_usage=True,
+                extra_body=extra_body,
             )
 
     # --- Fallback: unknown provider or no key → fall back to openrouter with default model ---
@@ -234,7 +263,14 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
 
     fallback_key = settings.openrouter_api_key
     if not fallback_key:
-        logger.warning("make_llm: no API key for provider '{}' and no OpenRouter fallback key; LLM calls will fail", api_provider)
+        logger.warning(
+            "make_llm: no API key for provider '{}' and no OpenRouter fallback key; "
+            "LLM calls will fail. Set DEFAULT_API_PROVIDER with the matching provider API key in {}, "
+            "or set OPENROUTER_API_KEY for fallback.",
+            api_provider,
+            _cfg.DATA_ROOT / _cfg.DOT_ENV_FILENAME,
+        )
+        fallback_key = _MISSING_API_KEY_SENTINEL
 
     return ChatOpenAI(
         model=model,
@@ -954,6 +990,17 @@ class BaseAgentRunner:
         now = datetime.now()
         parts.append(f"- Current time: {now.strftime('%Y-%m-%d %H:%M')}")
 
+        # Runtime model identity. This helps model-agnostic providers answer
+        # direct CEO questions about their configured runtime without guessing.
+        cfg = employee_configs.get(self.employee_id)
+        provider = (cfg.api_provider if cfg and cfg.api_provider else _cfg.settings.default_api_provider) or "unknown"
+        model = (cfg.llm_model if cfg and cfg.llm_model else _cfg.settings.default_llm_model) or "unknown"
+        parts.append(f"- Runtime LLM: provider={provider}, model={model}")
+        parts.append(
+            "- If the CEO asks what model/provider you are, answer using Runtime LLM above. "
+            "Do not infer or claim a different vendor from your role, tools, or framework."
+        )
+
         # Team roster summary (compact)
         from onemancompany.core.store import load_all_employees
         all_emps = load_all_employees()
@@ -1239,4 +1286,3 @@ class EmployeeAgent(BaseAgentRunner):
         self._set_status(STATUS_IDLE)
         await self._publish("agent_done", {"role": self.role, "summary": final[:MAX_SUMMARY_LEN]})
         return final
-

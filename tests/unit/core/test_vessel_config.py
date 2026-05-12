@@ -50,7 +50,7 @@ class TestVesselConfigDefaults:
         assert cfg.capabilities.sandbox is False
         assert cfg.capabilities.file_upload is False
         assert cfg.capabilities.websocket is False
-        assert cfg.capabilities.image_generation is False
+        assert not hasattr(cfg.capabilities, "image_generation")
 
     def test_default_context(self):
         cfg = VesselConfig()
@@ -75,7 +75,7 @@ class TestLoadVesselConfig:
         data = {
             "runner": {"module": "my_runner", "class_name": "MyRunner"},
             "limits": {"max_retries": 5, "retry_delays": [10, 20]},
-            "capabilities": {"image_generation": True},
+            "capabilities": {"image_generation": True, "sandbox": True},
         }
         with open(vessel_dir / "vessel.yaml", "w") as f:
             yaml.dump(data, f)
@@ -85,7 +85,8 @@ class TestLoadVesselConfig:
         assert cfg.runner.class_name == "MyRunner"
         assert cfg.limits.max_retries == 5
         assert cfg.limits.retry_delays == [10, 20]
-        assert cfg.capabilities.image_generation is True
+        assert cfg.capabilities.sandbox is True
+        assert not hasattr(cfg.capabilities, "image_generation")
 
     def test_vessel_yaml_takes_priority_over_agent(self, tmp_path):
         # Create both vessel/ and agent/
@@ -139,11 +140,13 @@ class TestSaveVesselConfig:
                 inject_progress_log=False,
             ),
             limits=LimitsConfig(max_retries=10),
-            capabilities=CapabilitiesConfig(image_generation=True),
+            capabilities=CapabilitiesConfig(sandbox=True),
         )
         save_vessel_config(tmp_path, cfg)
 
         assert (tmp_path / "vessel" / "vessel.yaml").exists()
+        saved = yaml.safe_load((tmp_path / "vessel" / "vessel.yaml").read_text())
+        assert "image_generation" not in saved["capabilities"]
 
         loaded = load_vessel_config(tmp_path)
         assert loaded.runner.module == "r"
@@ -152,7 +155,7 @@ class TestSaveVesselConfig:
         assert loaded.context.inject_progress_log is False
         assert len(loaded.context.prompt_sections) == 1
         assert loaded.limits.max_retries == 10
-        assert loaded.capabilities.image_generation is True
+        assert loaded.capabilities.sandbox is True
 
 
 # ---------------------------------------------------------------------------

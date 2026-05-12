@@ -32,6 +32,8 @@ class AppController {
     this._viewingBoardProjectId = null;
     // Unread message counts per channel (channelId → count)
     this._unreadCounts = {};
+    // Cached company defaults for candidate hire warnings/choices
+    this._companyLlmDefaults = null;
     // Initialize plugin system before connecting
     window.pluginLoader.init().then(() => {
       this.connect();
@@ -3935,7 +3937,7 @@ class AppController {
       for (const [batchId, batch] of Object.entries(batches)) {
         const candidates = batch.candidates || [];
         if (candidates.length > 0) {
-          this.showCandidateSelection({
+          await this.showCandidateSelection({
             batch_id: batchId,
             candidates,
             roles: batch.roles || [],
@@ -3948,11 +3950,63 @@ class AppController {
     }
   }
 
-  showCandidateSelection(payload) {
+  async _loadCompanyLlmDefaults(force = false) {
+    if (this._companyLlmDefaults && !force) return this._companyLlmDefaults;
+    try {
+      const data = await fetch('/api/settings/api').then(r => r.json());
+      this._companyLlmDefaults = {
+        provider: data.default_provider || 'openrouter',
+        model: data.default_model || '',
+      };
+    } catch (e) {
+      console.warn('Failed to load company LLM defaults for hiring UI:', e);
+      this._companyLlmDefaults = { provider: 'openrouter', model: '' };
+    }
+    return this._companyLlmDefaults;
+  }
+
+  _getCandidateLlmWarning(candidate) {
+    const defaults = this._companyLlmDefaults;
+    if (!defaults) return null;
+    const hosting = candidate.hosting || 'company';
+    if (hosting === 'self' || hosting === 'remote') return null;
+    const talentProvider = candidate.api_provider || 'openrouter';
+    const talentModel = candidate.llm_model || '';
+    const providerDiffers = talentProvider !== defaults.provider;
+    const modelDiffers = Boolean(defaults.model && talentModel && talentModel !== defaults.model);
+    if (!providerDiffers && !modelDiffers) return null;
+    return {
+      talentProvider,
+      talentModel,
+      companyProvider: defaults.provider,
+      companyModel: defaults.model,
+    };
+  }
+
+  _getCandidateConfigChoice(candidateId) {
+    return Boolean(this._candidateHireConfigChoices?.get(candidateId));
+  }
+
+  _setCandidateConfigChoice(candidateId, enabled) {
+    if (!this._candidateHireConfigChoices) this._candidateHireConfigChoices = new Map();
+    this._candidateHireConfigChoices.set(candidateId, Boolean(enabled));
+    if (this._selectedCandidates?.has(candidateId)) {
+      const selected = this._selectedCandidates.get(candidateId);
+      this._selectedCandidates.set(candidateId, {
+        ...selected,
+        use_talent_llm_config: Boolean(enabled),
+      });
+      this._updateBatchBar();
+    }
+  }
+
+  async showCandidateSelection(payload) {
+    await this._loadCompanyLlmDefaults(true);
     this._candidateBatchId = payload.batch_id;
     this._candidateList = payload.candidates || [];
     this._candidateRoles = payload.roles || [];
     this._selectedCandidates = new Map(); // candidateId -> {candidate, role}
+    this._candidateHireConfigChoices = new Map(); // candidateId -> bool
     this._interviewingCandidate = null;
 
     // If no roles structure, wrap flat candidates into a single role group
@@ -4026,6 +4080,10 @@ class AppController {
         const familyLabels = { company: '🧠 LangChain', self: '🤖 Claude', openclaw: '🦞 OpenClaw' };
         const hostingLabel = esc(familyLabels[hosting] || hosting);
         const authLabel = esc(c.auth_method === 'oauth' ? 'OAuth' : 'API Key');
+        const llmWarning = this._getCandidateLlmWarning(c);
+        const warningBadge = llmWarning
+          ? `<div class="card-config-warning" title="${esc(`Company default: ${llmWarning.companyProvider}${llmWarning.companyModel ? ` / ${llmWarning.companyModel}` : ''}\nTalent prefers: ${llmWarning.talentProvider}${llmWarning.talentModel ? ` / ${llmWarning.talentModel}` : ''}`)}">⚠ Different company defaults</div>`
+          : '';
 
         card.innerHTML = `
           <div class="card-inner">
@@ -4041,6 +4099,7 @@ class AppController {
                 <span class="score-label">${scorePct}%</span>
               </div>
               ${reasoning ? `<div class="card-reasoning" title="${esc(reasoning)}">${esc(reasoning.substring(0, 40))}${reasoning.length > 40 ? '...' : ''}</div>` : ''}
+              ${warningBadge}
               <div class="card-cost">${costPer1m} | ${hiringFee}</div>
               <div class="card-hosting">${hostingLabel}</div>
             </div>
@@ -4095,7 +4154,11 @@ class AppController {
       this._selectedCandidates.delete(candidateId);
       cardEl.classList.remove('selected');
     } else {
-      this._selectedCandidates.set(candidateId, { candidate, role });
+      this._selectedCandidates.set(candidateId, {
+        candidate,
+        role,
+        use_talent_llm_config: this._getCandidateConfigChoice(candidateId),
+      });
       cardEl.classList.add('selected');
     }
     this._updateBatchBar();
@@ -4132,6 +4195,21 @@ class AppController {
     const hostingLabel = esc(familyLabels[hosting] || hosting);
     const authLabel = esc(c.auth_method === 'oauth' ? 'OAuth' : 'API Key');
     const reasoning = c.reasoning || '';
+    const llmWarning = this._getCandidateLlmWarning(c);
+    const useTalentConfig = this._getCandidateConfigChoice(candidateId);
+    const warningSection = llmWarning ? `
+      <div class="detail-section">
+        <div class="detail-label">Config Warning</div>
+        <div class="detail-config-warning-box">
+          <div>Company default: <strong>${esc(llmWarning.companyProvider)}${llmWarning.companyModel ? ` / ${esc(llmWarning.companyModel)}` : ''}</strong></div>
+          <div>Talent prefers: <strong>${esc(llmWarning.talentProvider)}${llmWarning.talentModel ? ` / ${esc(llmWarning.talentModel)}` : ''}</strong></div>
+          <div class="detail-config-warning-note">By default this hire keeps the company setting. Enable the toggle below to hire with the talent's preferred provider/model.</div>
+        </div>
+        <label class="detail-config-toggle">
+          <input id="detail-use-talent-config" type="checkbox" ${useTalentConfig ? 'checked' : ''} />
+          Use talent preferred provider/model for this hire
+        </label>
+      </div>` : '';
 
     content.innerHTML = `
       <div class="detail-header">
@@ -4149,6 +4227,7 @@ class AppController {
       ${tags ? `<div class="detail-section"><div class="detail-label">Personality</div><div class="detail-tags-list">${tags}</div></div>` : ''}
       <div class="detail-section"><div class="detail-label">Skills</div><div class="detail-skills-list">${skills || '<em>N/A</em>'}</div></div>
       ${tools ? `<div class="detail-section"><div class="detail-label">Tools</div><div class="detail-tools-list">${tools}</div></div>` : ''}
+      ${warningSection}
       <div class="detail-section detail-grid">
         <div><div class="detail-label">LLM Model</div><div class="detail-text">🤖 ${esc(llmModel)}</div></div>
         <div><div class="detail-label">Provider</div><div class="detail-text">${esc(c.api_provider || 'openrouter')}</div></div>
@@ -4176,6 +4255,7 @@ class AppController {
     const newInterviewBtn = document.getElementById('detail-interview-btn');
     const newSelectBtn = document.getElementById('detail-select-btn');
     const newCloseBtn = document.getElementById('detail-panel-close');
+    const useTalentConfigCheckbox = document.getElementById('detail-use-talent-config');
     newSelectBtn.textContent = isSelected ? '✗ Deselect' : '✔ Select';
     newSelectBtn.className = isSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
     // Only remote (self-hosted) candidates support interview
@@ -4199,6 +4279,11 @@ class AppController {
       newSelectBtn.textContent = nowSelected ? '✗ Deselect' : '✔ Select';
       newSelectBtn.className = nowSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
     });
+    if (useTalentConfigCheckbox) {
+      useTalentConfigCheckbox.addEventListener('change', () => {
+        this._setCandidateConfigChoice(candidateId, useTalentConfigCheckbox.checked);
+      });
+    }
     newCloseBtn.addEventListener('click', () => {
       panel.classList.add('hidden');
       cardEl.classList.remove('detail-active');
@@ -4215,7 +4300,11 @@ class AppController {
 
     if (count > 0) {
       bar.classList.remove('hidden');
-      countEl.textContent = `${count} selected`;
+      const talentConfigCount = [...this._selectedCandidates.values()]
+        .filter(sel => sel.use_talent_llm_config).length;
+      countEl.textContent = talentConfigCount > 0
+        ? `${count} selected · ${talentConfigCount} using talent config`
+        : `${count} selected`;
       btn.textContent = `RECRUIT PARTY (${count})`;
       btn.disabled = false;
     } else {
@@ -4228,8 +4317,12 @@ class AppController {
 
   batchHireCandidates() {
     const selections = [];
-    for (const [candidateId, { candidate, role }] of this._selectedCandidates) {
-      selections.push({ candidate_id: candidateId, role });
+    for (const [candidateId, { role }] of this._selectedCandidates) {
+      selections.push({
+        candidate_id: candidateId,
+        role,
+        use_talent_llm_config: this._getCandidateConfigChoice(candidateId),
+      });
     }
 
     if (!selections.length) return;
@@ -4434,6 +4527,7 @@ class AppController {
 
     this._interviewingCandidate = null;
     this._selectedCandidates = new Map();
+    this._candidateHireConfigChoices = new Map();
 
     // Reset detail panel state so it doesn't flash stale content on reopen
     const detailPanel = document.getElementById('candidate-detail-panel');
@@ -4453,6 +4547,7 @@ class AppController {
       body: JSON.stringify({
         batch_id: this._candidateBatchId,
         candidate_id: candidate.id,
+        use_talent_llm_config: this._getCandidateConfigChoice(candidate.talent_id || candidate.id),
       }),
     })
       .then(r => r.json())

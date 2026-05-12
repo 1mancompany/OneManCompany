@@ -83,7 +83,7 @@ LOGO = r"""
  ░▒▓  [ NEURAL BOOTSTRAP SEQUENCE ]
 """
 
-TOTAL_STEPS = 6
+TOTAL_STEPS = 5
 
 HOSTING_LABELS = {"company": "LangChain", "self": "Claude Code", "openclaw": "OpenClaw"}
 
@@ -158,8 +158,8 @@ def _step_welcome(console: Console) -> None:
 
 def _format_price(price_str: str | None) -> str:
     """Format per-token price string to $/M tokens."""
-    if not price_str:
-        return PRICE_FREE
+    if price_str is None or price_str == "":
+        return PRICE_NA
     try:
         per_token = float(price_str)
         per_million = per_token * 1_000_000
@@ -226,8 +226,8 @@ def _fetch_provider_models(console: Console, provider: str, api_key: str) -> lis
         models.append({
             MODEL_KEY_ID: model_id,
             MODEL_KEY_NAME: display_name,
-            MODEL_KEY_PROMPT_PRICE: _format_price(pricing.get(OR_FIELD_PROMPT)) if pricing else "",
-            MODEL_KEY_COMPLETION_PRICE: _format_price(pricing.get(OR_FIELD_COMPLETION)) if pricing else "",
+            MODEL_KEY_PROMPT_PRICE: _format_price(pricing.get(OR_FIELD_PROMPT) if pricing else None),
+            MODEL_KEY_COMPLETION_PRICE: _format_price(pricing.get(OR_FIELD_COMPLETION) if pricing else None),
             MODEL_KEY_CONTEXT: m.get(OR_FIELD_CONTEXT_LENGTH) or m.get("context_length") or 0,
         })
 
@@ -294,8 +294,8 @@ def _select_model_interactive(console: Console, all_models: list[dict]) -> str:
     # Build choices with pricing info
     choices = []
     for m in all_models:
-        prompt_price = _format_price(m.get(MODEL_KEY_PROMPT_PRICE))
-        comp_price = _format_price(m.get(MODEL_KEY_COMPLETION_PRICE))
+        prompt_price = m.get(MODEL_KEY_PROMPT_PRICE) or PRICE_NA
+        comp_price = m.get(MODEL_KEY_COMPLETION_PRICE) or PRICE_NA
         label = f"{m[MODEL_KEY_ID]}  [{prompt_price} / {comp_price}]"
         choices.append({"name": label, "value": m[MODEL_KEY_ID]})
 
@@ -384,21 +384,15 @@ def _step_llm(console: Console) -> tuple[str, str, str, str]:
         if not base_url:
             console.print("  [red]Base URL is required for custom providers.[/red]")
             base_url = _inq.text(message="Base URL:", style=INQ_STYLE).execute().strip()
-    elif provider != PROVIDER_OPENROUTER:
-        console.print(
-            f"  [dim]Custom API base URL (press Enter to keep default).[/dim]\n"
-            f"  [dim]Examples: https://api.openai.com/v1, https://your-server.com/v1[/dim]"
-        )
-        from onemancompany.core.config import PROVIDER_REGISTRY
-        default_url = PROVIDER_REGISTRY.get(provider, None)
-        default_url = default_url.base_url if default_url else ""
-        base_url = _inq.text(
-            message="Base URL:",
-            default=default_url,
-            style=INQ_STYLE,
-        ).execute().strip()
 
     # 4. Select model — try fetching from provider, fall back to manual input
+    model = _select_or_enter_model(console, provider, api_key)
+    return provider, api_key.strip(), model, base_url, custom_chat_class
+
+
+def _select_or_enter_model(console: Console, provider: str, api_key: str) -> str:
+    from InquirerPy import inquirer as _inq
+
     console.print()
     all_models = _fetch_provider_models(console, provider, api_key)
     if all_models:
@@ -412,13 +406,12 @@ def _step_llm(console: Console) -> tuple[str, str, str, str]:
             default=default_model,
             style=INQ_STYLE,
         ).execute().strip()
-
-    return provider, api_key.strip(), model, base_url, custom_chat_class
+    return model
 
 
 def _step_server(console: Console) -> tuple[str, int]:
     console.print()
-    _print_step(console, 5, "NETWORK NODE", "Server Configuration")
+    _print_step(console, 4, "NETWORK NODE", "Server Configuration")
     console.print(
         "\n  [dim]Deploy your company node on the local network.[/dim]\n"
         "  [dim]After genesis, open the URL to enter your office.[/dim]\n"
@@ -544,64 +537,6 @@ def _step_agent_family(console: Console) -> dict[str, str]:
     return founders
 
 
-def _step_sandbox(console: Console) -> bool:
-    """Ask whether to install sandbox tools (Docker-based code execution)."""
-    console.print()
-    _print_step(console, 4, "SANDBOX MESH", "Isolated Execution")
-    console.print(
-        "\n  [dim]Sandbox gives your AI employees a safe place to run code.\n"
-        "  Without it, code execution happens directly on your machine.\n"
-        "  With it, each task runs in an isolated Docker container.[/dim]\n"
-    )
-    console.print(
-        "  [bold]Requirements:[/bold]\n"
-        "    • [cyan]Docker[/cyan] — must be installed and running\n"
-        "    • Python packages will be installed automatically\n"
-        "  [dim]This is optional. You can always enable it later.[/dim]\n"
-    )
-    from InquirerPy import inquirer as _inq
-    install = _inq.confirm(
-        message="Install sandbox tools?",
-        default=False,
-        style=INQ_STYLE,
-    ).execute()
-    if install:
-        console.print()
-        _install_sandbox_deps(console)
-    return install
-
-
-def _install_sandbox_deps(console: Console) -> None:
-    """Attempt to install sandbox optional dependencies via uv/pip."""
-    import subprocess
-    import sys
-
-    # Try uv first, fall back to pip
-    venv_python = sys.executable
-    cmds = [
-        [venv_python, "-m", "uv", "pip", "install", "onemancompany[sandbox]"],
-        [venv_python, "-m", "pip", "install", "onemancompany[sandbox]"],
-    ]
-    for cmd in cmds:
-        try:
-            with console.status("  Installing sandbox dependencies..."):
-                result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=120,
-                )
-            if result.returncode == 0:
-                console.print("  [green]✔[/green] Sandbox dependencies installed")
-                return
-        except FileNotFoundError:
-            console.print(f"  [dim]{cmd[2]} not available, trying fallback...[/dim]")
-        except subprocess.TimeoutExpired:
-            console.print("  [yellow]⚠[/yellow] Installation timed out")
-
-    console.print(
-        "  [yellow]⚠[/yellow] Auto-install failed. Install manually:\n"
-        "    [dim]uv pip install 'onemancompany[sandbox]'[/dim]"
-    )
-
-
 def _step_optional(console: Console) -> dict[str, str]:
     console.print()
     _print_step(console, 3, "UPLINK ARRAY", "External Integrations")
@@ -694,7 +629,7 @@ def _step_execute(
     custom_chat_class: str = "",
 ) -> None:
     console.print()
-    _print_step(console, 6, "GENESIS", "Company Initialization")
+    _print_step(console, 5, "GENESIS", "Company Initialization")
     console.print(
         "\n  [dim]Deploying company infrastructure and founding team...[/dim]\n"
     )
@@ -806,7 +741,7 @@ def _step_execute(
 
     # 6. Generate MCP configs for founding employees
     with console.status("  Generating MCP configs..."):
-        _generate_mcp_configs(extras.get(ENV_KEY_SKILLSMP, ""))
+        _generate_mcp_configs(extras.get(ENV_KEY_SKILLSMP, ""), host, port)
     console.print("  [green]\u2714[/green] MCP configs generated for founding employees")
 
     # 7. Apply agent family (hosting) assignments to founding employees
@@ -895,13 +830,15 @@ def _assign_default_avatars(console: Console) -> None:
         console.print("  [green]\u2714[/green] Founding employees already have avatars")
 
 
-def _generate_mcp_configs(skillsmp_key: str) -> None:
+def _generate_mcp_configs(skillsmp_key: str, host: str, port: int) -> None:
     """Generate mcp_config.json for founding employees."""
     import sys
 
     python_path = sys.executable
     from onemancompany.core.config import EXEC_IDS
     exec_ids = sorted(EXEC_IDS)
+    server_host = "localhost" if host == "0.0.0.0" else host
+    server_url = f"http://{server_host}:{port}"
 
     for emp_id in exec_ids:
         emp_dir = EMPLOYEES_DIR / emp_id
@@ -917,7 +854,7 @@ def _generate_mcp_configs(skillsmp_key: str) -> None:
                     ENV_OMC_TASK_ID: "",
                     ENV_OMC_PROJECT_ID: "",
                     ENV_OMC_PROJECT_DIR: "",
-                    ENV_OMC_SERVER_URL: "http://localhost:8000",
+                    ENV_OMC_SERVER_URL: server_url,
                 },
             },
         }
@@ -1010,10 +947,9 @@ def run_wizard() -> None:
     founder_families = _step_agent_family(console)      # Step 1: Agent Family
     provider, api_key, model, base_url, custom_chat_class = _step_llm(console)  # Step 2: LLM Provider & Key
     extras = _step_optional(console)                     # Step 3: External Integrations
-    sandbox_enabled = _step_sandbox(console)             # Step 4: Sandbox
-    host, port = _step_server(console)                   # Step 5: Server
+    host, port = _step_server(console)                   # Step 4: Server
     _step_execute(console, provider, api_key, model, host, port, extras,
-                  sandbox_enabled=sandbox_enabled, founder_families=founder_families,
+                  founder_families=founder_families,
                   base_url=base_url, custom_chat_class=custom_chat_class)
     _step_done(console, host, port)
 
