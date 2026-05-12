@@ -2505,6 +2505,40 @@ class TestCeoSubmitTaskPaths:
         data = resp.json()
         assert data["project_id"] == "new-project"
 
+    async def test_task_with_attachment_instructs_ea_to_read_file(self, tmp_path):
+        state = _make_state()
+        bus = EventBus()
+        mock_loop = MagicMock()
+        mock_loop.push_task = MagicMock()
+        mock_save_tree = MagicMock()
+
+        with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
+             patch("onemancompany.api.routes.event_bus", bus), \
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
+             patch("onemancompany.core.project_archive.async_create_project_from_task", new_callable=AsyncMock, return_value=("proj_123", "iter_001")), \
+             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(tmp_path)), \
+             patch("onemancompany.core.vessel._save_project_tree", mock_save_tree):
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.post(
+                    "/api/ceo/task",
+                    data={"task": "Review the upload"},
+                    files=[("files", ("notes.txt", b"hello from attachment", "text/plain"))],
+                )
+
+        assert resp.status_code == 200
+        saved_dir, saved_tree = mock_save_tree.call_args[0]
+        assert saved_dir == str(tmp_path)
+        root = saved_tree.get_node(saved_tree.root_id)
+        assert root is not None
+        children = saved_tree.get_active_children(root.id)
+        assert len(children) >= 1
+        ea_prompt = children[0].description
+        expected_path = str(tmp_path / "attachments" / "notes.txt")
+        assert expected_path in ea_prompt
+        assert f'read("{expected_path}")' in ea_prompt
+
 
 # ---------------------------------------------------------------------------
 # POST /api/task/{project_id}/abort
@@ -3793,6 +3827,7 @@ class TestOneOnOneChatAttachments:
 
         mock_result = MagicMock()
         mock_result.content = "Got the files"
+        attachment_path = "/uploads/doc.pdf"
 
         mock_cfg = MagicMock()
         mock_cfg.hosting = "company"
@@ -3801,7 +3836,7 @@ class TestOneOnOneChatAttachments:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
-             patch("onemancompany.core.llm_utils.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
+             patch("onemancompany.core.llm_utils.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result) as mock_tracked_ainvoke, \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
              patch("onemancompany.agents.base.get_employee_skills_prompt", return_value=""), \
              patch("onemancompany.agents.base.get_employee_tools_prompt", return_value=""), \
@@ -3813,11 +3848,14 @@ class TestOneOnOneChatAttachments:
                     "employee_id": "00010",
                     "message": "Check these files",
                     "history": [{"role": "ceo", "content": "prev msg"}],
-                    "attachments": [{"filename": "doc.pdf", "path": "/uploads/doc.pdf"}],
+                    "attachments": [{"filename": "doc.pdf", "path": attachment_path}],
                 })
 
         assert resp.status_code == 200
         assert resp.json()["response"] == "Got the files"
+        messages = mock_tracked_ainvoke.await_args.args[1]
+        assert attachment_path in messages[-1].content
+        assert f'read("{attachment_path}")' in messages[-1].content
 
 
 # ---------------------------------------------------------------------------

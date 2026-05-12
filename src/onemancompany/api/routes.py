@@ -136,6 +136,28 @@ def _save_file_deduped(upload_dir: Path, filename: str, content: bytes) -> Path:
     return dest
 
 
+def _build_attachment_prompt(attachments: list[dict]) -> str:
+    """Describe attachments and tell agents how to read their contents."""
+    if not attachments:
+        return ""
+
+    lines: list[str] = []
+    for attachment in attachments:
+        filename = attachment.get("filename", "file")
+        path = str(attachment.get("path", "") or "").strip()
+        if path:
+            read_path = path.replace("\\", "\\\\").replace('"', '\\"')
+            lines.append(f'- Attachment: {filename} (saved at {path}) [read("{read_path}")]')
+        else:
+            lines.append(f"- Attachment: {filename}")
+
+    return (
+        "\n\nCEO attached the following files:\n"
+        + "\n".join(lines)
+        + "\nRead each attachment with read() before responding so you can inspect the actual file contents."
+    )
+
+
 def _get_employee_manager():
     """Lazy import to avoid circular dependency."""
     from onemancompany.core.vessel import employee_manager
@@ -572,10 +594,7 @@ async def ceo_submit_task(
     ctx_id = f"{pid}/{iter_id}" if iter_id else pid
 
     # Build attachment info string for EA
-    attach_info = ""
-    if attachments:
-        lines = [f"- Attachment: {a['filename']} (saved at {a['path']})" for a in attachments]
-        attach_info = "\n\nCEO attached the following files:\n" + "\n".join(lines)
+    attach_info = _build_attachment_prompt(attachments)
 
     loop = get_agent_loop(EA_ID)
     if loop:
@@ -833,10 +852,7 @@ async def oneonone_chat(body: dict) -> dict:
         return {"error": f"Employee '{employee_id}' not found"}
 
     # Build attachment info string for prompt injection
-    attach_info = ""
-    if attachments:
-        lines = [f"- Attachment: {a.get('filename', 'file')} (saved at {a.get('path', '')})" for a in attachments]
-        attach_info = "\n\nCEO attached the following files:\n" + "\n".join(lines)
+    attach_info = _build_attachment_prompt(attachments)
 
     # On first message (empty history), mark employee as in meeting
     if not history and emp_data:
@@ -908,7 +924,7 @@ async def oneonone_chat(body: dict) -> dict:
                 messages.append(HumanMessage(content=entry["content"]))
             elif entry.get("role") == "employee":
                 messages.append(AIMessage(content=entry["content"]))
-        messages.append(HumanMessage(content=message))
+        messages.append(HumanMessage(content=message + attach_info))
 
         llm = make_llm(employee_id)
         result = await _llm_invoke_with_retry(llm, messages, category="oneonone", employee_id=employee_id)
