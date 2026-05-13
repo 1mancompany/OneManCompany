@@ -150,8 +150,8 @@ def _build_attachment_prompt(attachments: list[dict]) -> str:
 
     lines: list[str] = []
     for attachment in attachments:
-        filename = attachment.get("filename", "file")
-        display_name = _json.dumps("file" if filename is None else str(filename))
+        raw_filename = attachment.get("filename")
+        display_name = _json.dumps("file" if raw_filename is None else str(raw_filename))
         raw_path = attachment.get("path", "")
         path = "" if raw_path is None else str(raw_path).strip()
         if path:
