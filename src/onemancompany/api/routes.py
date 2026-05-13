@@ -6783,14 +6783,14 @@ async def close_conversation(conv_id: str, wait_hooks: bool = False) -> dict:
 
 @router.post("/api/conversation/{conv_id}/clear")
 async def clear_conversation_history(conv_id: str) -> dict:
-    """Clear all 1-on-1 message history for the current conversation's employee."""
+    """Clear message history for all same-type conversations of this employee."""
     try:
         conv = _get_conv_svc().get(conv_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    if conv.type != "oneonone":
-        raise HTTPException(status_code=400, detail="Clear history is only supported for oneonone conversations")
+    if conv.type not in (ConversationType.ONE_ON_ONE.value, ConversationType.EA_CHAT.value):
+        raise HTTPException(status_code=400, detail="Clear history is only supported for oneonone and ea_chat conversations")
     if not conv.employee_id:
         raise HTTPException(status_code=400, detail="Conversation has no employee_id")
 
@@ -6818,7 +6818,7 @@ async def clear_conversation_history(conv_id: str) -> dict:
         except Exception:
             logger.warning("[conversation] skip unreadable meta when clearing history: {}", conv_dir)
             continue
-        if c.type != "oneonone" or c.employee_id != conv.employee_id:
+        if c.type != conv.type or c.employee_id != conv.employee_id:
             continue
         scanned += 1
         msg_path = conv_dir / "messages.yaml"

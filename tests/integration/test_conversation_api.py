@@ -184,6 +184,56 @@ async def test_clear_current_agent_oneonone_history(client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_clear_ea_chat_history_persists_across_reopen(client, tmp_path):
+    # Old EA chat with history
+    resp = await client.post("/api/conversation/create", json={
+        "type": "ea_chat",
+        "employee_id": "00004",
+        "tools_enabled": True,
+    })
+    conv_id_old = resp.json()["id"]
+
+    msg_path_old = tmp_path / "employees" / "00004" / "conversations" / conv_id_old / "messages.yaml"
+    msg_path_old.parent.mkdir(parents=True, exist_ok=True)
+    msg_path_old.write_text(yaml.dump([
+        {"sender": "ceo", "role": "CEO", "text": "legacy ea", "timestamp": "2026-03-19T00:00:00+00:00", "attachments": []},
+    ], allow_unicode=True), encoding="utf-8")
+
+    await client.post(f"/api/conversation/{conv_id_old}/close")
+
+    # Start a new current EA chat
+    resp = await client.post("/api/conversation/create", json={
+        "type": "ea_chat",
+        "employee_id": "00004",
+        "tools_enabled": True,
+        "reuse_existing": False,
+    })
+    conv_id_current = resp.json()["id"]
+    assert conv_id_current != conv_id_old
+
+    # Clear current EA chat history
+    resp = await client.post(f"/api/conversation/{conv_id_current}/clear")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "cleared"
+    assert data["employee_id"] == "00004"
+
+    # Old history should be wiped on disk
+    assert yaml.safe_load(msg_path_old.read_text(encoding="utf-8")) == []
+
+    # Reopen EA chat should not bring old history back
+    resp = await client.post("/api/conversation/create", json={
+        "type": "ea_chat",
+        "employee_id": "00004",
+        "tools_enabled": True,
+    })
+    reopened_id = resp.json()["id"]
+    resp = await client.get(f"/api/conversation/{reopened_id}/messages")
+    assert resp.status_code == 200
+    assert resp.json()["messages"] == []
+
+
+@pytest.mark.asyncio
 async def test_create_invalid_type(client):
     resp = await client.post("/api/conversation/create", json={
         "type": "invalid", "employee_id": "00100",

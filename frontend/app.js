@@ -2674,11 +2674,17 @@ class AppController {
           this._ceoTerm?.appendMessage({ role: 'system', text: '/clear only works in EA chat.', source: 'system' });
           return;
         }
-        // Forget old conversation and create a new one
-        this._eaChatConvId = null;
-        localStorage.removeItem('ea-chat-conv-id');
-        await this._ensureEaChatConversation();
-        this._ceoTerm?.showChat(this._EA_CHAT, []);
+        if (!this._eaChatConvId) {
+          await this._ensureEaChatConversation();
+        }
+        if (!this._eaChatConvId) return;
+        try {
+          const resp = await fetch(`/api/conversation/${this._eaChatConvId}/clear`, { method: 'POST' });
+          if (!resp.ok) throw new Error(`Server error (${resp.status})`);
+          this._ceoTerm?.showChat(this._EA_CHAT, []);
+        } catch (e) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: `Failed to clear chat: ${e.message}`, source: 'system' });
+        }
       }},
     ];
   }
