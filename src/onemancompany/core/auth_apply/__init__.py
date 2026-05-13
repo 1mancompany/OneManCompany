@@ -62,6 +62,8 @@ async def apply_auth_choice(
                 employee_id=employee_id,
                 api_key=api_key,
                 model=model,
+                base_url=base_url,
+                chat_class=chat_class,
             )
         else:
             return {"error": f"Invalid scope: {scope}", "code": "invalid_scope"}

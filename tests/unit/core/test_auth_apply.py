@@ -57,6 +57,45 @@ class TestApplyApiKeyEmployee:
         saved_data = call_args[0][1] if len(call_args[0]) > 1 else call_args[1].get("data", {})
         assert "llm_model" not in saved_data
 
+    async def test_apply_employee_custom_provider_saves_endpoint_fields(self):
+        from onemancompany.core.auth_apply.api_key import apply_api_key_employee
+
+        mock_store = AsyncMock()
+
+        with patch("onemancompany.core.auth_apply.api_key._store", mock_store), \
+             patch("onemancompany.api.routes._rebuild_employee_agent"):
+            result = await apply_api_key_employee(
+                provider="custom",
+                employee_id="00010",
+                api_key="sk-test-key",
+                base_url="https://llm.example.com/v1",
+                chat_class="openai",
+            )
+
+        assert result["status"] == "applied"
+        call_args = mock_store.save_employee.call_args
+        saved_data = call_args[0][1] if len(call_args[0]) > 1 else call_args[1].get("data", {})
+        assert saved_data["api_base_url"] == "https://llm.example.com/v1"
+        assert saved_data["custom_chat_class"] == "openai"
+
+    async def test_apply_employee_custom_provider_rejects_invalid_chat_class(self):
+        from onemancompany.core.auth_apply.api_key import apply_api_key_employee
+
+        mock_store = AsyncMock()
+
+        with patch("onemancompany.core.auth_apply.api_key._store", mock_store), \
+             patch("onemancompany.api.routes._rebuild_employee_agent"):
+            result = await apply_api_key_employee(
+                provider="custom",
+                employee_id="00010",
+                api_key="sk-test-key",
+                base_url="https://llm.example.com/v1",
+                chat_class="invalid",
+            )
+
+        assert result["code"] == "invalid_chat_class"
+        mock_store.save_employee.assert_not_called()
+
 
 class TestApplyApiKeyCompanyEdgeCases:
     async def test_unknown_provider_returns_error(self):

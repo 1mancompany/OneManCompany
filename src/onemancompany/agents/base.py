@@ -162,6 +162,8 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
     api_provider = settings.default_api_provider or "openrouter"
     api_key = ""
     auth_method = ""
+    employee_api_base_url = ""
+    employee_custom_chat_class = ""
 
     if employee_id and employee_id in employee_configs:
         cfg = employee_configs[employee_id]
@@ -171,6 +173,8 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
         api_provider = cfg.api_provider
         api_key = cfg.api_key
         auth_method = cfg.auth_method
+        employee_api_base_url = cfg.api_base_url
+        employee_custom_chat_class = cfg.custom_chat_class
 
     if temperature is not None:
         effective_temp = temperature
@@ -197,8 +201,8 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
 
     # For custom provider, override chat_class from runtime settings
     effective_chat_class = prov.chat_class if prov else CHAT_CLASS_OPENAI
-    if api_provider == "custom" and settings.custom_chat_class:
-        effective_chat_class = settings.custom_chat_class
+    if api_provider == "custom":
+        effective_chat_class = employee_custom_chat_class or settings.custom_chat_class or effective_chat_class
 
     # --- Anthropic (non-OpenAI-compatible) ---
     if prov and effective_chat_class == CHAT_CLASS_ANTHROPIC:
@@ -218,8 +222,8 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
             if auth_method == AuthMethod.OAUTH or effective_key.startswith("sk-ant-oat"):
                 extra_headers["anthropic-beta"] = "oauth-2025-04-20"
             base_url = None
-            if api_provider == "custom" and settings.default_api_base_url:
-                base_url = settings.default_api_base_url
+            if api_provider == "custom":
+                base_url = employee_api_base_url or settings.default_api_base_url or None
             return ChatAnthropic(
                 model=model,
                 api_key=effective_key,
@@ -238,7 +242,9 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
             # Allow custom base_url override: provider-specific or global
             if api_provider == "openrouter":
                 base_url = settings.openrouter_base_url
-            elif api_provider == "custom" or (settings.default_api_base_url and api_provider == settings.default_api_provider):
+            elif api_provider == "custom":
+                base_url = employee_api_base_url or settings.default_api_base_url
+            elif settings.default_api_base_url and api_provider == settings.default_api_provider:
                 base_url = settings.default_api_base_url
             extra_body = None
             if (api_provider or "").lower() == "deepseek":
