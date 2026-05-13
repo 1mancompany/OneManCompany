@@ -741,7 +741,7 @@ def _step_execute(
 
     # 6. Generate MCP configs for founding employees
     with console.status("  Generating MCP configs..."):
-        _generate_mcp_configs(extras.get(ENV_KEY_SKILLSMP, ""))
+        _generate_mcp_configs(extras.get(ENV_KEY_SKILLSMP, ""), host, port)
     console.print("  [green]\u2714[/green] MCP configs generated for founding employees")
 
     # 7. Apply agent family (hosting) assignments to founding employees
@@ -830,13 +830,15 @@ def _assign_default_avatars(console: Console) -> None:
         console.print("  [green]\u2714[/green] Founding employees already have avatars")
 
 
-def _generate_mcp_configs(skillsmp_key: str) -> None:
+def _generate_mcp_configs(skillsmp_key: str, host: str, port: int) -> None:
     """Generate mcp_config.json for founding employees."""
     import sys
 
     python_path = sys.executable
     from onemancompany.core.config import EXEC_IDS
     exec_ids = sorted(EXEC_IDS)
+    server_host = "localhost" if host == "0.0.0.0" else host
+    server_url = f"http://{server_host}:{port}"
 
     for emp_id in exec_ids:
         emp_dir = EMPLOYEES_DIR / emp_id
@@ -852,7 +854,7 @@ def _generate_mcp_configs(skillsmp_key: str) -> None:
                     ENV_OMC_TASK_ID: "",
                     ENV_OMC_PROJECT_ID: "",
                     ENV_OMC_PROJECT_DIR: "",
-                    ENV_OMC_SERVER_URL: "http://localhost:8000",
+                    ENV_OMC_SERVER_URL: server_url,
                 },
             },
         }
