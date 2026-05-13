@@ -317,8 +317,8 @@ async def apply_auth(body: dict) -> dict:
         api_key=body.get("api_key", ""),
         model=body.get("model", ""),
         employee_id=body.get("employee_id", ""),
-        base_url=body.get("base_url", ""),
-        chat_class=body.get("chat_class", ""),
+        base_url=body.get("base_url"),
+        chat_class=body.get("chat_class"),
     )
 
 

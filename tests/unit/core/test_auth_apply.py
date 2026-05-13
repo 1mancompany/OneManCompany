@@ -96,6 +96,25 @@ class TestApplyApiKeyEmployee:
         assert result["code"] == "invalid_chat_class"
         mock_store.save_employee.assert_not_called()
 
+    async def test_apply_employee_custom_provider_does_not_overwrite_endpoint_fields_when_omitted(self):
+        from onemancompany.core.auth_apply.api_key import apply_api_key_employee
+
+        mock_store = AsyncMock()
+
+        with patch("onemancompany.core.auth_apply.api_key._store", mock_store), \
+             patch("onemancompany.api.routes._rebuild_employee_agent"):
+            result = await apply_api_key_employee(
+                provider="custom",
+                employee_id="00010",
+                api_key="sk-test-key",
+            )
+
+        assert result["status"] == "applied"
+        call_args = mock_store.save_employee.call_args
+        saved_data = call_args[0][1] if len(call_args[0]) > 1 else call_args[1].get("data", {})
+        assert "api_base_url" not in saved_data
+        assert "custom_chat_class" not in saved_data
+
 
 class TestApplyApiKeyCompanyEdgeCases:
     async def test_unknown_provider_returns_error(self):

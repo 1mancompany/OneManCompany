@@ -351,11 +351,13 @@ class TestMakeLlmBranches:
             lambda profile, reason: False,
         )
         with patch("onemancompany.agents.base.get_provider", return_value=mock_prov), \
-             patch("langchain_anthropic.ChatAnthropic", side_effect=_fake_chat_anthropic):
+             patch("langchain_anthropic.ChatAnthropic", side_effect=_fake_chat_anthropic), \
+             patch("onemancompany.agents.base.ChatOpenAI") as mock_openai:
             llm = make_llm("00010")
 
         assert llm is not None
         assert captured["base_url"] == "https://employee.example/v1"
+        mock_openai.assert_not_called()
 
     def test_fallback_no_key_warning(self, monkeypatch):
         """Missing selected-provider key and fallback key still creates a deferred-failure LLM."""
