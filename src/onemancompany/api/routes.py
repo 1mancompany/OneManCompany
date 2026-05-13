@@ -150,14 +150,14 @@ def _build_attachment_prompt(attachments: list[dict]) -> str:
 
     lines: list[str] = []
     for attachment in attachments:
-        raw_filename = attachment.get("filename")
-        display_name = _json.dumps("file" if raw_filename is None else str(raw_filename))
+        raw_filename = attachment.get("filename", "file")
+        quoted_filename = _json.dumps("file" if raw_filename is None else str(raw_filename))
         raw_path = attachment.get("path", "")
         path = "" if raw_path is None else str(raw_path).strip()
         if path:
-            lines.append(f"- Attachment: {display_name} (saved at {path}) [read({_json.dumps(path)})]")
+            lines.append(f"- Attachment: {quoted_filename} (saved at {path}) [read({_json.dumps(path)})]")
         else:
-            lines.append(f"- Attachment: {display_name}")
+            lines.append(f"- Attachment: {quoted_filename}")
 
     return (
         "\n\nCEO attached the following files:\n"
