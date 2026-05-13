@@ -223,7 +223,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
                 extra_headers["anthropic-beta"] = "oauth-2025-04-20"
             base_url = None
             if api_provider == "custom":
-                base_url = employee_api_base_url or settings.default_api_base_url or None
+                base_url = employee_api_base_url or settings.default_api_base_url
             return ChatAnthropic(
                 model=model,
                 api_key=effective_key,
