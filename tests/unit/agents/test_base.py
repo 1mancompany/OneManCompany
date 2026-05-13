@@ -1294,7 +1294,9 @@ class TestRunStreamed:
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "event_bus", MagicMock(publish=AsyncMock()))
-        monkeypatch.setattr(base_mod, "_STREAM_HEARTBEAT_INTERVAL_SEC", 0.01)
+        heartbeat_interval = 0.01
+        silent_period = heartbeat_interval * 3
+        monkeypatch.setattr(base_mod, "_STREAM_HEARTBEAT_INTERVAL_SEC", heartbeat_interval)
         monkeypatch.setattr(
             "onemancompany.core.agent_loop._current_vessel",
             MagicMock(get=lambda x=None: None),
@@ -1303,7 +1305,7 @@ class TestRunStreamed:
         events = [{"event": "on_chat_model_end", "data": {"output": AIMessage(content="done")}}]
 
         async def fake_astream(msg, version, config):
-            await asyncio.sleep(0.03)
+            await asyncio.sleep(silent_period)
             for e in events:
                 yield e
 
@@ -1336,7 +1338,9 @@ class TestRunStreamed:
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "event_bus", MagicMock(publish=AsyncMock()))
-        monkeypatch.setattr(base_mod, "_STREAM_HEARTBEAT_INTERVAL_SEC", 0.01)
+        heartbeat_interval = 0.01
+        silent_period = heartbeat_interval * 3
+        monkeypatch.setattr(base_mod, "_STREAM_HEARTBEAT_INTERVAL_SEC", heartbeat_interval)
         monkeypatch.setattr(
             "onemancompany.core.agent_loop._current_vessel",
             MagicMock(get=lambda x=None: None),
@@ -1353,7 +1357,7 @@ class TestRunStreamed:
 
         async def fake_astream(msg, version, config):
             yield events[0]
-            await asyncio.sleep(0.03)
+            await asyncio.sleep(silent_period)
             yield events[1]
             yield events[2]
 

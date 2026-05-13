@@ -3,7 +3,7 @@
 from __future__ import annotations
 import asyncio
 import contextlib
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 from loguru import logger
 from typing import Any
@@ -665,8 +665,8 @@ class BaseAgentRunner:
         current_phase = "planning"
         start_monotonic = time.monotonic()
         last_activity_monotonic = start_monotonic
-        last_tool_name = ""
-        last_tool_called_at = ""
+        last_tool_name: str | None = None
+        last_tool_called_at: str | None = None
         # Debug trace: accumulate full message objects from streaming events
         debug_messages: list = []
 
@@ -681,8 +681,8 @@ class BaseAgentRunner:
                     "phase": current_phase,
                     "idle_seconds": int(idle_seconds),
                     "elapsed_seconds": elapsed_seconds,
-                    "last_tool_name": last_tool_name or None,
-                    "last_tool_call_at": last_tool_called_at or None,
+                    "last_tool_name": last_tool_name,
+                    "last_tool_call_at": last_tool_called_at,
                     "content": (
                         f"⏱ heartbeat phase={current_phase} "
                         f"idle={int(idle_seconds)}s elapsed={elapsed_seconds}s"
@@ -712,7 +712,7 @@ class BaseAgentRunner:
                                 on_log("llm_input", f"[{type(last_msg).__name__}] {content}")
                                 logger.debug("[LLM INPUT] employee={}: {}", self.employee_id, content[:3000])
                 elif kind == "on_chat_model_end":
-                    current_phase = "waiting_for_llm"
+                    current_phase = "processing_response"
                     output = data.get("output", None)
                     if output:
                         # Capture AI message for Debug trace
@@ -754,7 +754,7 @@ class BaseAgentRunner:
                                     args = str(args_dict)
                                     last_tool_calls.append(name)
                                     last_tool_name = name
-                                    last_tool_called_at = datetime.now().isoformat()
+                                    last_tool_called_at = datetime.now(timezone.utc).isoformat()
                                     on_log("tool_call", {
                                         "tool_name": name,
                                         "tool_args": args_dict,
