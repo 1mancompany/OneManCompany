@@ -51,8 +51,8 @@ async def apply_auth_choice(
                 provider=option.provider,
                 api_key=api_key,
                 model=model,
-                base_url=base_url or "",
-                chat_class=chat_class or "",
+                base_url=base_url,
+                chat_class=chat_class,
             )
         elif scope == "employee":
             if not employee_id:

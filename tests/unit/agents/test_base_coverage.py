@@ -310,7 +310,7 @@ class TestMakeLlmBranches:
             llm = make_llm()
         assert llm is not None
 
-    def test_employee_custom_provider_overrides_base_url_and_chat_class(self, monkeypatch):
+    def test_employee_custom_provider_overrides(self, monkeypatch):
         from onemancompany.agents.base import make_llm, CHAT_CLASS_OPENAI, CHAT_CLASS_ANTHROPIC
 
         mock_settings = MagicMock()

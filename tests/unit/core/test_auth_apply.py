@@ -57,7 +57,7 @@ class TestApplyApiKeyEmployee:
         saved_data = call_args[0][1] if len(call_args[0]) > 1 else call_args[1].get("data", {})
         assert "llm_model" not in saved_data
 
-    async def test_apply_employee_custom_provider_saves_endpoint_fields(self):
+    async def test_apply_employee_saves_custom_endpoint_fields(self):
         from onemancompany.core.auth_apply.api_key import apply_api_key_employee
 
         mock_store = AsyncMock()
@@ -78,7 +78,7 @@ class TestApplyApiKeyEmployee:
         assert saved_data["api_base_url"] == "https://llm.example.com/v1"
         assert saved_data["custom_chat_class"] == "openai"
 
-    async def test_apply_employee_custom_provider_rejects_invalid_chat_class(self):
+    async def test_apply_employee_rejects_invalid_chat_class(self):
         from onemancompany.core.auth_apply.api_key import apply_api_key_employee
 
         mock_store = AsyncMock()
@@ -96,7 +96,7 @@ class TestApplyApiKeyEmployee:
         assert result["code"] == "invalid_chat_class"
         mock_store.save_employee.assert_not_called()
 
-    async def test_apply_employee_custom_provider_does_not_overwrite_endpoint_fields_when_omitted(self):
+    async def test_apply_employee_omits_unspecified_endpoint_fields(self):
         from onemancompany.core.auth_apply.api_key import apply_api_key_employee
 
         mock_store = AsyncMock()

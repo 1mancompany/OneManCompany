@@ -13,8 +13,8 @@ async def apply_api_key_company(
     provider: str,
     api_key: str,
     model: str = "",
-    base_url: str = "",
-    chat_class: str = "",
+    base_url: str | None = None,
+    chat_class: str | None = None,
 ) -> dict:
     """Apply an API key at the company level (Settings/.env).
 
