@@ -141,8 +141,9 @@ def _build_attachment_prompt(attachments: list[dict]) -> str:
     """Describe attachments with both display and read-safe path formats.
 
     The plain path in ``(saved at ...)`` is for human readability. The
-    ``read("...")`` argument uses JSON quoting so backslashes, quotes, and
-    newlines stay safe/parsable without inventing custom escaping rules.
+    ``read("...")`` argument and attachment display name use JSON quoting so
+    backslashes, quotes, and newlines stay safe/parsable without inventing
+    custom escaping rules.
     """
     if not attachments:
         return ""
@@ -150,12 +151,13 @@ def _build_attachment_prompt(attachments: list[dict]) -> str:
     lines: list[str] = []
     for attachment in attachments:
         filename = attachment.get("filename", "file")
+        display_name = _json.dumps("file" if filename is None else str(filename))
         raw_path = attachment.get("path", "")
         path = "" if raw_path is None else str(raw_path).strip()
         if path:
-            lines.append(f"- Attachment: {filename} (saved at {path}) [read({_json.dumps(path)})]")
+            lines.append(f"- Attachment: {display_name} (saved at {path}) [read({_json.dumps(path)})]")
         else:
-            lines.append(f"- Attachment: {filename}")
+            lines.append(f"- Attachment: {display_name}")
 
     return (
         "\n\nCEO attached the following files:\n"
