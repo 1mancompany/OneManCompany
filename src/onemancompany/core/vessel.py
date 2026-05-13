@@ -1451,6 +1451,38 @@ class EmployeeManager:
 
         return count
 
+    def preempt_for_followup(self, employee_id: str) -> bool:
+        """Interrupt the current running task so the next queued task runs immediately.
+
+        Called when the CEO submits a follow-up that should override in-progress work
+        (e.g. "abandon task A, pivot to task B").  The new follow-up task must already
+        be added to the schedule via ``schedule_node`` before calling this method.
+
+        Behaviour:
+        - If the employee is idle (no running asyncio.Task) → returns False so the
+          caller can fall back to a normal ``_schedule_next`` call.
+        - If the employee has a running task → cancels it and returns True.  The
+          ``_run_task`` finally-block will call ``_schedule_next`` once the cancelled
+          coroutine has cleaned up, at which point the queued follow-up task runs.
+
+        This is intentionally lightweight: it only cancels the asyncio.Task;
+        it does not clear the schedule, stop crons, or reset employee status — all
+        of that happens naturally as part of the normal cancellation pathway in
+        ``_execute_task`` / ``_run_task``.
+
+        Returns:
+            True if a running task was cancelled, False if the employee was idle.
+        """
+        running = self._running_tasks.get(employee_id)
+        if running and not running.done():
+            running.cancel()
+            logger.info(
+                "[FOLLOWUP] Preempted running task for {} — follow-up task will run next",
+                employee_id,
+            )
+            return True
+        return False
+
     async def abort_all(self) -> int:
         """Cancel all tasks for all employees. Returns total count cancelled."""
         from onemancompany.core.automation import stop_all_automations

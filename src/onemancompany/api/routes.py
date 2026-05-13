@@ -789,7 +789,12 @@ async def task_followup(project_id: str, body: dict) -> dict:
         tree_path = str(Path(pdir) / TASK_TREE_FILENAME)
         from onemancompany.core.agent_loop import employee_manager
         employee_manager.schedule_node(assignee_id, schedule_node_id, tree_path)
-        employee_manager._schedule_next(assignee_id)
+        # Preempt any in-progress work so the follow-up runs immediately.
+        # If the assignee is idle, fall back to a normal _schedule_next call.
+        # If a task is already running, preempt_for_followup cancels it; the
+        # _run_task finally-block will call _schedule_next once cleanup is done.
+        if not employee_manager.preempt_for_followup(assignee_id):
+            employee_manager._schedule_next(assignee_id)
 
     # Update project.yaml status back to in_progress
     doc["status"] = "in_progress"

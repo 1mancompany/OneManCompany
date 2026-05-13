@@ -644,6 +644,99 @@ class TestEmployeeManagerRunTask:
 
 
 # ---------------------------------------------------------------------------
+# EmployeeManager — preempt_for_followup
+# ---------------------------------------------------------------------------
+
+class TestPreemptForFollowup:
+    def test_returns_false_when_idle(self):
+        """preempt_for_followup returns False when no task is running."""
+        mgr = EmployeeManager()
+        assert mgr.preempt_for_followup("emp01") is False
+
+    def test_returns_false_when_task_already_done(self):
+        """preempt_for_followup returns False when the running asyncio.Task is done."""
+        mgr = EmployeeManager()
+        done_task = MagicMock()
+        done_task.done.return_value = True
+        mgr._running_tasks["emp01"] = done_task
+        assert mgr.preempt_for_followup("emp01") is False
+        done_task.cancel.assert_not_called()
+
+    def test_cancels_running_task_and_returns_true(self):
+        """preempt_for_followup cancels the live task and returns True."""
+        mgr = EmployeeManager()
+        live_task = MagicMock()
+        live_task.done.return_value = False
+        mgr._running_tasks["emp01"] = live_task
+        result = mgr.preempt_for_followup("emp01")
+        assert result is True
+        live_task.cancel.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
+    async def test_cancelled_task_then_followup_runs(
+        self, mock_append, mock_load, mock_bus, mock_state, tmp_path
+    ):
+        """Preempting a running task lets the next queued task run via _run_task.finally."""
+        mock_bus.publish = AsyncMock()
+        mock_state.active_tasks = []
+
+        barrier = asyncio.Event()
+
+        async def long_running(*args, **kwargs):
+            # Simulate a task that blocks indefinitely until cancelled
+            barrier.set()
+            await asyncio.sleep(float("inf"))
+
+        mgr = EmployeeManager()
+        launcher_a = MagicMock(spec=Launcher)
+        launcher_a.execute = AsyncMock(side_effect=long_running)
+        mgr.register("emp01", launcher_a)
+
+        entry_a, tree_path_a, _ = _make_tree_entry(tmp_path / "a", description="Task A")
+        mgr.schedule_node("emp01", entry_a.node_id, entry_a.tree_path)
+
+        with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
+            # Start task A in the background
+            loop = asyncio.get_running_loop()
+            run_coro = loop.create_task(mgr._run_task("emp01", entry_a))
+            mgr._running_tasks["emp01"] = run_coro
+
+            # Wait until task A has actually started executing
+            await asyncio.wait_for(barrier.wait(), timeout=5)
+
+            # Queue task B and preempt task A
+            launcher_b = MagicMock(spec=Launcher)
+            launcher_b.execute = AsyncMock(return_value=LaunchResult(output="Task B done"))
+            mgr.register("emp01", launcher_b)
+            entry_b, tree_path_b, _ = _make_tree_entry(tmp_path / "b", description="Task B")
+            mgr.schedule_node("emp01", entry_b.node_id, entry_b.tree_path)
+
+            preempted = mgr.preempt_for_followup("emp01")
+            assert preempted is True
+
+            # run_coro raises CancelledError after the cancellation propagates;
+            # the _run_task.finally block schedules task B before raising.
+            try:
+                await asyncio.wait_for(run_coro, timeout=5)
+            except asyncio.CancelledError:
+                pass  # expected — task A was cancelled by preempt_for_followup
+
+            # Wait for task B (scheduled by _schedule_next in _run_task.finally)
+            followup_task = mgr._running_tasks.get("emp01")
+            if followup_task:
+                await asyncio.wait_for(followup_task, timeout=5)
+
+        # Task B should have run successfully
+        tree_b = TaskTree.load(tree_path_b, skeleton_only=False)
+        node_b = tree_b.get_node(entry_b.node_id)
+        assert node_b.result == "Task B done"
+
+
+# ---------------------------------------------------------------------------
 # EmployeeManager — Task history
 # ---------------------------------------------------------------------------
 
