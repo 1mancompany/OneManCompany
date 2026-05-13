@@ -138,10 +138,11 @@ def _save_file_deduped(upload_dir: Path, filename: str, content: bytes) -> Path:
 
 
 def _build_attachment_prompt(attachments: list[dict]) -> str:
-    """Describe attachments and emit read() calls with JSON-quoted paths.
+    """Describe attachments with both display and read-safe path formats.
 
-    JSON quoting keeps backslashes, quotes, and newlines safe inside the
-    prompt's read("...") instruction without inventing our own escaping rules.
+    The plain path in ``(saved at ...)`` is for human readability. The
+    ``read("...")`` argument uses JSON quoting so backslashes, quotes, and
+    newlines stay safe/parsable without inventing custom escaping rules.
     """
     if not attachments:
         return ""
