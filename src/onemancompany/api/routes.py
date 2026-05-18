@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import re
 import shutil
 import uuid as _uuid
@@ -134,6 +135,11 @@ def _save_file_deduped(upload_dir: Path, filename: str, content: bytes) -> Path:
             counter += 1
     dest.write_bytes(content)
     return dest
+
+
+from onemancompany.core.attachments import (
+    build_attachment_prompt as _build_attachment_prompt,
+)
 
 
 def _get_employee_manager():
@@ -572,10 +578,7 @@ async def ceo_submit_task(
     ctx_id = f"{pid}/{iter_id}" if iter_id else pid
 
     # Build attachment info string for EA
-    attach_info = ""
-    if attachments:
-        lines = [f"- Attachment: {a['filename']} (saved at {a['path']})" for a in attachments]
-        attach_info = "\n\nCEO attached the following files:\n" + "\n".join(lines)
+    attach_info = _build_attachment_prompt(attachments)
 
     loop = get_agent_loop(EA_ID)
     if loop:
@@ -723,6 +726,9 @@ async def task_followup(project_id: str, body: dict) -> dict:
     if work_summary_lines:
         context_parts.append(f"Previous work results:\n" + "\n".join(work_summary_lines) + "\n")
     context_parts.append(f"CEO follow-up instructions: {instructions}\n")
+    attach_info = _build_attachment_prompt(body.get("attachments") or [])
+    if attach_info:
+        context_parts.append(attach_info.lstrip("\n") + "\n")
     context_parts.append(
         f"\nBuild on the existing work — do NOT redo completed subtasks unless the CEO explicitly asks."
         f" Use dispatch_child() if subtasks are needed.\n\n"
@@ -833,10 +839,7 @@ async def oneonone_chat(body: dict) -> dict:
         return {"error": f"Employee '{employee_id}' not found"}
 
     # Build attachment info string for prompt injection
-    attach_info = ""
-    if attachments:
-        lines = [f"- Attachment: {a.get('filename', 'file')} (saved at {a.get('path', '')})" for a in attachments]
-        attach_info = "\n\nCEO attached the following files:\n" + "\n".join(lines)
+    attach_info = _build_attachment_prompt(attachments)
 
     # On first message (empty history), mark employee as in meeting
     if not history and emp_data:
@@ -908,7 +911,7 @@ async def oneonone_chat(body: dict) -> dict:
                 messages.append(HumanMessage(content=entry["content"]))
             elif entry.get("role") == "employee":
                 messages.append(AIMessage(content=entry["content"]))
-        messages.append(HumanMessage(content=message))
+        messages.append(HumanMessage(content=message + attach_info))
 
         llm = make_llm(employee_id)
         result = await _llm_invoke_with_retry(llm, messages, category="oneonone", employee_id=employee_id)
@@ -6364,13 +6367,17 @@ async def send_ceo_session_message(project_id: str, body: dict):
 
     # Persist CEO message (masked for credential requests)
     display_text = result.get("display_text", text)
-    await service.send_message(conv.id, "ceo", "CEO", display_text, mentions=mentions)
+    await service.send_message(
+        conv.id, "ceo", "CEO", display_text,
+        mentions=mentions, attachments=body.get("attachments") or [],
+    )
 
     if result["type"] == "followup":
         # Dispatch as a CEO_FOLLOWUP via the existing task_followup logic.
         try:
             followup_result = await task_followup(
-                project_id, {"instructions": text}
+                project_id,
+                {"instructions": text, "attachments": body.get("attachments") or []},
             )
             result["followup"] = followup_result
             result["message"] = "Follow-up instruction dispatched"

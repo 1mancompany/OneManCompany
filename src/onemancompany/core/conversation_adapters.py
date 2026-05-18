@@ -151,6 +151,9 @@ def _build_conversation_prompt(
             lines.append(f"[{msg.role}]: {msg.text}")
 
     lines.append(f"\n[{new_message.role}]: {new_message.text}")
+    if new_message.attachments:
+        from onemancompany.core.attachments import build_attachment_prompt_from_paths
+        lines.append(build_attachment_prompt_from_paths(list(new_message.attachments)))
     lines.append("\nPlease respond:")
     return "\n".join(lines)
 

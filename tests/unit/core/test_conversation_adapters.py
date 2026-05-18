@@ -125,6 +125,47 @@ def test_build_conversation_prompt_ceo_inbox():
     assert "1-on-1 meeting" not in prompt
 
 
+def test_build_conversation_prompt_includes_attachment_read_instructions():
+    """New CEO message with attachments must tell the agent to read() each file."""
+    import json
+    from onemancompany.core.conversation_adapters import _build_conversation_prompt
+
+    conv = Conversation(
+        id="c3", type="oneonone", phase="active",
+        employee_id="00100", tools_enabled=True,
+        created_at="2026-03-18T10:00:00",
+    )
+    attachment_path = "/tmp/uploads/spec.pdf"
+    new_msg = Message(
+        sender="ceo", role="CEO",
+        text="please review this",
+        timestamp="t1",
+        attachments=[attachment_path],
+    )
+
+    prompt = _build_conversation_prompt(conv, [], new_msg)
+    assert "please review this" in prompt
+    assert "CEO attached the following files" in prompt
+    assert attachment_path in prompt
+    assert f"read({json.dumps(attachment_path)})" in prompt
+
+
+def test_build_conversation_prompt_without_attachments_unchanged():
+    """Empty attachments list keeps the prompt free of attachment boilerplate."""
+    from onemancompany.core.conversation_adapters import _build_conversation_prompt
+
+    conv = Conversation(
+        id="c4", type="oneonone", phase="active",
+        employee_id="00100", tools_enabled=True,
+        created_at="2026-03-18T10:00:00",
+    )
+    new_msg = Message(sender="ceo", role="CEO", text="hi", timestamp="t1", attachments=[])
+
+    prompt = _build_conversation_prompt(conv, [], new_msg)
+    assert "CEO attached" not in prompt
+    assert "read(" not in prompt
+
+
 # ---------------------------------------------------------------------------
 # LangChainAdapter / ClaudeSessionAdapter tests
 # ---------------------------------------------------------------------------
