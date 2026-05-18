@@ -137,33 +137,9 @@ def _save_file_deduped(upload_dir: Path, filename: str, content: bytes) -> Path:
     return dest
 
 
-def _build_attachment_prompt(attachments: list[dict]) -> str:
-    """Describe attachments with both display and read-safe path formats.
-
-    The plain path in ``(saved at ...)`` is for human readability. The
-    ``read("...")`` argument and attachment display name use JSON quoting so
-    backslashes, quotes, and newlines stay safe/parsable without inventing
-    custom escaping rules.
-    """
-    if not attachments:
-        return ""
-
-    lines: list[str] = []
-    for attachment in attachments:
-        raw_filename = attachment.get("filename", "file")
-        quoted_filename = _json.dumps("file" if raw_filename is None else str(raw_filename))
-        raw_path = attachment.get("path", "")
-        path = "" if raw_path is None else str(raw_path).strip()
-        if path:
-            lines.append(f"- Attachment: {quoted_filename} (saved at {path}) [read({_json.dumps(path)})]")
-        else:
-            lines.append(f"- Attachment: {quoted_filename}")
-
-    return (
-        "\n\nCEO attached the following files:\n"
-        + "\n".join(lines)
-        + "\nRead each attachment with read() before responding so you can inspect the actual file contents."
-    )
+from onemancompany.core.attachments import (
+    build_attachment_prompt as _build_attachment_prompt,
+)
 
 
 def _get_employee_manager():
@@ -750,6 +726,9 @@ async def task_followup(project_id: str, body: dict) -> dict:
     if work_summary_lines:
         context_parts.append(f"Previous work results:\n" + "\n".join(work_summary_lines) + "\n")
     context_parts.append(f"CEO follow-up instructions: {instructions}\n")
+    attach_info = _build_attachment_prompt(body.get("attachments") or [])
+    if attach_info:
+        context_parts.append(attach_info.lstrip("\n") + "\n")
     context_parts.append(
         f"\nBuild on the existing work — do NOT redo completed subtasks unless the CEO explicitly asks."
         f" Use dispatch_child() if subtasks are needed.\n\n"
@@ -6388,13 +6367,17 @@ async def send_ceo_session_message(project_id: str, body: dict):
 
     # Persist CEO message (masked for credential requests)
     display_text = result.get("display_text", text)
-    await service.send_message(conv.id, "ceo", "CEO", display_text, mentions=mentions)
+    await service.send_message(
+        conv.id, "ceo", "CEO", display_text,
+        mentions=mentions, attachments=body.get("attachments") or [],
+    )
 
     if result["type"] == "followup":
         # Dispatch as a CEO_FOLLOWUP via the existing task_followup logic.
         try:
             followup_result = await task_followup(
-                project_id, {"instructions": text}
+                project_id,
+                {"instructions": text, "attachments": body.get("attachments") or []},
             )
             result["followup"] = followup_result
             result["message"] = "Follow-up instruction dispatched"

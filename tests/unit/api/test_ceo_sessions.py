@@ -151,7 +151,9 @@ class TestSendMessage:
             result = await send_ceo_session_message("proj_001", {"text": "Do X"})
             assert result["type"] == "followup"
             assert result["message"] == "Follow-up instruction dispatched"
-            mock_followup.assert_awaited_once_with("proj_001", {"instructions": "Do X"})
+            mock_followup.assert_awaited_once_with(
+                "proj_001", {"instructions": "Do X", "attachments": []}
+            )
 
 
 class TestParseMentions:
