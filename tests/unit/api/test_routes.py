@@ -6841,3 +6841,63 @@ class TestAiSearchSettings:
         # Verify existing api_key was not wiped
         saved = yaml.safe_load(config_file.read_text())
         assert saved["talent_market"]["api_key"] == "existing-key"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/product/{slug}/planning — must kick off EA agent
+# ---------------------------------------------------------------------------
+
+
+class TestStartProductPlanning:
+    """The planning endpoint must (1) create a PRODUCT conversation AND
+    (2) dispatch a kickoff to the EA so the agent posts an opening message.
+
+    Bug: previously, clicking Start Planning created an empty conversation
+    but never invoked the EA, so no opening message appeared and no
+    issues/key-results were ever created.
+    """
+
+    @pytest.mark.asyncio
+    async def test_planning_dispatches_kickoff_to_ea(self, tmp_path, monkeypatch):
+        from onemancompany.core import product as prod
+        monkeypatch.setattr(prod, "PRODUCTS_DIR", tmp_path)
+        product = prod.create_product(name="OMC官网", owner_id="00002", description="官网")
+        slug = product["slug"]
+
+        # Patch conversation service so create() is a no-op returning a stub.
+        from onemancompany.core.conversation import Conversation, ConversationPhase
+        conv_stub = Conversation(
+            id="conv-xyz", type="product", phase=ConversationPhase.ACTIVE.value,
+            employee_id="00002", tools_enabled=True,
+            metadata={"product_slug": slug, "product_id": product["id"]},
+            created_at="2026-03-18T10:00:00",
+        )
+        svc = MagicMock()
+        svc.list_active = MagicMock(return_value=[])
+        svc.create = AsyncMock(return_value=conv_stub)
+        svc.send_message = AsyncMock()
+
+        dispatch_calls = []
+
+        async def fake_dispatch(conv_id, msg):
+            dispatch_calls.append((conv_id, msg))
+
+        with patch("onemancompany.core.conversation.get_conversation_service", return_value=svc), \
+             patch("onemancompany.api.routes._dispatch_conversation_to_adapter", side_effect=fake_dispatch):
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.post(f"/api/product/{slug}/planning")
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["conversation_id"] == "conv-xyz"
+        assert data["existing"] is False
+
+        # Allow the dispatched background task to run
+        await asyncio.sleep(0.05)
+
+        # The fix: EA must be kicked off — either via a kickoff message + dispatch,
+        # or via direct adapter call. Either way at least one dispatch must occur.
+        assert len(dispatch_calls) >= 1, (
+            "planning endpoint must dispatch a kickoff to the EA so it posts an opening message"
+        )

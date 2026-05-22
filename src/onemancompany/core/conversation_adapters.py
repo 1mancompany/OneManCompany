@@ -129,6 +129,11 @@ def _build_conversation_prompt(
             lines.append(shared_prompt)
     elif conversation.type == ConversationType.CEO_INBOX:
         lines.append("The CEO is responding to your request. Answer their questions.")
+    elif (
+        conversation.type == ConversationType.PRODUCT
+        or conversation.type == ConversationType.PRODUCT.value
+    ):
+        lines.append(_build_product_planning_prompt(conversation))
     elif conversation.type == ConversationType.EA_CHAT:
         lines.append(
             "This is a direct chat with the CEO. You are their EA (Executive Assistant).\n"
@@ -156,6 +161,55 @@ def _build_conversation_prompt(
         lines.append(build_attachment_prompt_from_paths(list(new_message.attachments)))
     lines.append("\nPlease respond:")
     return "\n".join(lines)
+
+
+def _build_product_planning_prompt(conversation: Conversation) -> str:
+    """Build planning instructions + current product context for PRODUCT conversations."""
+    from onemancompany.core import product as prod
+    from onemancompany.core.models import IssueStatus
+
+    slug = (conversation.metadata or {}).get("product_slug", "")
+    product = prod.load_product(slug) if slug else None
+    if not product:
+        return (
+            "This is a product planning conversation, but the product could not be loaded. "
+            f"Slug: {slug!r}. Ask the CEO to clarify."
+        )
+
+    parts = [
+        "This is a product planning conversation with the CEO. You are the EA (Executive Assistant).",
+        "Your job:",
+        "  1. Clarify the product's objective and success metrics through targeted questions.",
+        "  2. Use add_product_key_result(product_slug, title, target, unit) to record measurable KRs.",
+        "  3. Use create_product_issue(product_slug, title, description, priority) to record concrete work items.",
+        "  4. Keep questions concise and one at a time. Confirm before creating each KR/issue.",
+        "",
+        f"## Current product: {product['name']}  (slug: {slug})",
+    ]
+    if product.get("description"):
+        parts.append(f"Description: {product['description']}")
+
+    krs = product.get("key_results", []) or []
+    if krs:
+        parts.append("\n### Existing Key Results")
+        for kr in krs:
+            target = kr.get("target", 0)
+            current = kr.get("current", 0)
+            parts.append(f"- {kr.get('title','')}: {current}/{target} {kr.get('unit','')}".rstrip())
+    else:
+        parts.append("\n### Existing Key Results: (none yet — propose some after clarifying with CEO)")
+
+    issues = prod.list_issues(slug) or []
+    terminal = {IssueStatus.DONE.value, IssueStatus.RELEASED.value}
+    open_issues = [i for i in issues if i.get("status") not in terminal]
+    if open_issues:
+        parts.append(f"\n### Open Issues ({len(open_issues)})")
+        for issue in open_issues[:10]:
+            parts.append(f"- [{issue.get('priority','?')}] {issue.get('title','')} ({issue.get('id','')})")
+    else:
+        parts.append("\n### Open Issues: (none yet)")
+
+    return "\n".join(parts)
 
 
 def _load_oneonone_workspace_shared_prompt() -> str:

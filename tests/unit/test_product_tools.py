@@ -17,6 +17,35 @@ def _isolate(tmp_path, monkeypatch):
     yield
 
 
+class TestAddKeyResultTool:
+    @pytest.mark.asyncio
+    async def test_add_key_result_to_existing_product(self, product_slug):
+        from onemancompany.agents.product_tools import add_product_key_result
+
+        result = await add_product_key_result.ainvoke({
+            "product_slug": product_slug,
+            "title": "DAU达到1000",
+            "target": 1000,
+            "unit": "users",
+        })
+        assert "DAU达到1000" in result
+        # Verify KR persisted to disk
+        product = prod.load_product(product_slug)
+        krs = product["key_results"]
+        assert any(kr["title"] == "DAU达到1000" and kr["target"] == 1000 for kr in krs)
+
+    @pytest.mark.asyncio
+    async def test_add_key_result_unknown_product(self):
+        from onemancompany.agents.product_tools import add_product_key_result
+
+        result = await add_product_key_result.ainvoke({
+            "product_slug": "does-not-exist",
+            "title": "X",
+            "target": 1,
+        })
+        assert "Error" in result or "not found" in result.lower()
+
+
 @pytest.fixture
 def product_slug():
     return prod.list_products()[0]["slug"]
@@ -210,9 +239,10 @@ class TestProductTools:
     async def test_product_tools_list(self):
         from onemancompany.agents.product_tools import PRODUCT_TOOLS
 
-        assert len(PRODUCT_TOOLS) == 24
+        assert len(PRODUCT_TOOLS) == 25
         names = {t.name for t in PRODUCT_TOOLS}
         assert "create_product_tool" in names
+        assert "add_product_key_result" in names
         assert "create_product_issue" in names
         assert "update_product_issue" in names
         assert "close_product_issue" in names
@@ -663,7 +693,7 @@ class TestProductTools:
         from onemancompany.agents.product_tools import PRODUCT_TOOLS
 
         assert isinstance(PRODUCT_TOOLS, list)
-        assert len(PRODUCT_TOOLS) == 24  # 7 original + 3 sprint tools
+        assert len(PRODUCT_TOOLS) == 25  # 7 original + 3 sprint tools
         for t in PRODUCT_TOOLS:
             assert hasattr(t, "ainvoke")
 
