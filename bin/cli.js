@@ -246,7 +246,7 @@ ${green("Usage:")}
 ${green("Options:")}
   --dir <path>    Install directory (default: ./OneManCompany)
   --port <port>   Server port (default: 8000)
-  --no-update     Skip refreshing source from the npm tarball (default: refresh on every run)
+  --no-update     Skip refreshing bundled code (default: refresh src/, frontend/, pyproject.toml, uv.lock on every run; company/ and config.yaml are always preserved)
   --debug         Run in foreground with logs (default: background)
   --help, -h      Show this help
 
@@ -338,21 +338,36 @@ ${green("What gets installed automatically:")}
   }
 
   // ── Install or update ──────────────────────────────────────────────────
-  // The npm package bundles the full source. Copy it to installDir on first
-  // install AND on subsequent runs by default — otherwise `npx ...@dev` would
-  // silently keep using whatever old source was copied in last time, which
-  // makes `@dev` indistinguishable from `@<old-version>` for repeat users.
-  // Pass --no-update to opt out (e.g. when you have local edits in installDir).
-  // --update is kept as a no-op alias for backwards compatibility.
-  const SOURCE_ITEMS = ["src", "frontend", "company", "pyproject.toml", "config.yaml", "uv.lock"];
+  // Two classes of bundled items, treated differently on subsequent runs:
+  //   * CODE — owned by the project, refreshed on every run so `@dev` actually
+  //     means "give me the latest code." Safe to overwrite because users
+  //     shouldn't be editing these directly.
+  //   * USER-OWNED — bootstrapped on first install, NEVER overwritten on
+  //     update. `company/` holds workflows / SOPs / founding-employee profiles
+  //     that users routinely edit; `config.yaml` holds local config. Blowing
+  //     these away on every `npx` run would silently destroy work.
+  // Pass --no-update to skip refreshing CODE too (e.g. when debugging local
+  // patches in installDir/src). --update is a silent no-op (was the old
+  // opt-in flag; current behavior matches what it used to enable).
+  const CODE_ITEMS = ["src", "frontend", "pyproject.toml", "uv.lock"];
+  const USER_OWNED_ITEMS = ["company", "config.yaml"];
   const wantNoUpdate = passthrough.includes("--no-update");
 
-  function copyItems(items, destRoot) {
+  function copyItems(items, destRoot, { overwrite }) {
     for (const item of items) {
       const src = path.join(npmPkgRoot, item);
       const dest = path.join(destRoot, item);
-      if (fs.existsSync(src)) {
-        if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
+      if (!fs.existsSync(src)) continue;
+      if (fs.existsSync(dest)) {
+        if (!overwrite) continue;
+        // Copy to sibling temp then rename, so an interrupted run can't leave
+        // installDir/<item> in a half-deleted state.
+        const tmp = `${dest}.tmp-${process.pid}`;
+        if (fs.existsSync(tmp)) fs.rmSync(tmp, { recursive: true, force: true });
+        fs.cpSync(src, tmp, { recursive: true });
+        fs.rmSync(dest, { recursive: true, force: true });
+        fs.renameSync(tmp, dest);
+      } else {
         fs.cpSync(src, dest, { recursive: true });
       }
     }
@@ -362,15 +377,19 @@ ${green("What gets installed automatically:")}
     if (wantNoUpdate) {
       info(`Using existing installation at ${installDir} (--no-update)`);
     } else if (sourceIsBundled) {
-      info(`Updating installation to v${cliVersion}...`);
-      copyItems(SOURCE_ITEMS, installDir);
+      info(`Updating code to v${cliVersion}... (user-owned files in company/ and config.yaml are preserved)`);
+      copyItems(CODE_ITEMS, installDir, { overwrite: true });
+      // Bootstrap user-owned items only if they were never created (e.g.
+      // partial-install recovery). Existing files are left untouched.
+      copyItems(USER_OWNED_ITEMS, installDir, { overwrite: false });
     } else {
-      warn(`Bundled source not found in npm package — keeping existing files at ${installDir}`);
+      warn(`Bundled source not found in npm package — keeping existing files at ${installDir}. Try reinstalling: npm cache clean --force && npx --yes @1mancompany/onemancompany@<version>`);
     }
   } else if (sourceIsBundled) {
     info(`Installing OneManCompany v${cliVersion} into ${installDir}...`);
     fs.mkdirSync(installDir, { recursive: true });
-    copyItems(SOURCE_ITEMS, installDir);
+    copyItems(CODE_ITEMS, installDir, { overwrite: true });
+    copyItems(USER_OWNED_ITEMS, installDir, { overwrite: true });
   } else {
     // Fallback: no bundled source (broken package?) — clone from git
     info(`Cloning OneManCompany into ${installDir}...`);
@@ -561,7 +580,10 @@ ${green("What gets installed automatically:")}
 
   // Start server
   const debugMode = passthrough.includes("--debug");
-  const launchArgs = passthrough.filter((a) => a !== "--debug" && a !== "--update");
+  // CLI-only flags must be stripped before forwarding to onemancompany.main,
+  // otherwise argparse there will reject the unknown argument.
+  const CLI_ONLY_FLAGS = new Set(["--debug", "--update", "--no-update"]);
+  const launchArgs = passthrough.filter((a) => !CLI_ONLY_FLAGS.has(a));
 
   // Build env: pass OMC_DEBUG=1 in debug mode
   const childEnv = { ...process.env };
