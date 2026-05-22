@@ -6865,17 +6865,21 @@ class TestStartProductPlanning:
         slug = product["slug"]
 
         # Patch conversation service so create() is a no-op returning a stub.
-        from onemancompany.core.conversation import Conversation, ConversationPhase
+        from onemancompany.core.conversation import Conversation, ConversationPhase, Message
         conv_stub = Conversation(
             id="conv-xyz", type="product", phase=ConversationPhase.ACTIVE.value,
             employee_id="00002", tools_enabled=True,
             metadata={"product_slug": slug, "product_id": product["id"]},
             created_at="2026-03-18T10:00:00",
         )
+
+        async def fake_send_message(conv_id, sender, role, text, attachments=None, mentions=None):
+            return Message(sender=sender, role=role, text=text, timestamp="t0")
+
         svc = MagicMock()
         svc.list_active = MagicMock(return_value=[])
         svc.create = AsyncMock(return_value=conv_stub)
-        svc.send_message = AsyncMock()
+        svc.send_message = AsyncMock(side_effect=fake_send_message)
 
         dispatch_calls = []
 
@@ -6901,3 +6905,10 @@ class TestStartProductPlanning:
         assert len(dispatch_calls) >= 1, (
             "planning endpoint must dispatch a kickoff to the EA so it posts an opening message"
         )
+        dispatched_conv_id, dispatched_msg = dispatch_calls[0]
+        assert dispatched_conv_id == "conv-xyz"
+        # The kickoff must reference the product name so EA has context.
+        assert "OMC官网" in dispatched_msg.text
+        # And it must NOT be attributed to the CEO — otherwise the UI renders
+        # text the user never typed as a CEO message bubble.
+        assert dispatched_msg.sender != "ceo"
