@@ -7398,4 +7398,23 @@ async def api_start_product_planning(slug: str) -> dict:
         product_slug=slug,
         product_id=product["id"],
     )
+
+    # Kickoff: persist a synthetic CEO message and dispatch to the EA adapter so
+    # the agent posts an opening message and can begin creating KRs/issues.
+    # Without this, the conversation would stay empty until the CEO typed something.
+    kickoff_text = f"开始为产品「{product['name']}」做规划。请先帮我梳理目标和关键结果。"
+    try:
+        kickoff_msg = await conversation_service.send_message(
+            conv.id, sender="ceo", role="CEO", text=kickoff_text,
+        )
+        task = asyncio.create_task(_dispatch_conversation_to_adapter(conv.id, kickoff_msg))
+        _active_adapter_tasks.add(task)
+        _active_adapter_by_conv[conv.id] = task
+        def _cleanup(t, _cid=conv.id):
+            _active_adapter_tasks.discard(t)
+            _active_adapter_by_conv.pop(_cid, None)
+        task.add_done_callback(_cleanup)
+    except Exception:
+        logger.exception("[product_planning] failed to kick off EA for product {}", slug)
+
     return {"conversation_id": conv.id, "existing": False}
