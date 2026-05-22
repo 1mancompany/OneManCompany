@@ -142,6 +142,19 @@ function runShell(cmd, opts = {}) {
   return execSync(cmd, { stdio: "inherit", shell: true, ...opts });
 }
 
+// Read the installed app's version from installDir/pyproject.toml.
+// Returns null if the file is missing, unreadable, or has no version line.
+// Exported via global for unit tests; the CLI itself uses it directly.
+function readAppVersion(installDir) {
+  try {
+    const pyproject = fs.readFileSync(path.join(installDir, "pyproject.toml"), "utf-8");
+    const verMatch = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
+    return verMatch ? verMatch[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── UV installer ────────────────────────────────────────────────────────────
 function ensureUV() {
   if (commandExists("uv")) {
@@ -219,8 +232,8 @@ async function main() {
 ${cyan("OneManCompany")} — The Agent Operating System for One Man Companies
 
 ${green("Usage:")}
-  npx @1mancompany/onemancompany              Start (runs in background)
-  npx @1mancompany/onemancompany --update     Pull latest version then start
+  npx @1mancompany/onemancompany              Start (runs in background; refreshes source by default)
+  npx @1mancompany/onemancompany --no-update  Start without refreshing source (keep local edits)
   npx @1mancompany/onemancompany --debug      Start with logs (Ctrl+C to stop)
   npx @1mancompany/onemancompany stop         Stop background service
   npx @1mancompany/onemancompany init         Re-run setup process (interactive)
@@ -233,7 +246,7 @@ ${green("Usage:")}
 ${green("Options:")}
   --dir <path>    Install directory (default: ./OneManCompany)
   --port <port>   Server port (default: 8000)
-  --update        Pull latest version before starting (default: use local)
+  --no-update     Skip refreshing source from the npm tarball (default: refresh on every run)
   --debug         Run in foreground with logs (default: background)
   --help, -h      Show this help
 
@@ -325,10 +338,14 @@ ${green("What gets installed automatically:")}
   }
 
   // ── Install or update ──────────────────────────────────────────────────
-  // The npm package bundles the full source. Copy it to installDir.
-  // Only fall back to git clone if source is missing (shouldn't happen).
+  // The npm package bundles the full source. Copy it to installDir on first
+  // install AND on subsequent runs by default — otherwise `npx ...@dev` would
+  // silently keep using whatever old source was copied in last time, which
+  // makes `@dev` indistinguishable from `@<old-version>` for repeat users.
+  // Pass --no-update to opt out (e.g. when you have local edits in installDir).
+  // --update is kept as a no-op alias for backwards compatibility.
   const SOURCE_ITEMS = ["src", "frontend", "company", "pyproject.toml", "config.yaml", "uv.lock"];
-  const wantUpdate = passthrough.includes("--update");
+  const wantNoUpdate = passthrough.includes("--no-update");
 
   function copyItems(items, destRoot) {
     for (const item of items) {
@@ -342,13 +359,13 @@ ${green("What gets installed automatically:")}
   }
 
   if (fs.existsSync(installDir)) {
-    if (wantUpdate && sourceIsBundled) {
+    if (wantNoUpdate) {
+      info(`Using existing installation at ${installDir} (--no-update)`);
+    } else if (sourceIsBundled) {
       info(`Updating installation to v${cliVersion}...`);
       copyItems(SOURCE_ITEMS, installDir);
-    } else if (wantUpdate && !sourceIsBundled) {
-      warn("Update requested but bundled source not found — cannot update");
     } else {
-      info(`Using existing installation at ${installDir}`);
+      warn(`Bundled source not found in npm package — keeping existing files at ${installDir}`);
     }
   } else if (sourceIsBundled) {
     info(`Installing OneManCompany v${cliVersion} into ${installDir}...`);
@@ -361,9 +378,19 @@ ${green("What gets installed automatically:")}
     run(`git clone --depth 1 ${REPO_URL} "${installDir}"`, { env: cloneEnv });
   }
 
+  // ── Read the *installed* app version (the only honest source for the banner) —
+  // Do NOT use cliVersion as a fallback: when --no-update is set, the npm CLI
+  // and the installed app can be on different versions. Showing the wrong
+  // number is worse than showing "unknown".
+  const installedAppVersion = readAppVersion(installDir);
+  if (!installedAppVersion) {
+    warn(`Could not read app version from ${path.join(installDir, "pyproject.toml")} — banner shows "unknown"`);
+  }
+  const appVersion = installedAppVersion || "unknown";
+
   // ── Banner (after real version is known) ───────────────────────────
   console.log();
-  const verTag = `v${cliVersion}`;
+  const verTag = `v${appVersion}`;
   const title = `OneManCompany — AI Company OS ${verTag}`;
   const pad = Math.max(0, 44 - title.length);
   console.log(cyan("╔═══════════════════════════════════════════════╗"));
@@ -542,7 +569,7 @@ ${green("What gets installed automatically:")}
 
   if (debugMode) {
     // ── Foreground mode: show logs, Ctrl+C to kill ──────────────────
-    info(`Starting OneManCompany v${cliVersion} in debug mode (Ctrl+C to stop)...\n`);
+    info(`Starting OneManCompany v${appVersion} in debug mode (Ctrl+C to stop)...\n`);
     const child = spawn(pythonBin, ["-m", "onemancompany.main", ...launchArgs], {
       cwd: installDir,
       stdio: "inherit",
@@ -558,7 +585,7 @@ ${green("What gets installed automatically:")}
     process.on("SIGTERM", () => { child.kill("SIGTERM"); });
   } else {
     // ── Background mode: detach and exit CLI ────────────────────────
-    info(`Starting OneManCompany v${cliVersion} in background...`);
+    info(`Starting OneManCompany v${appVersion} in background...`);
     const logFile = path.join(installDir, ".onemancompany", "server.log");
     // Ensure log directory exists
     const logDir = path.dirname(logFile);
@@ -581,7 +608,7 @@ ${green("What gets installed automatically:")}
     await new Promise((r) => setTimeout(r, 5000));
     if (isProcessRunning(child.pid)) {
       console.log();
-      console.log(green(`  ✓ OneManCompany v${cliVersion} is running!`));
+      console.log(green(`  ✓ OneManCompany v${appVersion} is running!`));
       console.log();
       console.log(`  ${cyan("→")} Open ${cyan("http://localhost:8000")} in your browser`);
       console.log(`  ${dim("  Logs:")} ${logFile}`);
