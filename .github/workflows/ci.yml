@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -12,14 +16,16 @@ jobs:
         with:
           fetch-depth: 0  # need full history for version comparison
 
-      - uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
 
       - name: Install dependencies
-        run: |
-          pip install -e .
-          pip install pytest pytest-asyncio pytest-timeout
+        run: uv sync --extra sandbox --group dev
 
       - name: Version bump check
         run: |
@@ -27,7 +33,7 @@ jobs:
           MAIN_VERSION=$(git show origin/main:pyproject.toml | grep '^version = ' | head -1 | sed 's/version = "//;s/"//')
           echo "PR version: $PR_VERSION"
           echo "Main version: $MAIN_VERSION"
-          python3 -c "
+          uv run python -c "
           from packaging.version import Version
           pr, main = Version('$PR_VERSION'), Version('$MAIN_VERSION')
           if pr <= main:
@@ -36,10 +42,13 @@ jobs:
           "
 
       - name: Compilation check
-        run: python -c "from onemancompany.api.routes import router; print('OK')"
+        run: uv run python -c "from onemancompany.api.routes import router; print('OK')"
 
       - name: Unit tests
-        run: python -m pytest tests/unit/ -x -q
+        run: uv run python -m pytest tests/unit/ -x -q
+
+      - name: Integration tests
+        run: uv run python -m pytest tests/integration/ -x -q
 
       - uses: actions/setup-node@v4
         with:

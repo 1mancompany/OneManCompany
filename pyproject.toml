@@ -1,6 +1,6 @@
 [project]
 name = "onemancompany"
-version = "0.7.85"
+version = "0.7.86"
 description = "A one-man company simulation with pixel art visualization and LangChain AI agents"
 requires-python = ">=3.12"
 dependencies = [
@@ -72,3 +72,11 @@ branch = "main"
 changelog_file = "CHANGELOG.md"
 build_command = ""
 commit_message = "chore(release): {version}"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]  # line length is enforced by the formatter, not the linter
