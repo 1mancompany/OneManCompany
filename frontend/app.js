@@ -289,7 +289,7 @@ class AppController {
           source: p.source_employee || 'system',
         });
       // Route to terminal — 1-on-1 or EA chat path
-      } else if (this._currentConvId === p.conv_id && this._ceoTerm && (this._currentConvType === 'oneonone' || this._currentConvType === 'ea_chat')) {
+      } else if (this._currentConvId === p.conv_id && this._ceoTerm && (this._currentConvType === 'oneonone' || this._currentConvType === 'ea_chat' || this._currentConvType === 'product')) {
         if (p.sender !== 'ceo' && p.text != null) {
           const source = this._currentConvType === 'ea_chat'
             ? '玲珑阁 (EA)'
@@ -1936,17 +1936,25 @@ class AppController {
     xterm.writeln(`${ANSI.gray}Loading trace...${ANSI.reset}`);
 
     fetch(`/api/projects/${projectId}/tree`)
-      .then(r => r.json())
+      .then(async r => {
+        if (!r.ok) {
+          // 404 = no task tree yet (e.g. a product in planning has no project tree)
+          throw new Error(r.status === 404
+            ? 'No execution trace (task tree) for this project yet.'
+            : `Failed to load trace (HTTP ${r.status})`);
+        }
+        return r.json();
+      })
       .then(async data => {
         const nodes = {};
-        for (const n of data.nodes) nodes[n.id] = n;
+        for (const n of (data.nodes || [])) nodes[n.id] = n;
         await traceLoadAllNodeLogs(nodes);
         xterm.clear();
         xterm.renderTraceFeed(nodes, data.root_id);
         metaEl.textContent = `${Object.keys(nodes).length} nodes`;
       })
       .catch(e => {
-        xterm.writeln(`${ANSI.red}Error: ${e.message}${ANSI.reset}`);
+        xterm.writeln(`${ANSI.red}${e.message}${ANSI.reset}`);
       });
   }
 
@@ -2358,8 +2366,8 @@ class AppController {
         return;
       }
 
-      // 1-on-1 conversation mode: send via conversation API
-      if (this._currentConvType === 'oneonone' && this._currentConvId) {
+      // 1-on-1 / product-planning conversation mode: send via conversation API
+      if ((this._currentConvType === 'oneonone' || this._currentConvType === 'product') && this._currentConvId) {
         try {
           const uploaded = await this._uploadCeoPendingFiles();
           await fetch(`/api/conversation/${this._currentConvId}/message`, {
