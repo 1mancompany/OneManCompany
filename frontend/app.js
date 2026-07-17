@@ -289,7 +289,7 @@ class AppController {
           source: p.source_employee || 'system',
         });
       // Route to terminal — 1-on-1 or EA chat path
-      } else if (this._currentConvId === p.conv_id && this._ceoTerm && (this._currentConvType === 'oneonone' || this._currentConvType === 'ea_chat' || this._currentConvType === 'product')) {
+      } else if (this._currentConvId === p.conv_id && this._ceoTerm && (this._currentConvType === 'oneonone' || this._currentConvType === 'ea_chat')) {
         if (p.sender !== 'ceo' && p.text != null) {
           const source = this._currentConvType === 'ea_chat'
             ? '玲珑阁 (EA)'
@@ -2398,8 +2398,8 @@ class AppController {
         return;
       }
 
-      // 1-on-1 / product-planning conversation mode: send via conversation API
-      if ((this._currentConvType === 'oneonone' || this._currentConvType === 'product') && this._currentConvId) {
+      // 1-on-1 conversation mode: send via conversation API
+      if (this._currentConvType === 'oneonone' && this._currentConvId) {
         try {
           const uploaded = await this._uploadCeoPendingFiles();
           await fetch(`/api/conversation/${this._currentConvId}/message`, {
