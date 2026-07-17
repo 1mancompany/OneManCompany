@@ -82,6 +82,12 @@ RETRY_DELAYS = [5, 15, 30]
 MAX_HISTORY_ENTRIES = 8
 MAX_HISTORY_CHARS = 3000
 
+# Ephemeral on_log types: transient liveness signals that are broadcast to the
+# frontend in real time but MUST NOT be persisted to the SSOT (node execution.log
+# JSONL / project LLM-trace). Persisting them would pollute task history and the
+# trace viewer with recurring noise. Membership-checked in _log_node / _on_log.
+_EPHEMERAL_LOG_TYPES = frozenset({"heartbeat"})
+
 # ---------------------------------------------------------------------------
 # ScheduleEntry — pure pointer to a TaskNode (replaces AgentTask)
 # ---------------------------------------------------------------------------
@@ -1650,8 +1656,9 @@ class EmployeeManager:
 
             def _on_log(log_type: str, content: str | dict) -> None:
                 self._log_node(employee_id, entry.node_id, log_type, content)
-                # Also write to project-level LLM trace JSONL
-                if project_id:
+                # Also write to project-level LLM trace JSONL — but not ephemeral
+                # liveness signals (heartbeat), which are broadcast-only.
+                if project_id and log_type not in _EPHEMERAL_LOG_TYPES:
                     from datetime import timezone as _tz
                     from onemancompany.core.claude_session import write_llm_trace
                     # Normalize on_log types to trace schema
@@ -3696,7 +3703,10 @@ class EmployeeManager:
             "content": content if isinstance(content, dict) else content_str,
         }
 
-        # 1. Disk (SSOT): node-level execution log (JSONL) — always string
+        # 1. Disk (SSOT): node-level execution log (JSONL) — always string.
+        #    Ephemeral types (heartbeat) are broadcast only; skip the disk write
+        #    so they don't accumulate in the trace-viewer SSOT.
+        persist = log_type not in _EPHEMERAL_LOG_TYPES
         project_id = ""
         current_entry = self._current_entries.get(employee_id)
         if current_entry:
@@ -3705,8 +3715,9 @@ class EmployeeManager:
             node = tree.get_node(current_entry.node_id) if tree else None
             _project_dir = (node.project_dir if node else "") or str(Path(current_entry.tree_path).parent)
             project_id = (node.project_id if node else "") or ""
-            _append_node_execution_log(_project_dir, node_id, log_type, content_str)
-        else:
+            if persist:
+                _append_node_execution_log(_project_dir, node_id, log_type, content_str)
+        elif persist:
             logger.warning("[_log_node] No _current_entries for {} — log not written to disk (node={})", employee_id, node_id)
         # 2. WebSocket: real-time push to frontend (pass project_id to avoid duplicate tree lookup)
         self._publish_log_event(employee_id, node_id, entry, project_id=project_id)
