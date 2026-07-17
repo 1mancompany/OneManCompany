@@ -6838,14 +6838,19 @@ async def close_conversation(conv_id: str, wait_hooks: bool = False) -> dict:
 
 @router.post("/api/conversation/{conv_id}/clear")
 async def clear_conversation_history(conv_id: str) -> dict:
-    """Clear all 1-on-1 message history for the current conversation's employee."""
+    """Clear message history on disk for conversations of the same type/employee.
+
+    Supports both ``oneonone`` (1-on-1 chat) and ``ea_chat`` (CEO console EA chat).
+    Clearing writes an empty list to ``messages.yaml`` so a page refresh — which is
+    disk-sourced — does not resurrect the cleared history (磁盘即唯一真相源).
+    """
     try:
         conv = _get_conv_svc().get(conv_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    if conv.type != "oneonone":
-        raise HTTPException(status_code=400, detail="Clear history is only supported for oneonone conversations")
+    if conv.type not in ("oneonone", "ea_chat"):
+        raise HTTPException(status_code=400, detail="Clear history is only supported for oneonone and ea_chat conversations")
     if not conv.employee_id:
         raise HTTPException(status_code=400, detail="Conversation has no employee_id")
 
@@ -6873,7 +6878,7 @@ async def clear_conversation_history(conv_id: str) -> dict:
         except Exception:
             logger.warning("[conversation] skip unreadable meta when clearing history: {}", conv_dir)
             continue
-        if c.type != "oneonone" or c.employee_id != conv.employee_id:
+        if c.type != conv.type or c.employee_id != conv.employee_id:
             continue
         scanned += 1
         msg_path = conv_dir / "messages.yaml"
@@ -6881,10 +6886,11 @@ async def clear_conversation_history(conv_id: str) -> dict:
             write_text_utf(msg_path, "[]\n")
             cleared += 1
 
-    # Keep legacy 1-on-1 history endpoint consistent.
-    legacy_history_path = conversation_core.EMPLOYEES_DIR / conv.employee_id / "oneonone_history.yaml"
-    if legacy_history_path.exists():
-        write_text_utf(legacy_history_path, "[]\n")
+    # Keep legacy 1-on-1 history endpoint consistent (oneonone only).
+    if conv.type == "oneonone":
+        legacy_history_path = conversation_core.EMPLOYEES_DIR / conv.employee_id / "oneonone_history.yaml"
+        if legacy_history_path.exists():
+            write_text_utf(legacy_history_path, "[]\n")
 
     return {
         "status": "cleared",
