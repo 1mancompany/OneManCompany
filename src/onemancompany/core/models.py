@@ -168,6 +168,9 @@ class EventType(str, Enum):
     REVIEW_CREATED = "review_created"
     REVIEW_COMPLETED = "review_completed"
 
+    # ACP session streaming events
+    ACP_UPDATE = "acp_update"
+
 
 class ProductStatus(str, Enum):
     """Product lifecycle status."""

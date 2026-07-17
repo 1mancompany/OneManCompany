@@ -117,9 +117,13 @@
                   <option value="">No Product</option>
                 </select>
               </div>
+              <div id="ceo-preview-bar" class="chat-preview-bar hidden"></div>
               <div id="ceo-conv-input-row">
+                <label class="chat-attach-btn" id="ceo-attach-btn" title="Attach file or image — sent with your next message">
+                  <input type="file" id="ceo-file-input" multiple hidden />
+                  &#128206;
+                </label>
                 <textarea id="ceo-conv-input" placeholder="$ Type message, / for commands (Enter to send)" rows="1" aria-label="CEO message input"></textarea>
-                <input type="file" id="ceo-file-input" multiple hidden />
               </div>
               <div id="ceo-slash-menu" class="hidden"></div>
             </div>
