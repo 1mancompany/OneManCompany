@@ -175,7 +175,7 @@ class TestClaudeSessionLauncher:
             mock_run.return_value = {"output": "Claude output", "model": "test", "input_tokens": 10, "output_tokens": 5}
             on_log = MagicMock()
             result = await launcher.execute("Do task", ctx, on_log=on_log)
-            mock_run.assert_called_once_with("emp01", "proj1", prompt="Do task", work_dir="/tmp/work", task_id="")
+            mock_run.assert_called_once_with("emp01", "proj1", prompt="Do task", work_dir="/tmp/work", task_id="", on_log=on_log)
             assert result.output == "Claude output"
             on_log.assert_called_once()
 
@@ -186,7 +186,7 @@ class TestClaudeSessionLauncher:
         with patch("onemancompany.core.claude_session.run_claude_session", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = {"output": "output", "model": "test", "input_tokens": 0, "output_tokens": 0}
             result = await launcher.execute("Do task", ctx)
-            mock_run.assert_called_once_with("emp01", "default", prompt="Do task", work_dir="", task_id="")
+            mock_run.assert_called_once_with("emp01", "default", prompt="Do task", work_dir="", task_id="", on_log=None)
             assert result.output == "output"
 
     @pytest.mark.asyncio

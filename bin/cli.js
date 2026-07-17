@@ -142,6 +142,19 @@ function runShell(cmd, opts = {}) {
   return execSync(cmd, { stdio: "inherit", shell: true, ...opts });
 }
 
+// Read the installed app's version from installDir/pyproject.toml.
+// Returns null if the file is missing, unreadable, or has no version line.
+// Exported via global for unit tests; the CLI itself uses it directly.
+function readAppVersion(installDir) {
+  try {
+    const pyproject = fs.readFileSync(path.join(installDir, "pyproject.toml"), "utf-8");
+    const verMatch = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
+    return verMatch ? verMatch[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── UV installer ────────────────────────────────────────────────────────────
 function ensureUV() {
   if (commandExists("uv")) {
@@ -219,8 +232,8 @@ async function main() {
 ${cyan("OneManCompany")} — The Agent Operating System for One Man Companies
 
 ${green("Usage:")}
-  npx @1mancompany/onemancompany              Start (runs in background)
-  npx @1mancompany/onemancompany --update     Pull latest version then start
+  npx @1mancompany/onemancompany              Start (runs in background; refreshes source by default)
+  npx @1mancompany/onemancompany --no-update  Start without refreshing source (keep local edits)
   npx @1mancompany/onemancompany --debug      Start with logs (Ctrl+C to stop)
   npx @1mancompany/onemancompany stop         Stop background service
   npx @1mancompany/onemancompany init         Re-run setup process (interactive)
@@ -233,7 +246,7 @@ ${green("Usage:")}
 ${green("Options:")}
   --dir <path>    Install directory (default: ./OneManCompany)
   --port <port>   Server port (default: 8000)
-  --update        Pull latest version before starting (default: use local)
+  --no-update     Skip refreshing bundled code (default: refresh src/, frontend/, pyproject.toml, uv.lock on every run; company/ and config.yaml are always preserved)
   --debug         Run in foreground with logs (default: background)
   --help, -h      Show this help
 
@@ -325,35 +338,58 @@ ${green("What gets installed automatically:")}
   }
 
   // ── Install or update ──────────────────────────────────────────────────
-  // The npm package bundles the full source. Copy it to installDir.
-  // Only fall back to git clone if source is missing (shouldn't happen).
-  const SOURCE_ITEMS = ["src", "frontend", "company", "pyproject.toml", "config.yaml", "uv.lock"];
-  const wantUpdate = passthrough.includes("--update");
+  // Two classes of bundled items, treated differently on subsequent runs:
+  //   * CODE — owned by the project, refreshed on every run so `@dev` actually
+  //     means "give me the latest code." Safe to overwrite because users
+  //     shouldn't be editing these directly.
+  //   * USER-OWNED — bootstrapped on first install, NEVER overwritten on
+  //     update. `company/` holds workflows / SOPs / founding-employee profiles
+  //     that users routinely edit; `config.yaml` holds local config. Blowing
+  //     these away on every `npx` run would silently destroy work.
+  // Pass --no-update to skip refreshing CODE too (e.g. when debugging local
+  // patches in installDir/src). --update is a silent no-op (was the old
+  // opt-in flag; current behavior matches what it used to enable).
+  const CODE_ITEMS = ["src", "frontend", "pyproject.toml", "uv.lock"];
+  const USER_OWNED_ITEMS = ["company", "config.yaml"];
+  const wantNoUpdate = passthrough.includes("--no-update");
 
-  function copyItems(items, destRoot) {
+  function copyItems(items, destRoot, { overwrite }) {
     for (const item of items) {
       const src = path.join(npmPkgRoot, item);
       const dest = path.join(destRoot, item);
-      if (fs.existsSync(src)) {
-        if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
+      if (!fs.existsSync(src)) continue;
+      if (fs.existsSync(dest)) {
+        if (!overwrite) continue;
+        // Copy to sibling temp then rename, so an interrupted run can't leave
+        // installDir/<item> in a half-deleted state.
+        const tmp = `${dest}.tmp-${process.pid}`;
+        if (fs.existsSync(tmp)) fs.rmSync(tmp, { recursive: true, force: true });
+        fs.cpSync(src, tmp, { recursive: true });
+        fs.rmSync(dest, { recursive: true, force: true });
+        fs.renameSync(tmp, dest);
+      } else {
         fs.cpSync(src, dest, { recursive: true });
       }
     }
   }
 
   if (fs.existsSync(installDir)) {
-    if (wantUpdate && sourceIsBundled) {
-      info(`Updating installation to v${cliVersion}...`);
-      copyItems(SOURCE_ITEMS, installDir);
-    } else if (wantUpdate && !sourceIsBundled) {
-      warn("Update requested but bundled source not found — cannot update");
+    if (wantNoUpdate) {
+      info(`Using existing installation at ${installDir} (--no-update)`);
+    } else if (sourceIsBundled) {
+      info(`Updating code to v${cliVersion}... (user-owned files in company/ and config.yaml are preserved)`);
+      copyItems(CODE_ITEMS, installDir, { overwrite: true });
+      // Bootstrap user-owned items only if they were never created (e.g.
+      // partial-install recovery). Existing files are left untouched.
+      copyItems(USER_OWNED_ITEMS, installDir, { overwrite: false });
     } else {
-      info(`Using existing installation at ${installDir}`);
+      warn(`Bundled source not found in npm package — keeping existing files at ${installDir}. Try reinstalling: npm cache clean --force && npx --yes @1mancompany/onemancompany@<version>`);
     }
   } else if (sourceIsBundled) {
     info(`Installing OneManCompany v${cliVersion} into ${installDir}...`);
     fs.mkdirSync(installDir, { recursive: true });
-    copyItems(SOURCE_ITEMS, installDir);
+    copyItems(CODE_ITEMS, installDir, { overwrite: true });
+    copyItems(USER_OWNED_ITEMS, installDir, { overwrite: true });
   } else {
     // Fallback: no bundled source (broken package?) — clone from git
     info(`Cloning OneManCompany into ${installDir}...`);
@@ -361,9 +397,19 @@ ${green("What gets installed automatically:")}
     run(`git clone --depth 1 ${REPO_URL} "${installDir}"`, { env: cloneEnv });
   }
 
+  // ── Read the *installed* app version (the only honest source for the banner) —
+  // Do NOT use cliVersion as a fallback: when --no-update is set, the npm CLI
+  // and the installed app can be on different versions. Showing the wrong
+  // number is worse than showing "unknown".
+  const installedAppVersion = readAppVersion(installDir);
+  if (!installedAppVersion) {
+    warn(`Could not read app version from ${path.join(installDir, "pyproject.toml")} — banner shows "unknown"`);
+  }
+  const appVersion = installedAppVersion || "unknown";
+
   // ── Banner (after real version is known) ───────────────────────────
   console.log();
-  const verTag = `v${cliVersion}`;
+  const verTag = `v${appVersion}`;
   const title = `OneManCompany — AI Company OS ${verTag}`;
   const pad = Math.max(0, 44 - title.length);
   console.log(cyan("╔═══════════════════════════════════════════════╗"));
@@ -534,7 +580,10 @@ ${green("What gets installed automatically:")}
 
   // Start server
   const debugMode = passthrough.includes("--debug");
-  const launchArgs = passthrough.filter((a) => a !== "--debug" && a !== "--update");
+  // CLI-only flags must be stripped before forwarding to onemancompany.main,
+  // otherwise argparse there will reject the unknown argument.
+  const CLI_ONLY_FLAGS = new Set(["--debug", "--update", "--no-update"]);
+  const launchArgs = passthrough.filter((a) => !CLI_ONLY_FLAGS.has(a));
 
   // Build env: pass OMC_DEBUG=1 in debug mode
   const childEnv = { ...process.env };
@@ -542,7 +591,7 @@ ${green("What gets installed automatically:")}
 
   if (debugMode) {
     // ── Foreground mode: show logs, Ctrl+C to kill ──────────────────
-    info(`Starting OneManCompany v${cliVersion} in debug mode (Ctrl+C to stop)...\n`);
+    info(`Starting OneManCompany v${appVersion} in debug mode (Ctrl+C to stop)...\n`);
     const child = spawn(pythonBin, ["-m", "onemancompany.main", ...launchArgs], {
       cwd: installDir,
       stdio: "inherit",
@@ -558,7 +607,7 @@ ${green("What gets installed automatically:")}
     process.on("SIGTERM", () => { child.kill("SIGTERM"); });
   } else {
     // ── Background mode: detach and exit CLI ────────────────────────
-    info(`Starting OneManCompany v${cliVersion} in background...`);
+    info(`Starting OneManCompany v${appVersion} in background...`);
     const logFile = path.join(installDir, ".onemancompany", "server.log");
     // Ensure log directory exists
     const logDir = path.dirname(logFile);
@@ -581,7 +630,7 @@ ${green("What gets installed automatically:")}
     await new Promise((r) => setTimeout(r, 5000));
     if (isProcessRunning(child.pid)) {
       console.log();
-      console.log(green(`  ✓ OneManCompany v${cliVersion} is running!`));
+      console.log(green(`  ✓ OneManCompany v${appVersion} is running!`));
       console.log();
       console.log(`  ${cyan("→")} Open ${cyan("http://localhost:8000")} in your browser`);
       console.log(`  ${dim("  Logs:")} ${logFile}`);

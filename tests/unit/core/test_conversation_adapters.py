@@ -110,6 +110,36 @@ def test_build_conversation_prompt_with_history():
     assert "Please respond:" in prompt
 
 
+def test_build_conversation_prompt_product_planning(tmp_path, monkeypatch):
+    """PRODUCT conversations must inject product context + planning instructions."""
+    from onemancompany.core import product as prod
+    from onemancompany.core.conversation_adapters import _build_conversation_prompt
+
+    monkeypatch.setattr(prod, "PRODUCTS_DIR", tmp_path)
+    product = prod.create_product(name="OMC Website", owner_id="00002", description="官网")
+    slug = product["slug"]
+    prod.add_key_result(slug, title="DAU=1000", target=1000, unit="users")
+    prod.create_issue(slug=slug, title="加载慢", description="...", created_by="00002")
+
+    conv = Conversation(
+        id="cp1", type="product", phase="active",
+        employee_id="00002", tools_enabled=True,
+        metadata={"product_slug": slug, "product_id": product["id"]},
+        created_at="2026-03-18T10:00:00",
+    )
+    new_msg = Message(sender="ceo", role="CEO", text="开始规划", timestamp="t1")
+    prompt = _build_conversation_prompt(conv, [], new_msg)
+
+    # Must contain product context
+    assert "OMC Website" in prompt
+    assert slug in prompt
+    # Must contain planning instructions referencing the tools
+    assert "create_product_issue" in prompt
+    assert "add_product_key_result" in prompt
+    # Must not look like 1-on-1
+    assert "1-on-1 meeting" not in prompt
+
+
 def test_build_conversation_prompt_ceo_inbox():
     from onemancompany.core.conversation_adapters import _build_conversation_prompt
 
@@ -123,6 +153,47 @@ def test_build_conversation_prompt_ceo_inbox():
     prompt = _build_conversation_prompt(conv, [], new_msg)
     assert "responding to your request" in prompt
     assert "1-on-1 meeting" not in prompt
+
+
+def test_build_conversation_prompt_includes_attachment_read_instructions():
+    """New CEO message with attachments must tell the agent to read() each file."""
+    import json
+    from onemancompany.core.conversation_adapters import _build_conversation_prompt
+
+    conv = Conversation(
+        id="c3", type="oneonone", phase="active",
+        employee_id="00100", tools_enabled=True,
+        created_at="2026-03-18T10:00:00",
+    )
+    attachment_path = "/tmp/uploads/spec.pdf"
+    new_msg = Message(
+        sender="ceo", role="CEO",
+        text="please review this",
+        timestamp="t1",
+        attachments=[attachment_path],
+    )
+
+    prompt = _build_conversation_prompt(conv, [], new_msg)
+    assert "please review this" in prompt
+    assert "CEO attached the following files" in prompt
+    assert attachment_path in prompt
+    assert f"read({json.dumps(attachment_path)})" in prompt
+
+
+def test_build_conversation_prompt_without_attachments_unchanged():
+    """Empty attachments list keeps the prompt free of attachment boilerplate."""
+    from onemancompany.core.conversation_adapters import _build_conversation_prompt
+
+    conv = Conversation(
+        id="c4", type="oneonone", phase="active",
+        employee_id="00100", tools_enabled=True,
+        created_at="2026-03-18T10:00:00",
+    )
+    new_msg = Message(sender="ceo", role="CEO", text="hi", timestamp="t1", attachments=[])
+
+    prompt = _build_conversation_prompt(conv, [], new_msg)
+    assert "CEO attached" not in prompt
+    assert "read(" not in prompt
 
 
 # ---------------------------------------------------------------------------

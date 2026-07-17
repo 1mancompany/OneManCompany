@@ -94,3 +94,44 @@ class TestLogNodeDictContent:
         assert pub_entry["type"] == "tool_call"
         assert isinstance(pub_entry["content"], dict)
         assert pub_entry["content"]["tool_name"] == "dispatch_child"
+
+    def test_heartbeat_broadcasts_but_does_not_persist(self):
+        """Ephemeral heartbeat logs are pushed to the frontend but never written to
+        the SSOT execution.log — otherwise a long silent task floods the trace viewer."""
+        from onemancompany.core.vessel import EmployeeManager, ScheduleEntry
+
+        v = EmployeeManager.__new__(EmployeeManager)
+        v._current_entries = {}
+        v.executors = {}
+        v._running_tasks = {}
+        v._system_tasks = {}
+        v._hooks = {}
+
+        entry = ScheduleEntry(node_id="node_001", tree_path="/fake/tree.yaml")
+        v._current_entries["emp_001"] = entry
+
+        publish_calls = []
+        v._publish_log_event = lambda emp_id, task_id, entry, **kw: publish_calls.append((emp_id, task_id, entry))
+
+        with patch("onemancompany.core.task_tree.get_tree") as mock_get_tree, \
+             patch("onemancompany.core.vessel._append_node_execution_log") as mock_append:
+            mock_node = MagicMock()
+            mock_node.project_dir = "/fake/project"
+            mock_node.project_id = "proj_001"
+            mock_tree = MagicMock()
+            mock_tree.get_node.return_value = mock_node
+            mock_get_tree.return_value = mock_tree
+
+            v._log_node("emp_001", "node_001", "heartbeat", {
+                "phase": "waiting_for_llm",
+                "idle_seconds": 40,
+                "content": "⏱ heartbeat phase=waiting_for_llm idle=40s elapsed=60s",
+            })
+
+            # Disk (SSOT) must NOT be touched for heartbeat
+            assert not mock_append.called
+
+        # ...but the frontend still gets the live heartbeat event
+        assert len(publish_calls) == 1
+        _, _, pub_entry = publish_calls[0]
+        assert pub_entry["type"] == "heartbeat"

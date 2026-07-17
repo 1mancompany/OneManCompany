@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1279,6 +1280,102 @@ class TestRunStreamed:
         logs = []
         await runner.run_streamed("task", on_log=lambda k, c: logs.append((k, c)))
         assert any(k == "tool_call" for k, _ in logs)
+
+    @pytest.mark.asyncio
+    async def test_run_streamed_emits_heartbeat_when_stream_is_silent(self, monkeypatch):
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod
+        from langchain_core.messages import AIMessage
+
+        cs = _make_cs()
+        emp = _make_emp("00010")
+        _mock_store_for_employees(monkeypatch, {"00010": emp})
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "event_bus", MagicMock(publish=AsyncMock()))
+        heartbeat_interval = 0.01
+        silent_period = heartbeat_interval * 3
+        monkeypatch.setattr(base_mod, "_STREAM_HEARTBEAT_INTERVAL_SEC", heartbeat_interval)
+        monkeypatch.setattr(
+            "onemancompany.core.agent_loop._current_vessel",
+            MagicMock(get=lambda x=None: None),
+        )
+
+        events = [{"event": "on_chat_model_end", "data": {"output": AIMessage(content="done")}}]
+
+        async def fake_astream(msg, version, config):
+            await asyncio.sleep(silent_period)
+            for e in events:
+                yield e
+
+        runner = BaseAgentRunner()
+        runner.employee_id = "00010"
+        runner.role = "Agent"
+        runner._agent = MagicMock()
+        runner._agent.astream_events = fake_astream
+        runner._build_prompt = lambda: ""
+
+        logs = []
+        await runner.run_streamed("task", on_log=lambda k, c: logs.append((k, c)))
+
+        heartbeats = [c for k, c in logs if k == "heartbeat"]
+        assert heartbeats
+        assert heartbeats[0]["phase"]
+        assert "elapsed_seconds" in heartbeats[0]
+        assert "idle_seconds" in heartbeats[0]
+
+    @pytest.mark.asyncio
+    async def test_run_streamed_heartbeat_reports_last_tool_call(self, monkeypatch):
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod
+        from langchain_core.messages import AIMessage
+
+        cs = _make_cs()
+        emp = _make_emp("00010")
+        _mock_store_for_employees(monkeypatch, {"00010": emp})
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "event_bus", MagicMock(publish=AsyncMock()))
+        heartbeat_interval = 0.01
+        silent_period = heartbeat_interval * 3
+        monkeypatch.setattr(base_mod, "_STREAM_HEARTBEAT_INTERVAL_SEC", heartbeat_interval)
+        monkeypatch.setattr(
+            "onemancompany.core.agent_loop._current_vessel",
+            MagicMock(get=lambda x=None: None),
+        )
+
+        events = [
+            {
+                "event": "on_chat_model_end",
+                "data": {"output": AIMessage(content="", tool_calls=[{"name": "search_web", "args": {"q": "x"}, "id": "tc_1"}])},
+            },
+            {"event": "on_tool_end", "data": {"output": "ok"}, "name": "search_web"},
+            {"event": "on_chat_model_end", "data": {"output": AIMessage(content="done")}},
+        ]
+
+        async def fake_astream(msg, version, config):
+            yield events[0]
+            await asyncio.sleep(silent_period)
+            yield events[1]
+            yield events[2]
+
+        runner = BaseAgentRunner()
+        runner.employee_id = "00010"
+        runner.role = "Agent"
+        runner._agent = MagicMock()
+        runner._agent.astream_events = fake_astream
+        runner._build_prompt = lambda: ""
+
+        logs = []
+        await runner.run_streamed("task", on_log=lambda k, c: logs.append((k, c)))
+
+        heartbeats = [c for k, c in logs if k == "heartbeat"]
+        assert heartbeats
+        assert heartbeats[0]["phase"] == "tool_calling"
+        assert heartbeats[0]["last_tool_name"] == "search_web"
+        assert heartbeats[0]["last_tool_call_at"]
 
 
 # ---------------------------------------------------------------------------

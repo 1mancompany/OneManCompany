@@ -28,7 +28,10 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from onemancompany.acp.client import AcpConnectionManager
 
 from langgraph.errors import GraphRecursionError
 
@@ -78,6 +81,12 @@ MAX_RETRIES = 3
 RETRY_DELAYS = [5, 15, 30]
 MAX_HISTORY_ENTRIES = 8
 MAX_HISTORY_CHARS = 3000
+
+# Ephemeral on_log types: transient liveness signals that are broadcast to the
+# frontend in real time but MUST NOT be persisted to the SSOT (node execution.log
+# JSONL / project LLM-trace). Persisting them would pollute task history and the
+# trace viewer with recurring noise. Membership-checked in _log_node / _on_log.
+_EPHEMERAL_LOG_TYPES = frozenset({"heartbeat"})
 
 # ---------------------------------------------------------------------------
 # ScheduleEntry — pure pointer to a TaskNode (replaces AgentTask)
@@ -572,6 +581,7 @@ class ClaudeSessionExecutor(Launcher):
             prompt=task_description,
             work_dir=context.work_dir,
             task_id=context.task_id,
+            on_log=on_log,
         )
         output = result.get("output", "")
         error: str | None = None
@@ -916,6 +926,7 @@ class EmployeeManager:
         # Tree completion event queue — serializes all child-complete callbacks
         self._completion_queue: asyncio.Queue | None = None
         self._completion_consumer: asyncio.Task | None = None
+        self._acp_manager: AcpConnectionManager | None = None
 
     # ------------------------------------------------------------------
     # ScheduleEntry-based node scheduling
@@ -1042,6 +1053,33 @@ class EmployeeManager:
         # not to the in-memory _schedule.  Re-add them now.
         self._recover_orphaned_tasks(employee_id)
 
+        return vessel
+
+    async def register_acp(
+        self,
+        employee_id: str,
+        executor_type: str,
+        extra_env: dict[str, str],
+        config: VesselConfig | None = None,
+    ) -> Vessel:
+        """Register employee via ACP. Spawns persistent subprocess."""
+        if self._acp_manager is None:
+            from onemancompany.acp.client import AcpConnectionManager
+            self._acp_manager = AcpConnectionManager()
+
+        await self._acp_manager.register_employee(employee_id, executor_type, extra_env)
+
+        # Same bookkeeping as register():
+        if config is not None:
+            self.configs[employee_id] = config
+        if employee_id not in self.task_histories:
+            entries, summary = _load_task_history(employee_id)
+            self.task_histories[employee_id] = entries
+            if summary:
+                self._history_summaries[employee_id] = summary
+        vessel = Vessel(self, employee_id)
+        self.vessels[employee_id] = vessel
+        self._recover_orphaned_tasks(employee_id)
         return vessel
 
     def _recover_orphaned_tasks(self, employee_id: str) -> None:
@@ -1618,8 +1656,9 @@ class EmployeeManager:
 
             def _on_log(log_type: str, content: str | dict) -> None:
                 self._log_node(employee_id, entry.node_id, log_type, content)
-                # Also write to project-level LLM trace JSONL
-                if project_id:
+                # Also write to project-level LLM trace JSONL — but not ephemeral
+                # liveness signals (heartbeat), which are broadcast-only.
+                if project_id and log_type not in _EPHEMERAL_LOG_TYPES:
                     from datetime import timezone as _tz
                     from onemancompany.core.claude_session import write_llm_trace
                     # Normalize on_log types to trace schema
@@ -1686,26 +1725,40 @@ class EmployeeManager:
 
             launch_result: LaunchResult | None = None
             last_err: Exception | None = None
-            for attempt in range(max_retries):
-                try:
-                    launch_result = await asyncio.wait_for(
-                        executor.execute(task_with_ctx, context, on_log=_on_log),
-                        timeout=task_timeout,
-                    )
-                    last_err = None
-                    break
-                except GraphRecursionError as rec_err:
-                    last_err = rec_err
-                    self._log_node(employee_id, entry.node_id, "error", f"Agent hit recursion limit: {rec_err!s}")
-                    break
-                except TimeoutError:
-                    raise  # Don't retry task-level timeout — LLM request_timeout handles per-call retries
-                except Exception as run_err:
-                    last_err = run_err
-                    if attempt < max_retries - 1:
-                        delay = retry_delays[attempt] if attempt < len(retry_delays) else retry_delays[-1]
-                        self._log_node(employee_id, entry.node_id, "retry", f"Attempt {attempt + 1} failed: {run_err!s} — retrying in {delay}s")
-                        await asyncio.sleep(delay)
+
+            # ACP path: persistent subprocess via AcpConnectionManager
+            if self._acp_manager and employee_id in self._acp_manager._sessions:
+                mode = self._get_acp_mode(node)
+                if mode:
+                    await self._acp_manager.set_mode(employee_id, mode)
+
+                await asyncio.wait_for(
+                    self._acp_manager.send_prompt(employee_id, task_with_ctx),
+                    timeout=task_timeout,
+                )
+                launch_result = await self._acp_manager.collect_result(employee_id)
+            else:
+                # Legacy path (backward compat)
+                for attempt in range(max_retries):
+                    try:
+                        launch_result = await asyncio.wait_for(
+                            executor.execute(task_with_ctx, context, on_log=_on_log),
+                            timeout=task_timeout,
+                        )
+                        last_err = None
+                        break
+                    except GraphRecursionError as rec_err:
+                        last_err = rec_err
+                        self._log_node(employee_id, entry.node_id, "error", f"Agent hit recursion limit: {rec_err!s}")
+                        break
+                    except TimeoutError:
+                        raise  # Don't retry task-level timeout — LLM request_timeout handles per-call retries
+                    except Exception as run_err:
+                        last_err = run_err
+                        if attempt < max_retries - 1:
+                            delay = retry_delays[attempt] if attempt < len(retry_delays) else retry_delays[-1]
+                            self._log_node(employee_id, entry.node_id, "retry", f"Attempt {attempt + 1} failed: {run_err!s} — retrying in {delay}s")
+                            await asyncio.sleep(delay)
 
             if last_err is not None:
                 raise last_err
@@ -3599,6 +3652,15 @@ class EmployeeManager:
             logger.warning("_get_role: employee {} not found in store, defaulting to 'Employee'", employee_id)
         return (emp_data or {}).get(PF_ROLE, "Employee")
 
+    def _get_acp_mode(self, node) -> str | None:
+        """Map task node type to ACP session mode."""
+        if node is None:
+            return None
+        node_type = getattr(node, "node_type", None)
+        if node_type and node_type.value in ("review",):
+            return "review"
+        return "execute"
+
     def _set_employee_status(self, employee_id: str, status: str) -> None:
         try:
             spawn_background(_store.save_employee_runtime(employee_id, status=status))
@@ -3641,7 +3703,10 @@ class EmployeeManager:
             "content": content if isinstance(content, dict) else content_str,
         }
 
-        # 1. Disk (SSOT): node-level execution log (JSONL) — always string
+        # 1. Disk (SSOT): node-level execution log (JSONL) — always string.
+        #    Ephemeral types (heartbeat) are broadcast only; skip the disk write
+        #    so they don't accumulate in the trace-viewer SSOT.
+        persist = log_type not in _EPHEMERAL_LOG_TYPES
         project_id = ""
         current_entry = self._current_entries.get(employee_id)
         if current_entry:
@@ -3650,8 +3715,9 @@ class EmployeeManager:
             node = tree.get_node(current_entry.node_id) if tree else None
             _project_dir = (node.project_dir if node else "") or str(Path(current_entry.tree_path).parent)
             project_id = (node.project_id if node else "") or ""
-            _append_node_execution_log(_project_dir, node_id, log_type, content_str)
-        else:
+            if persist:
+                _append_node_execution_log(_project_dir, node_id, log_type, content_str)
+        elif persist:
             logger.warning("[_log_node] No _current_entries for {} — log not written to disk (node={})", employee_id, node_id)
         # 2. WebSocket: real-time push to frontend (pass project_id to avoid duplicate tree lookup)
         self._publish_log_event(employee_id, node_id, entry, project_id=project_id)

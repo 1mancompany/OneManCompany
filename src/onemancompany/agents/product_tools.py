@@ -87,6 +87,29 @@ async def create_product_tool(
 
 
 @tool
+async def add_product_key_result(
+    product_slug: str,
+    title: str,
+    target: float,
+    unit: str = "",
+) -> str:
+    """Add a Key Result to an existing product (use during product planning).
+
+    Args:
+        product_slug: The product slug (e.g. "omc-website")
+        title: KR title (e.g. "DAU达到1000")
+        target: Numeric target value
+        unit: Unit of measurement (e.g. "users", "seconds")
+    """
+    try:
+        kr = prod.add_key_result(product_slug, title=title, target=target, unit=unit)
+        logger.debug("add_product_key_result: {} for {}", kr["id"], product_slug)
+        return f"Added key result '{title}' (target={target} {unit}) to {product_slug}"
+    except (ValueError, FileNotFoundError) as e:
+        return f"Error: {e}"
+
+
+@tool
 async def create_product_issue(
     product_slug: str,
     title: str,
@@ -789,6 +812,7 @@ async def transfer_product_ownership_tool(
 
 PRODUCT_TOOLS = [
     create_product_tool,
+    add_product_key_result,
     create_product_issue,
     update_product_issue,
     close_product_issue,

@@ -23,6 +23,7 @@ import asyncio
 import json
 import os
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -55,6 +56,18 @@ def write_llm_trace(project_id: str, entry: dict) -> None:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError as e:
         logger.debug("[llm-trace] write failed for project={}: {}", project_id, e)
+
+
+def _fmt_tool_call(name: str, args: dict) -> str:
+    """Compact one-line summary of a tool call for live on_log signals."""
+    try:
+        compact = json.dumps(args, ensure_ascii=False)
+    except (TypeError, ValueError):
+        compact = str(args)
+    if len(compact) > 300:
+        compact = compact[:300] + "…"
+    return f"{name}({compact})"
+
 
 # Single-file constants
 SESSIONS_FILENAME = "sessions.json"
@@ -502,11 +515,20 @@ class ClaudeDaemon:
         except Exception as e:
             logger.debug("[debug_trace] daemon write failed for {}: {}", self.employee_id, e)
 
-    async def send_prompt(self, prompt: str, timeout: int = 600) -> dict:
+    async def send_prompt(
+        self,
+        prompt: str,
+        timeout: int = 600,
+        on_log: Callable[[str, object], None] | None = None,
+    ) -> dict:
         """Send a prompt and collect the full response.
 
         Reads NDJSON lines from stdout until a ``result`` message appears.
         Returns dict with keys: output, model, input_tokens, output_tokens.
+
+        ``on_log(type, content)`` is called live per LLM step (assistant text,
+        tool_call, tool_result) so the CEO can see the self-hosted agent working
+        instead of a long silence. Mirrors the LangChain path's on_log schema.
         """
         if not self.alive:
             raise RuntimeError("Daemon process is not running")
@@ -575,8 +597,22 @@ class ClaudeDaemon:
                         self._trace_assistant_message(message)
                         content = message.get("content", [])
                         for block in content:
-                            if isinstance(block, dict) and block.get(BLOCK_KEY_TYPE) == BLOCK_TYPE_TEXT:
-                                text_parts.append(block.get(BLOCK_KEY_TEXT, ""))
+                            if not isinstance(block, dict):
+                                continue
+                            _btype = block.get(BLOCK_KEY_TYPE)
+                            if _btype == BLOCK_TYPE_TEXT:
+                                _text = block.get(BLOCK_KEY_TEXT, "")
+                                text_parts.append(_text)
+                                if on_log and _text.strip():
+                                    on_log("llm_output", _text)
+                            elif _btype == "tool_use" and on_log:
+                                _tname = block.get("name", "tool")
+                                _targs = block.get("input", {})
+                                on_log("tool_call", {
+                                    "tool_name": _tname,
+                                    "tool_args": _targs,
+                                    "content": _fmt_tool_call(_tname, _targs),
+                                })
                         # Extract usage
                         usage = message.get("usage", {})
                         if usage.get("input_tokens"):
@@ -587,6 +623,25 @@ class ClaudeDaemon:
                             model_used = message["model"]
                         # SFT: capture assistant message with tool_calls
                         self._accumulate_debug_assistant(debug_messages, message)
+
+                    elif msg_type == "user" and on_log:
+                        # Tool results come back as user-role messages; surface
+                        # them live so the CEO sees tool activity completing.
+                        umsg = msg_data.get("message", {})
+                        for block in umsg.get("content", []) or []:
+                            if not isinstance(block, dict) or block.get(BLOCK_KEY_TYPE) != "tool_result":
+                                continue
+                            _res = block.get("content", "")
+                            if isinstance(_res, list):
+                                _res = " ".join(
+                                    b.get("text", "") for b in _res
+                                    if isinstance(b, dict) and b.get("text")
+                                )
+                            _res = str(_res)
+                            on_log("tool_result", {
+                                "tool_result": _res,
+                                "content": _res[:500],
+                            })
 
                     elif msg_type == "result":
                         # Final result — response complete
@@ -763,6 +818,7 @@ async def run_claude_session(
     max_turns: int = 50,
     timeout: int = 600,
     task_id: str = "",
+    on_log: Callable[[str, object], None] | None = None,
 ) -> dict:
     """Send a prompt to the employee's persistent Claude daemon.
 
@@ -779,7 +835,7 @@ async def run_claude_session(
             daemon = await _get_or_start_daemon(
                 employee_id, project_id, work_dir, max_turns, task_id,
             )
-            result = await daemon.send_prompt(prompt, timeout=timeout)
+            result = await daemon.send_prompt(prompt, timeout=timeout, on_log=on_log)
 
             # If daemon died during execution, try once more with restart
             if not daemon.alive and not result.get("output"):
@@ -790,7 +846,7 @@ async def run_claude_session(
                 daemon = await _get_or_start_daemon(
                     employee_id, project_id, work_dir, max_turns, task_id,
                 )
-                result = await daemon.send_prompt(prompt, timeout=timeout)
+                result = await daemon.send_prompt(prompt, timeout=timeout, on_log=on_log)
 
             return result
         except FileNotFoundError:
