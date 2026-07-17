@@ -16,8 +16,8 @@ async def apply_auth_choice(
     api_key: str = "",
     model: str = "",
     employee_id: str = "",
-    base_url: str = "",
-    chat_class: str = "",
+    base_url: str | None = None,
+    chat_class: str | None = None,
 ) -> dict:
     """Dispatch an auth choice to the appropriate apply handler.
 
@@ -62,6 +62,8 @@ async def apply_auth_choice(
                 employee_id=employee_id,
                 api_key=api_key,
                 model=model,
+                base_url=base_url,
+                chat_class=chat_class,
             )
         else:
             return {"error": f"Invalid scope: {scope}", "code": "invalid_scope"}

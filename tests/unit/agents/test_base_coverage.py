@@ -310,6 +310,55 @@ class TestMakeLlmBranches:
             llm = make_llm()
         assert llm is not None
 
+    def test_employee_custom_provider_overrides(self, monkeypatch):
+        from onemancompany.agents.base import make_llm, CHAT_CLASS_OPENAI, CHAT_CLASS_ANTHROPIC
+
+        mock_settings = MagicMock()
+        mock_settings.default_llm_model = "gpt-4"
+        mock_settings.default_api_provider = "openrouter"
+        mock_settings.custom_chat_class = CHAT_CLASS_OPENAI
+        mock_settings.default_api_base_url = "https://company.example/v1"
+        mock_settings.openrouter_api_key = "sk-or"
+        mock_settings.openrouter_base_url = "https://openrouter.ai/api/v1"
+        mock_settings.anthropic_auth_method = "api_key"
+        mock_settings.anthropic_oauth_token = ""
+        mock_settings.anthropic_api_key = ""
+
+        mock_cfg = MagicMock()
+        mock_cfg.llm_model = "claude-3-5-sonnet"
+        mock_cfg.temperature = 0.2
+        mock_cfg.api_provider = "custom"
+        mock_cfg.api_key = "sk-custom"
+        mock_cfg.auth_method = "api_key"
+        mock_cfg.api_base_url = "https://employee.example/v1"
+        mock_cfg.custom_chat_class = CHAT_CLASS_ANTHROPIC
+
+        captured = {}
+
+        def _fake_chat_anthropic(**kwargs):
+            captured.update(kwargs)
+            return MagicMock()
+
+        mock_prov = MagicMock()
+        mock_prov.chat_class = CHAT_CLASS_OPENAI
+        mock_prov.env_key = "custom_api_key"
+        mock_prov.base_url = ""
+
+        monkeypatch.setattr("onemancompany.agents.base._cfg.settings", mock_settings)
+        monkeypatch.setattr("onemancompany.agents.base.employee_configs", {"00010": mock_cfg})
+        monkeypatch.setattr(
+            "onemancompany.agents.base._cfg.normalize_llm_profile_defaults",
+            lambda profile, reason: False,
+        )
+        with patch("onemancompany.agents.base.get_provider", return_value=mock_prov), \
+             patch("langchain_anthropic.ChatAnthropic", side_effect=_fake_chat_anthropic), \
+             patch("onemancompany.agents.base.ChatOpenAI") as mock_openai:
+            llm = make_llm("00010")
+
+        assert llm is not None
+        assert captured["base_url"] == "https://employee.example/v1"
+        mock_openai.assert_not_called()
+
     def test_fallback_no_key_warning(self, monkeypatch):
         """Missing selected-provider key and fallback key still creates a deferred-failure LLM."""
         from onemancompany.agents.base import make_llm

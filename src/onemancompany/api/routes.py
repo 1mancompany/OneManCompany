@@ -323,8 +323,8 @@ async def apply_auth(body: dict) -> dict:
         api_key=body.get("api_key", ""),
         model=body.get("model", ""),
         employee_id=body.get("employee_id", ""),
-        base_url=body.get("base_url", ""),
-        chat_class=body.get("chat_class", ""),
+        base_url=body.get("base_url"),
+        chat_class=body.get("chat_class"),
     )
 
 
@@ -1454,6 +1454,8 @@ async def get_employee_detail(employee_id: str) -> dict:
     result["api_provider"] = api_provider
     result["api_key_set"] = bool(api_key)
     result["api_key_preview"] = ("..." + api_key[-4:]) if len(api_key) >= 4 else ""
+    result["api_base_url"] = cfg.api_base_url if cfg else ""
+    result["custom_chat_class"] = cfg.custom_chat_class if cfg else ""
     result["hosting"] = cfg.hosting if cfg else HostingMode.COMPANY.value
     result["auth_method"] = cfg.auth_method if cfg else "api_key"
     # Self-hosted employees manage their own auth via Claude CLI — always considered logged in

@@ -13,8 +13,8 @@ async def apply_api_key_company(
     provider: str,
     api_key: str,
     model: str = "",
-    base_url: str = "",
-    chat_class: str = "",
+    base_url: str | None = None,
+    chat_class: str | None = None,
 ) -> dict:
     """Apply an API key at the company level (Settings/.env).
 
@@ -53,9 +53,12 @@ async def apply_api_key_employee(
     employee_id: str,
     api_key: str,
     model: str = "",
+    base_url: str | None = None,
+    chat_class: str | None = None,
 ) -> dict:
     """Apply an API key at the employee level (profile.yaml)."""
     from onemancompany.api.routes import _rebuild_employee_agent
+    from onemancompany.core.config import CHAT_CLASS_ANTHROPIC, CHAT_CLASS_OPENAI
 
     update_data: dict = {
         "api_provider": provider,
@@ -64,6 +67,14 @@ async def apply_api_key_employee(
     }
     if model:
         update_data["llm_model"] = model
+    if provider == "custom":
+        valid_chat_classes = {CHAT_CLASS_OPENAI, CHAT_CLASS_ANTHROPIC}
+        if chat_class and chat_class not in valid_chat_classes:
+            return {"error": "Invalid chat_class", "code": "invalid_chat_class"}
+        if base_url is not None:
+            update_data["api_base_url"] = base_url
+        if chat_class is not None:
+            update_data["custom_chat_class"] = chat_class
 
     await _store.save_employee(employee_id, update_data)
     _rebuild_employee_agent(employee_id)

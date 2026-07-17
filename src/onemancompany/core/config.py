@@ -530,6 +530,8 @@ class EmployeeConfig(BaseModel):
     onboarding_completed: bool = False  # set True after onboarding routine
     api_provider: str = "openrouter"  # provider name from PROVIDER_REGISTRY
     api_key: str = ""  # Custom API key (used when api_provider != default)
+    api_base_url: str = ""  # Optional per-employee base URL override (primarily for custom provider)
+    custom_chat_class: str = ""  # Optional per-employee chat class override ("openai" | "anthropic")
     hosting: str = "company"  # "company" | "self" | "openclaw" — also serves as agent family selector
     auth_method: str = "api_key"  # "api_key" | "oauth" (OAuth PKCE for Anthropic)
     oauth_refresh_token: str = ""  # OAuth refresh token (long-lived)
