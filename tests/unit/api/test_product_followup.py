@@ -226,3 +226,81 @@ async def test_task_followup_falls_back_to_ea_when_product_slug_not_found(tmp_pa
 
     assert result["status"] == "ok"
     assert mock_em.schedule_node.call_args[0][0] == EA_ID
+
+
+# ---------------------------------------------------------------------------
+# Issue #1: abandon_current must cancel the running task before redirecting
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_task_followup_abandon_current_aborts_project(tmp_path):
+    """With abandon_current=True, the running task loop is cancelled via
+    abort_project BEFORE the new instructions are scheduled."""
+    from onemancompany.api.routes import task_followup
+
+    pdir = tmp_path / PROJECT_ID
+    pdir.mkdir()
+    tree = _make_tree_with_root()
+    (pdir / TASK_TREE_FILENAME).write_text("{}")
+
+    project_doc = _make_project_doc(product_id="")
+
+    mock_em = MagicMock()
+    mock_em.abort_project = MagicMock(return_value=1)
+    mock_em.schedule_node = MagicMock()
+    mock_em._schedule_next = MagicMock()
+
+    with patch("onemancompany.core.project_archive.get_project_dir", return_value=str(pdir)), \
+         patch("onemancompany.core.project_archive._resolve_and_load", return_value=("v1", project_doc, "key1")), \
+         patch("onemancompany.core.project_archive.append_action"), \
+         patch("onemancompany.core.task_tree.get_tree", return_value=tree), \
+         patch("onemancompany.core.vessel._save_project_tree"), \
+         patch("onemancompany.core.agent_loop.get_agent_loop", return_value=MagicMock()), \
+         patch("onemancompany.core.agent_loop.employee_manager", mock_em), \
+         patch("onemancompany.core.project_archive._save_resolved"), \
+         patch("onemancompany.api.routes.event_bus", AsyncMock()):
+
+        result = await task_followup(
+            PROJECT_ID, {"instructions": "Stop cloning, use the repo I cloned", "abandon_current": True}
+        )
+
+    assert result["status"] == "ok"
+    # The running loop must be cancelled for this project.
+    mock_em.abort_project.assert_called_once_with(PROJECT_ID)
+    # And the new instructions still get scheduled (to EA here).
+    assert mock_em.schedule_node.call_args[0][0] == EA_ID
+
+
+@pytest.mark.asyncio
+async def test_task_followup_without_abandon_does_not_abort(tmp_path):
+    """A normal follow-up (no abandon_current) must NOT cancel anything —
+    it stays purely additive."""
+    from onemancompany.api.routes import task_followup
+
+    pdir = tmp_path / PROJECT_ID
+    pdir.mkdir()
+    tree = _make_tree_with_root()
+    (pdir / TASK_TREE_FILENAME).write_text("{}")
+
+    project_doc = _make_project_doc(product_id="")
+
+    mock_em = MagicMock()
+    mock_em.abort_project = MagicMock(return_value=0)
+    mock_em.schedule_node = MagicMock()
+    mock_em._schedule_next = MagicMock()
+
+    with patch("onemancompany.core.project_archive.get_project_dir", return_value=str(pdir)), \
+         patch("onemancompany.core.project_archive._resolve_and_load", return_value=("v1", project_doc, "key1")), \
+         patch("onemancompany.core.project_archive.append_action"), \
+         patch("onemancompany.core.task_tree.get_tree", return_value=tree), \
+         patch("onemancompany.core.vessel._save_project_tree"), \
+         patch("onemancompany.core.agent_loop.get_agent_loop", return_value=MagicMock()), \
+         patch("onemancompany.core.agent_loop.employee_manager", mock_em), \
+         patch("onemancompany.core.project_archive._save_resolved"), \
+         patch("onemancompany.api.routes.event_bus", AsyncMock()):
+
+        result = await task_followup(PROJECT_ID, {"instructions": "Also add a README"})
+
+    assert result["status"] == "ok"
+    mock_em.abort_project.assert_not_called()

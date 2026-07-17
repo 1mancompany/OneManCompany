@@ -9858,6 +9858,10 @@ class AppController {
           <button class="pixel-btn" id="followup-btn" style="font-size:6px;padding:4px 10px;">+ Follow-up Task</button>
           <div id="followup-input-area" class="hidden" style="margin-top:6px;">
             <textarea id="followup-instructions" class="followup-textarea" placeholder="Enter follow-up instructions..." rows="3"></textarea>
+            <label style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:6px;color:#ccc;cursor:pointer;">
+              <input type="checkbox" id="followup-abandon" style="width:10px;height:10px;">
+              Abandon current task &amp; redirect (stop the running loop first)
+            </label>
             <div style="margin-top:4px;display:flex;gap:4px;">
               <button class="pixel-btn" id="followup-submit" style="font-size:6px;padding:3px 8px;">Send</button>
               <button class="pixel-btn secondary" id="followup-cancel" style="font-size:6px;padding:3px 8px;">Cancel</button>
@@ -10053,7 +10057,8 @@ class AppController {
             const textarea = document.getElementById('followup-instructions');
             const text = textarea?.value?.trim();
             if (!text) return;
-            this._submitFollowup(iterationId, text);
+            const abandonCurrent = document.getElementById('followup-abandon')?.checked || false;
+            this._submitFollowup(iterationId, text, abandonCurrent);
           });
         }
       })
@@ -10089,7 +10094,7 @@ class AppController {
       });
   }
 
-  _submitFollowup(projectId, instructions) {
+  _submitFollowup(projectId, instructions, abandonCurrent = false) {
     if (!this._checkCooldown('submitFollowup')) return;
     const submitBtn = document.getElementById('followup-submit');
     if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '⏳ Submitting...'; }
@@ -10097,7 +10102,7 @@ class AppController {
     fetch(`/api/task/${encodeURIComponent(projectId)}/followup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ instructions }),
+      body: JSON.stringify({ instructions, abandon_current: abandonCurrent }),
     })
       .then(r => r.json())
       .then(data => {
@@ -10105,7 +10110,9 @@ class AppController {
           this.logEntry('CEO', `Follow-up task failed: ${data.error}`, 'error');
           if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send'; }
         } else {
-          this.logEntry('CEO', `Follow-up instructions added, tasks routed to EA`, 'ceo');
+          this.logEntry('CEO', abandonCurrent
+            ? `Abandoned current task, redirected — tasks routed to EA`
+            : `Follow-up instructions added, tasks routed to EA`, 'ceo');
           const modal = document.getElementById('project-modal');
           if (modal) modal.classList.add('hidden');
         }

@@ -667,6 +667,13 @@ async def task_followup(project_id: str, body: dict) -> dict:
     if not instructions:
         return {"error": "Empty instructions"}
 
+    # CEO "abandon / redirect" intent: when true, cancel the currently-running
+    # task loop for this project before dispatching the new instructions.
+    # Without this, a follow-up only *queues* behind the running task (e.g. a
+    # clone-retry loop), so the old task keeps running and the new direction
+    # never takes effect until the old one finishes on its own.
+    abandon_current = bool(body.get("abandon_current") or body.get("redirect"))
+
     # Load project from filesystem (persistent, not in-memory)
     from pathlib import Path
     from onemancompany.core.project_archive import _resolve_and_load
@@ -680,6 +687,19 @@ async def task_followup(project_id: str, body: dict) -> dict:
         raise HTTPException(status_code=404, detail="Project not found")
 
     original_task = doc.get("task", "")
+
+    # Abandon/redirect: cancel the running task loop for this project up front so
+    # the new instructions dispatch immediately instead of queuing behind it.
+    # abort_project cancels the running asyncio.Task (CancelledError → CANCELLED);
+    # _run_task's finally then reschedules the employee, picking up the new node.
+    if abandon_current:
+        from onemancompany.core.agent_loop import employee_manager as _abort_mgr
+        cancelled_count = _abort_mgr.abort_project(project_id)
+        logger.info(
+            "[FOLLOWUP] abandon_current: cancelled {} task(s) for project {} before redirect",
+            cancelled_count, project_id,
+        )
+        append_action(project_id, "ceo", "abandon current task", instructions[:200])
 
     # Load task tree and collect all previous work results
     tree_path = Path(pdir) / TASK_TREE_FILENAME
@@ -716,18 +736,33 @@ async def task_followup(project_id: str, body: dict) -> dict:
                          project_id)
 
     # Build follow-up task for assignee
-    context_parts = [
-        f"CEO has added follow-up instructions to a completed task:\n",
-        f"Original task: {original_task}\n",
-    ]
-    if work_summary_lines:
-        context_parts.append(f"Previous work results:\n" + "\n".join(work_summary_lines) + "\n")
-    context_parts.append(f"CEO follow-up instructions: {instructions}\n")
-    context_parts.append(
-        f"\nBuild on the existing work — do NOT redo completed subtasks unless the CEO explicitly asks."
-        f" Use dispatch_child() if subtasks are needed.\n\n"
-        f"[Project ID: {project_id}] [Project workspace: {pdir}]"
-    )
+    if abandon_current:
+        context_parts = [
+            "CEO has ABANDONED the previous task and given a new direction.\n",
+            f"Previous task (now cancelled): {original_task}\n",
+        ]
+        if work_summary_lines:
+            context_parts.append("Work done before abandonment (reference only):\n" + "\n".join(work_summary_lines) + "\n")
+        context_parts.append(f"CEO new instructions: {instructions}\n")
+        context_parts.append(
+            "\nStop the previous approach entirely. Do NOT resume or retry the cancelled task."
+            " Proceed with the new instructions, reusing any useful prior work."
+            " Use dispatch_child() if subtasks are needed.\n\n"
+            f"[Project ID: {project_id}] [Project workspace: {pdir}]"
+        )
+    else:
+        context_parts = [
+            f"CEO has added follow-up instructions to a completed task:\n",
+            f"Original task: {original_task}\n",
+        ]
+        if work_summary_lines:
+            context_parts.append(f"Previous work results:\n" + "\n".join(work_summary_lines) + "\n")
+        context_parts.append(f"CEO follow-up instructions: {instructions}\n")
+        context_parts.append(
+            f"\nBuild on the existing work — do NOT redo completed subtasks unless the CEO explicitly asks."
+            f" Use dispatch_child() if subtasks are needed.\n\n"
+            f"[Project ID: {project_id}] [Project workspace: {pdir}]"
+        )
     followup_task = "\n".join(context_parts)
 
     # Append to existing tree (or create new if none exists)
