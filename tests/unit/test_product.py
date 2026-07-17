@@ -82,13 +82,31 @@ class TestProductCRUD:
         assert loaded["description"] == "New desc"
 
     def test_slug_dedup(self):
-        p1 = prod.create_product(name="Dupe Name", owner_id="00010")
-        p2 = prod.create_product(name="Dupe Name", owner_id="00011")
+        """find_or_create=False always mints a new product, incrementing the slug."""
+        p1 = prod.create_product(name="Dupe Name", owner_id="00010", find_or_create=False)
+        p2 = prod.create_product(name="Dupe Name", owner_id="00011", find_or_create=False)
         assert p1["slug"] == "dupe-name"
         assert p2["slug"] == "dupe-name-2"
+        assert p1["id"] != p2["id"]
         # Third should get -3
-        p3 = prod.create_product(name="Dupe Name", owner_id="00012")
+        p3 = prod.create_product(name="Dupe Name", owner_id="00012", find_or_create=False)
         assert p3["slug"] == "dupe-name-3"
+
+    def test_find_or_create_default_returns_existing(self):
+        """Default find_or_create=True returns the existing product instead of a duplicate."""
+        p1 = prod.create_product(name="Same Name", owner_id="00010")
+        p2 = prod.create_product(name="Same Name", owner_id="00011")
+        assert p1["id"] == p2["id"]
+        assert p1["slug"] == p2["slug"] == "same-name"
+        # Only one product on disk
+        assert len(prod.list_products()) == 1
+
+    def test_find_or_create_false_ignores_existing(self):
+        """find_or_create=False bypasses the existing-product lookup entirely."""
+        p1 = prod.create_product(name="Other Name", owner_id="00010")
+        p2 = prod.create_product(name="Other Name", owner_id="00011", find_or_create=False)
+        assert p1["id"] != p2["id"]
+        assert p2["slug"] == "other-name-2"
 
 
 # ---------------------------------------------------------------------------

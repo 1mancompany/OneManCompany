@@ -35,6 +35,35 @@ def _resolve_caller_id() -> str:
         return "agent"
 
 
+def _propagate_product_id_to_current_node(product_id: str) -> None:
+    """Write product_id onto the currently executing task node.
+
+    Descendant nodes then inherit it via dispatch_child's project_id/product_id
+    propagation, so a directive like "plan product X" carries the product code
+    instead of relying on the receiving agent to guess it from the name.
+    Best-effort — silently no-ops outside of an active task tree context.
+    """
+    try:
+        from onemancompany.core.vessel import _current_task_id
+        from onemancompany.core.task_tree import get_tree_lock
+        from onemancompany.agents import tree_tools
+
+        task_id = _current_task_id.get()
+        if not task_id:
+            return
+        project_dir, tree_path_str = tree_tools._find_entry_for_task(task_id)
+        if not project_dir:
+            return
+        with get_tree_lock(tree_path_str):
+            tree = tree_tools._load_tree(project_dir)
+            node = tree_tools._get_current_node(tree, task_id)
+            if node and node.product_id != product_id:
+                node.product_id = product_id
+                tree_tools._save_tree(project_dir, tree)
+    except Exception as e:
+        logger.debug("create_product_tool: could not propagate product_id to current node: {}", e)
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
@@ -46,6 +75,7 @@ async def create_product_tool(
     description: str,
     key_results: str = "",
     owner_id: str = "",
+    product_code: str = "",
 ) -> str:
     """Create a new product with optional key results.
 
@@ -54,13 +84,38 @@ async def create_product_tool(
         description: Product objective/description
         key_results: Semicolon-separated KRs, each as "title|target|unit" (e.g. "DAU达到1000|1000|users;页面加载<2s|2.0|seconds")
         owner_id: Employee ID of the product owner (optional, defaults to caller)
+        product_code: Known product ID (e.g. "prod_099301bf"). Always pass this
+            when the task context or an upstream directive already names a
+            product code — it short-circuits to that existing product instead
+            of risking a duplicate creation.
     """
     caller = _resolve_caller_id()
     oid = owner_id or caller
 
     try:
+        if product_code:
+            slug = prod.find_slug_by_product_id(product_code)
+            existing = prod.load_product(slug) if slug else None
+            if existing:
+                _propagate_product_id_to_current_node(existing["id"])
+                return (
+                    f"Product '{existing['name']}' already exists "
+                    f"(slug: {existing['slug']}, id: {existing['id']}) — using existing product."
+                )
+            logger.debug("create_product_tool: product_code {} not found, falling back to name lookup", product_code)
+
+        # find_or_create semantics: a product already at this name's canonical
+        # slug is reused rather than duplicated (see core/product.py::create_product).
+        pre_existing = prod.load_product(prod._slugify(name)) is not None
+
         product = prod.create_product(name=name, owner_id=oid, description=description)
         slug = product["slug"]
+        _propagate_product_id_to_current_node(product["id"])
+
+        if pre_existing:
+            return (
+                f"Product '{name}' already exists (slug: {slug}, id: {product['id']}) — using existing product."
+            )
 
         # Parse and add key results
         kr_count = 0
@@ -78,7 +133,7 @@ async def create_product_tool(
                     prod.add_key_result(slug, title=title, target=target, unit=unit)
                     kr_count += 1
 
-        result = f"Created product '{name}' (slug: {slug})"
+        result = f"Created product '{name}' (slug: {slug}, id: {product['id']})"
         if kr_count:
             result += f" with {kr_count} key results"
         return result

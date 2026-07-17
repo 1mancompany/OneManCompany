@@ -320,6 +320,15 @@ def _build_tree_context(tree, node, project_dir: str) -> str:
     """
     parts: list[str] = []
 
+    # Surface stable entity codes up front so the receiving agent never has to
+    # guess a project/product from its name (e.g. when re-calling create_product_tool).
+    if node.project_id:
+        parts.append(f"[Project code: {node.project_id}]")
+    if node.product_id:
+        parts.append(f"[Product code: {node.product_id}]")
+    if node.project_id or node.product_id:
+        parts.append("")
+
     # Walk up: ancestors
     ancestors: list[tuple] = []  # (node, distance)
     current = node

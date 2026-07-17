@@ -98,6 +98,45 @@ class TestDispatchChild:
         finally:
             _reset_context(tok_v, tok_t)
 
+    def test_dispatch_propagates_project_and_product_id(self):
+        """Child node inherits parent's project_id and product_id (issue #395).
+
+        Without this, a directive naming a product only by name (not code) leaves
+        the receiving agent to guess and re-call create_product_tool, minting a
+        duplicate product.
+        """
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root(project_id="proj1")
+        root_id = tree.root_id
+        root_node = tree.get_node(root_id)
+        root_node.product_id = "prod_deadbeef"
+
+        vessel = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, root_id)
+
+        mock_em = _make_mock_em(root_id)
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00100", "name": "Test"}),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "target_employee_id": "00100",
+                    "description": "plan the product",
+                    "acceptance_criteria": ["done"],
+                })
+
+            assert result["status"] == "dispatched"
+            child_node = tree.get_node(result["node_id"])
+            assert child_node.project_id == "proj1"
+            assert child_node.product_id == "prod_deadbeef"
+        finally:
+            _reset_context(tok_v, tok_t)
+
     def test_dispatch_adds_employee_to_project_team(self, tmp_path):
         """dispatch_child auto-registers the dispatched employee in project.yaml team."""
         import yaml

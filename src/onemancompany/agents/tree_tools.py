@@ -361,6 +361,7 @@ def dispatch_child(
             title=title,
         )
         child.project_id = current_node.project_id
+        child.product_id = current_node.product_id
         child.project_dir = project_dir
 
         # Propagate directive chain: inherit parent's directives + add new directive

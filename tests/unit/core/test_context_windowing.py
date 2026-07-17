@@ -78,6 +78,23 @@ class TestBuildTreeContext:
         ctx = _build_tree_context(tree, root, str(tmp_path))
         assert "Child result: API done" in ctx
 
+    def test_project_and_product_code_surfaced(self, tmp_path):
+        """Issue #395: entity codes must be visible so a directive naming a
+        product/project only by name doesn't force the receiving agent to guess."""
+        from onemancompany.core.vessel import _build_tree_context
+        tree, root, _, _, _ = self._make_tree(tmp_path)
+        root.product_id = "prod_deadbeef"
+        ctx = _build_tree_context(tree, root, str(tmp_path))
+        assert "[Project code: test]" in ctx
+        assert "[Product code: prod_deadbeef]" in ctx
+
+    def test_no_product_code_when_unset(self, tmp_path):
+        from onemancompany.core.vessel import _build_tree_context
+        tree, root, _, _, _ = self._make_tree(tmp_path)
+        ctx = _build_tree_context(tree, root, str(tmp_path))
+        assert "[Project code: test]" in ctx
+        assert "Product code" not in ctx
+
 
 # Need TaskPhase for status transitions
 from onemancompany.core.task_lifecycle import TaskPhase

@@ -376,6 +376,61 @@ class TestProductTools:
         assert "Error" in result
         assert "bad input" in result
 
+    @pytest.mark.asyncio
+    async def test_create_product_tool_repeat_call_returns_existing(self):
+        """Issue #395: a downstream agent re-running create_product_tool with the
+        same name must not mint a duplicate product/slug."""
+        from onemancompany.agents.product_tools import create_product_tool
+
+        first = await create_product_tool.ainvoke(
+            {"name": "Web Agent Safety Framework", "description": "d1"}
+        )
+        second = await create_product_tool.ainvoke(
+            {"name": "Web Agent Safety Framework", "description": "d2 (redundant call)"}
+        )
+        assert "Created product" in first
+        assert "already exists" in second
+
+        products = [p for p in prod.list_products() if p["name"] == "Web Agent Safety Framework"]
+        assert len(products) == 1
+        assert products[0]["slug"] == "web-agent-safety-framework"
+
+    @pytest.mark.asyncio
+    async def test_create_product_tool_product_code_short_circuits(self):
+        """Passing a known product_code looks up the existing product without creating."""
+        from onemancompany.agents.product_tools import create_product_tool
+
+        created = prod.create_product(name="Coded Product", owner_id="00004")
+
+        result = await create_product_tool.ainvoke(
+            {
+                "name": "Some Other Name The Agent Guessed",
+                "description": "d",
+                "product_code": created["id"],
+            }
+        )
+        assert "already exists" in result
+        assert created["id"] in result
+
+        products = prod.list_products()
+        assert len(products) == 2  # fixture's ToolTest + Coded Product only, no new one
+        assert not any(p["name"] == "Some Other Name The Agent Guessed" for p in products)
+
+    @pytest.mark.asyncio
+    async def test_create_product_tool_unknown_product_code_falls_back(self):
+        """An unresolvable product_code falls back to name-based find-or-create."""
+        from onemancompany.agents.product_tools import create_product_tool
+
+        result = await create_product_tool.ainvoke(
+            {
+                "name": "Fallback Product",
+                "description": "d",
+                "product_code": "prod_doesnotexist",
+            }
+        )
+        assert "Created product" in result
+        assert prod.load_product("fallback-product") is not None
+
     # ------------------------------------------------------------------
     # create_product_issue error paths (lines 111, 124-125)
     # ------------------------------------------------------------------

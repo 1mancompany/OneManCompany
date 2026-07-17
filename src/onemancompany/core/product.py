@@ -122,28 +122,46 @@ def create_product(
     description: str = "",
     status: ProductStatus = ProductStatus.PLANNING,
     current_version: str = "0.1.0",
+    find_or_create: bool = True,
 ) -> dict:
-    """Create a new product. Returns the product dict."""
-    _validate_employee_id(owner_id, label="Owner")
-    slug = _dedup_slug(_slugify(name))
-    product_id = _gen_id("prod_")
-    now = datetime.now().isoformat()
+    """Create a new product. Returns the product dict.
 
-    data = {
-        "id": product_id,
-        "name": name,
-        "slug": slug,
-        "owner_id": owner_id,
-        "description": description,
-        "status": status,
-        "current_version": current_version,
-        "key_results": [],
-        "workspace_initialized": False,
-        "created_at": now,
-        "updated_at": now,
-    }
+    find_or_create: when True (default), a product already existing at the
+    canonical slug for `name` is returned as-is instead of minting a
+    duplicate. Pass find_or_create=False to always create a new product,
+    auto-incrementing the slug on conflict (-2, -3, ...).
+    """
+    _validate_employee_id(owner_id, label="Owner")
+    base_slug = _slugify(name)
+    slug = base_slug if find_or_create else _dedup_slug(base_slug)
 
     with _get_slug_lock(slug):
+        if find_or_create:
+            existing = load_product(slug)
+            if existing:
+                logger.debug(
+                    "create_product: found existing product {} (slug={}), skipping create",
+                    existing.get("id"), slug,
+                )
+                return existing
+
+        product_id = _gen_id("prod_")
+        now = datetime.now().isoformat()
+
+        data = {
+            "id": product_id,
+            "name": name,
+            "slug": slug,
+            "owner_id": owner_id,
+            "description": description,
+            "status": status,
+            "current_version": current_version,
+            "key_results": [],
+            "workspace_initialized": False,
+            "created_at": now,
+            "updated_at": now,
+        }
+
         path = _product_yaml_path(slug)
         path.parent.mkdir(parents=True, exist_ok=True)
         _write_yaml(path, data)
@@ -1133,6 +1151,7 @@ def import_product(bundle: dict, owner_id: str = "", auto_activate: bool = True)
         owner_id=owner_id,
         description=product_data.get("description", ""),
         status=status,
+        find_or_create=False,
     )
     slug = product["slug"]
 
