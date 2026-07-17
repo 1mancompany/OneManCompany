@@ -184,6 +184,40 @@ async def test_clear_current_agent_oneonone_history(client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_clear_ea_chat_history_persists(client, tmp_path):
+    """Regression: CEO console /clear must wipe ea_chat history on disk.
+
+    Previously /clear only touched the frontend view and the clear endpoint
+    rejected ea_chat, so a page refresh (disk-sourced) resurrected the history.
+    """
+    resp = await client.post("/api/conversation/create", json={
+        "type": "ea_chat",
+        "employee_id": "00004",
+        "tools_enabled": True,
+    })
+    assert resp.status_code == 200
+    conv_id = resp.json()["id"]
+
+    # Seed on-disk history (what the CEO wants cleared).
+    msg_path = tmp_path / "employees" / "00004" / "conversations" / conv_id / "messages.yaml"
+    msg_path.parent.mkdir(parents=True, exist_ok=True)
+    msg_path.write_text(yaml.dump([
+        {"sender": "ceo", "role": "CEO", "text": "old chat", "timestamp": "2026-03-19T00:00:00+00:00", "attachments": []},
+    ], allow_unicode=True), encoding="utf-8")
+
+    # Clear now accepts ea_chat and wipes disk.
+    resp = await client.post(f"/api/conversation/{conv_id}/clear")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "cleared"
+
+    # Disk is empty → a refresh (which reads messages from disk) sees nothing.
+    assert yaml.safe_load(msg_path.read_text(encoding="utf-8")) == []
+    resp = await client.get(f"/api/conversation/{conv_id}/messages")
+    assert resp.status_code == 200
+    assert resp.json().get("messages", []) == []
+
+
+@pytest.mark.asyncio
 async def test_create_invalid_type(client):
     resp = await client.post("/api/conversation/create", json={
         "type": "invalid", "employee_id": "00100",
