@@ -288,10 +288,12 @@ class AppController {
           text: p.text || p.message,
           source: p.source_employee || 'system',
         });
-      // Route to terminal — 1-on-1 or EA chat path
-      } else if (this._currentConvId === p.conv_id && this._ceoTerm && (this._currentConvType === 'oneonone' || this._currentConvType === 'ea_chat')) {
+      // Route to terminal — 1-on-1, EA chat, or product planning path
+      } else if (this._currentConvId === p.conv_id && this._ceoTerm && (this._currentConvType === 'oneonone' || this._currentConvType === 'ea_chat' || this._currentConvType === 'product')) {
         if (p.sender !== 'ceo' && p.text != null) {
-          const source = this._currentConvType === 'ea_chat'
+          // Product planning conversations are with the EA — label them
+          // the same as ea_chat. 1-on-1s show the employee's nickname.
+          const source = (this._currentConvType === 'ea_chat' || this._currentConvType === 'product')
             ? '玲珑阁 (EA)'
             : this._resolveEmployeeNickname(p.employee_id || this._currentConvEmployeeId || '');
           this._ceoTerm.appendMessage({
@@ -569,6 +571,38 @@ class AppController {
         return null;  // don't spam the activity log
       },
       'activity':            (p) => ({ text: p.message || '', cls: 'system', agent: 'SYSTEM' }),
+      'acp_update': (p) => {
+        const { kind, employee_id, data } = p;
+        switch (kind) {
+          case 'message':
+            console.debug('[ACP] message from', employee_id, data?.content?.substring?.(0, 100));
+            break;
+          case 'thought':
+            console.debug('[ACP] thought from', employee_id);
+            break;
+          case 'tool_call_start':
+            console.debug('[ACP] tool call:', data?.name, 'from', employee_id);
+            break;
+          case 'tool_call_progress':
+            console.debug('[ACP] tool progress from', employee_id);
+            break;
+          case 'plan':
+            console.debug('[ACP] plan update from', employee_id, data?.entries?.length, 'steps');
+            break;
+          case 'usage':
+            console.debug('[ACP] usage from', employee_id, data);
+            break;
+          case 'commands':
+            console.debug('[ACP] commands from', employee_id);
+            break;
+          case 'mode':
+            console.debug('[ACP] mode change:', data?.mode_id, 'for', employee_id);
+            break;
+          default:
+            console.debug('[ACP] unknown kind:', kind, 'from', employee_id);
+        }
+        return null; // no activity log entry
+      },
     };
 
     const formatter = formatters[msg.type];
@@ -1936,17 +1970,25 @@ class AppController {
     xterm.writeln(`${ANSI.gray}Loading trace...${ANSI.reset}`);
 
     fetch(`/api/projects/${projectId}/tree`)
-      .then(r => r.json())
+      .then(async r => {
+        if (!r.ok) {
+          // 404 = no task tree yet (e.g. a product in planning has no project tree)
+          throw new Error(r.status === 404
+            ? 'No execution trace (task tree) for this project yet.'
+            : `Failed to load trace (HTTP ${r.status})`);
+        }
+        return r.json();
+      })
       .then(async data => {
         const nodes = {};
-        for (const n of data.nodes) nodes[n.id] = n;
+        for (const n of (data.nodes || [])) nodes[n.id] = n;
         await traceLoadAllNodeLogs(nodes);
         xterm.clear();
         xterm.renderTraceFeed(nodes, data.root_id);
         metaEl.textContent = `${Object.keys(nodes).length} nodes`;
       })
       .catch(e => {
-        xterm.writeln(`${ANSI.red}Error: ${e.message}${ANSI.reset}`);
+        xterm.writeln(`${ANSI.red}${e.message}${ANSI.reset}`);
       });
   }
 
@@ -2265,12 +2307,14 @@ class AppController {
     this._inputHistoryIdx = this._inputHistory.length;
     const doSend = async () => {
       const text = (input?.value || '').trim();
-      if (!text) return;
+      const hasPendingFiles = (this._ceoPendingFiles || []).length > 0;
+      if (!text && !hasPendingFiles) return;
 
       // Show typing indicator while waiting for agent response
       this._showCeoTyping();
 
-      // Execute slash command if input starts with /command
+      // Execute slash command if input starts with /command (slash actions
+      // pick up pending files via _attachPendingFilesToFormData when needed).
       if (text.startsWith('/')) {
         const cmdText = text.split(' ')[0].toLowerCase();
         const argText = text.slice(cmdText.length).trim();
@@ -2284,8 +2328,8 @@ class AppController {
         }
       }
 
-      // Save to input history
-      if (!this._inputHistory.length || this._inputHistory[this._inputHistory.length - 1] !== text) {
+      // Save to input history (only when there is actual text)
+      if (text && (!this._inputHistory.length || this._inputHistory[this._inputHistory.length - 1] !== text)) {
         this._inputHistory.push(text);
         if (this._inputHistory.length > 100) this._inputHistory.shift();
         localStorage.setItem('ceo-input-history', JSON.stringify(this._inputHistory));
@@ -2293,8 +2337,20 @@ class AppController {
       this._inputHistoryIdx = this._inputHistory.length;
       input.value = '';
 
+      // Snapshot pending files for this send (display chip + dispatch)
+      const pendingFiles = this._ceoPendingFiles || [];
+      const fileNames = pendingFiles.map(f => f.name);
+
       // Show CEO message immediately in terminal
-      this._ceoTerm?.appendCeoMessage(text);
+      const displayText = text || '(attachment)';
+      this._ceoTerm?.appendCeoMessage(displayText);
+      if (fileNames.length) {
+        this._ceoTerm?.appendMessage({
+          role: 'system',
+          text: `\u{1F4CE} ${fileNames.join(', ')}`,
+          source: 'upload',
+        });
+      }
 
       // /iter mode: create new iteration on pending project
       if (this._pendingIterProject) {
@@ -2308,6 +2364,7 @@ class AppController {
           formData.append('mode', 'standard');
           const productId = document.getElementById('ceo-product-select')?.value || '';
           if (productId) formData.append('product_id', productId);
+          this._attachPendingFilesToFormData(formData);
           await fetch('/api/ceo/task', { method: 'POST', body: formData });
           await this._refreshCeoProjectList();
           this._ceoTerm?.appendMessage({ role: 'system', text: 'New iteration created.', source: 'system' });
@@ -2316,7 +2373,7 @@ class AppController {
         return;
       }
 
-      // Meeting mode: send via meeting/chat API
+      // Meeting mode: send via meeting/chat API (no attachment support yet)
       if (this._currentConvType === 'meeting') {
         try {
           const res = await fetch('/api/meeting/chat', {
@@ -2343,13 +2400,19 @@ class AppController {
         return;
       }
 
-      // 1-on-1 conversation mode: send via conversation API
-      if (this._currentConvType === 'oneonone' && this._currentConvId) {
+      // 1-on-1 / product planning mode: send via conversation API.
+      // Product planning shares the conversation transport; without this
+      // a CEO reply falls through to the task-creation fallback below.
+      if ((this._currentConvType === 'oneonone' || this._currentConvType === 'product') && this._currentConvId) {
         try {
+          const uploaded = await this._uploadCeoPendingFiles();
           await fetch(`/api/conversation/${this._currentConvId}/message`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ text }),
+            body: JSON.stringify({
+              text: text || '(attachment)',
+              attachments: uploaded.map(a => a.path),
+            }),
           });
         } catch (e) { console.error('Failed to send 1-on-1 message:', e); }
         input?.focus();
@@ -2359,10 +2422,14 @@ class AppController {
       if (this._currentCeoProject === this._EA_CHAT && this._eaChatConvId) {
         // EA Chat: send as conversation message — EA decides whether to create project
         try {
+          const uploaded = await this._uploadCeoPendingFiles();
           await fetch(`/api/conversation/${this._eaChatConvId}/message`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ text }),
+            body: JSON.stringify({
+              text: text || '(attachment)',
+              attachments: uploaded.map(a => a.path),
+            }),
           });
           // EA response arrives via WebSocket conversation_message event
         } catch (e) { console.error('Failed to send EA chat message:', e); }
@@ -2376,15 +2443,21 @@ class AppController {
           formData.append('mode', mode);
           const productId2 = document.getElementById('ceo-product-select')?.value || '';
           if (productId2) formData.append('product_id', productId2);
+          this._attachPendingFilesToFormData(formData);
           await fetch('/api/ceo/task', { method: 'POST', body: formData });
           await this._refreshCeoProjectList();
         } catch (e) { console.error('Failed to submit task:', e); }
       } else {
         try {
+          const projectId = this._currentCeoProject.split('/')[0];
+          const uploaded = await this._uploadCeoPendingFiles(projectId);
           await fetch(`/api/ceo/sessions/${encodeURIComponent(this._currentCeoProject)}/message`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({text}),
+            body: JSON.stringify({
+              text: text || '(attachment)',
+              attachments: uploaded.map(a => a.path),
+            }),
           });
           await this._refreshCeoProjectList();
         } catch (e) { console.error('Failed to send:', e); }
@@ -2471,16 +2544,12 @@ class AppController {
       this._handleMentionInput(input);
     });
 
-    // File upload
+    // File upload — files queue locally and dispatch with the next message
+    this._ceoPendingFiles = this._ceoPendingFiles || [];
     const fileInput = document.getElementById('ceo-file-input');
     fileInput?.addEventListener('change', () => {
       if (!fileInput.files?.length) return;
-      const names = Array.from(fileInput.files).map(f => f.name).join(', ');
-      this._ceoTerm?.appendMessage({
-        role: 'system', text: `Attached: ${names}`, source: 'upload',
-      });
-      // Store files for next send
-      this._pendingFiles = Array.from(fileInput.files);
+      this._handleCeoFileSelect(fileInput.files);
       fileInput.value = '';
     });
 
@@ -2574,6 +2643,7 @@ class AppController {
           const formData = new FormData();
           formData.append('task', arg);
           formData.append('mode', 'standard');
+          this._attachPendingFilesToFormData(formData);
           fetch('/api/ceo/task', { method: 'POST', body: formData })
             .then(() => { this._refreshCeoProjectList(); this._ceoTerm?.appendMessage({ role: 'system', text: '✓ Project created', source: 'system' }); })
             .catch(e => { this._ceoTerm?.appendMessage({ role: 'system', text: `✗ Failed: ${e.message}`, source: 'system' }); });
@@ -2595,6 +2665,7 @@ class AppController {
           formData.append('task', arg);
           formData.append('project_id', pid.split('/')[0]);
           formData.append('mode', 'standard');
+          this._attachPendingFilesToFormData(formData);
           fetch('/api/ceo/task', { method: 'POST', body: formData })
             .then(() => { this._refreshCeoProjectList(); this._ceoTerm?.appendMessage({ role: 'system', text: '✓ New iteration created', source: 'system' }); })
             .catch(e => { this._ceoTerm?.appendMessage({ role: 'system', text: `✗ Failed: ${e.message}`, source: 'system' }); });
@@ -2622,6 +2693,7 @@ class AppController {
           const formData = new FormData();
           formData.append('task', arg);
           formData.append('mode', 'simple');
+          this._attachPendingFilesToFormData(formData);
           fetch('/api/ceo/task', { method: 'POST', body: formData })
             .then(() => { this._refreshCeoProjectList(); this._ceoTerm?.appendMessage({ role: 'system', text: '✓ Simple task created', source: 'system' }); })
             .catch(e => { this._ceoTerm?.appendMessage({ role: 'system', text: `✗ Failed: ${e.message}`, source: 'system' }); });
@@ -2668,7 +2740,6 @@ class AppController {
       { cmd: '/discuss', desc: 'Start discussion meeting (open floor)', action: async (arg) => {
         await this._startMeetingInConsole('discussion', arg);
       }},
-      { cmd: '/attach', desc: 'Attach file or image', action: () => document.getElementById('ceo-file-input')?.click() },
       { cmd: '/clear', desc: 'Clear EA chat history', action: async () => {
         if (this._currentCeoProject !== this._EA_CHAT) {
           this._ceoTerm?.appendMessage({ role: 'system', text: '/clear only works in EA chat.', source: 'system' });
@@ -6525,6 +6596,97 @@ class AppController {
     this._oneononePendingFiles = [];
     this._updateOneononePreviewBar();
     return uploaded;
+  }
+
+  // ===== CEO Console File Upload (queued, dispatched with the next message) =====
+  _handleCeoFileSelect(files) {
+    if (!this._ceoPendingFiles) this._ceoPendingFiles = [];
+    for (const file of files) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        let type = 'file';
+        if (file.type.startsWith('image/')) type = 'image';
+        else if (file.type.startsWith('video/')) type = 'video';
+        this._ceoPendingFiles.push({
+          name: file.name,
+          type,
+          dataUrl: e.target.result,
+          file,
+        });
+        this._updateCeoPreviewBar();
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  _updateCeoPreviewBar() {
+    const bar = document.getElementById('ceo-preview-bar');
+    if (!bar) return;
+    if (!this._ceoPendingFiles || !this._ceoPendingFiles.length) {
+      bar.classList.add('hidden');
+      bar.innerHTML = '';
+      return;
+    }
+    bar.classList.remove('hidden');
+    bar.innerHTML = '';
+    this._ceoPendingFiles.forEach((f, idx) => {
+      const item = document.createElement('div');
+      item.className = 'chat-preview-item';
+      if (f.type === 'image') {
+        item.innerHTML = `<img class="chat-preview-thumb" src="${f.dataUrl}" alt="${this._escapeHtml(f.name)}" />`;
+      } else if (f.type === 'video') {
+        item.innerHTML = `<div class="chat-preview-file">\u{1F3AC}<br>${this._escapeHtml(f.name.substring(0, 12))}</div>`;
+      } else {
+        item.innerHTML = `<div class="chat-preview-file">\u{1F4C4}<br>${this._escapeHtml(f.name.substring(0, 12))}</div>`;
+      }
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'chat-preview-remove';
+      removeBtn.textContent = '×';
+      removeBtn.title = `Remove ${f.name}`;
+      removeBtn.onclick = () => {
+        this._ceoPendingFiles.splice(idx, 1);
+        this._updateCeoPreviewBar();
+      };
+      item.appendChild(removeBtn);
+      bar.appendChild(item);
+    });
+  }
+
+  async _uploadCeoPendingFiles(projectId = '') {
+    if (!this._ceoPendingFiles || !this._ceoPendingFiles.length) return [];
+    const uploaded = [];
+    const url = projectId
+      ? `/api/upload?project_id=${encodeURIComponent(projectId)}`
+      : '/api/upload';
+    for (const f of this._ceoPendingFiles) {
+      const formData = new FormData();
+      formData.append('file', f.file, f.name);
+      try {
+        const resp = await fetch(url, { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (data.path) {
+          uploaded.push({
+            path: data.path,
+            filename: data.filename || f.name,
+            content_type: data.content_type || '',
+          });
+        }
+      } catch (err) {
+        console.error('CEO upload failed:', err);
+      }
+    }
+    this._ceoPendingFiles = [];
+    this._updateCeoPreviewBar();
+    return uploaded;
+  }
+
+  _attachPendingFilesToFormData(formData) {
+    if (!this._ceoPendingFiles || !this._ceoPendingFiles.length) return;
+    for (const f of this._ceoPendingFiles) {
+      formData.append('files', f.file, f.name);
+    }
+    this._ceoPendingFiles = [];
+    this._updateCeoPreviewBar();
   }
 
   // ===== Tool Detail — Dynamic Section Renderer Framework =====

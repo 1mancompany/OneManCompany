@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import re
 import shutil
 import uuid as _uuid
@@ -134,6 +135,11 @@ def _save_file_deduped(upload_dir: Path, filename: str, content: bytes) -> Path:
             counter += 1
     dest.write_bytes(content)
     return dest
+
+
+from onemancompany.core.attachments import (
+    build_attachment_prompt as _build_attachment_prompt,
+)
 
 
 def _get_employee_manager():
@@ -572,10 +578,7 @@ async def ceo_submit_task(
     ctx_id = f"{pid}/{iter_id}" if iter_id else pid
 
     # Build attachment info string for EA
-    attach_info = ""
-    if attachments:
-        lines = [f"- Attachment: {a['filename']} (saved at {a['path']})" for a in attachments]
-        attach_info = "\n\nCEO attached the following files:\n" + "\n".join(lines)
+    attach_info = _build_attachment_prompt(attachments)
 
     loop = get_agent_loop(EA_ID)
     if loop:
@@ -736,6 +739,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
                          project_id)
 
     # Build follow-up task for assignee
+    attach_info = _build_attachment_prompt(body.get("attachments") or [])
     if abandon_current:
         context_parts = [
             "CEO has ABANDONED the previous task and given a new direction.\n",
@@ -744,6 +748,8 @@ async def task_followup(project_id: str, body: dict) -> dict:
         if work_summary_lines:
             context_parts.append("Work done before abandonment (reference only):\n" + "\n".join(work_summary_lines) + "\n")
         context_parts.append(f"CEO new instructions: {instructions}\n")
+        if attach_info:
+            context_parts.append(attach_info.lstrip("\n") + "\n")
         context_parts.append(
             "\nStop the previous approach entirely. Do NOT resume or retry the cancelled task."
             " Proceed with the new instructions, reusing any useful prior work."
@@ -758,6 +764,8 @@ async def task_followup(project_id: str, body: dict) -> dict:
         if work_summary_lines:
             context_parts.append(f"Previous work results:\n" + "\n".join(work_summary_lines) + "\n")
         context_parts.append(f"CEO follow-up instructions: {instructions}\n")
+        if attach_info:
+            context_parts.append(attach_info.lstrip("\n") + "\n")
         context_parts.append(
             f"\nBuild on the existing work — do NOT redo completed subtasks unless the CEO explicitly asks."
             f" Use dispatch_child() if subtasks are needed.\n\n"
@@ -868,10 +876,7 @@ async def oneonone_chat(body: dict) -> dict:
         return {"error": f"Employee '{employee_id}' not found"}
 
     # Build attachment info string for prompt injection
-    attach_info = ""
-    if attachments:
-        lines = [f"- Attachment: {a.get('filename', 'file')} (saved at {a.get('path', '')})" for a in attachments]
-        attach_info = "\n\nCEO attached the following files:\n" + "\n".join(lines)
+    attach_info = _build_attachment_prompt(attachments)
 
     # On first message (empty history), mark employee as in meeting
     if not history and emp_data:
@@ -943,7 +948,7 @@ async def oneonone_chat(body: dict) -> dict:
                 messages.append(HumanMessage(content=entry["content"]))
             elif entry.get("role") == "employee":
                 messages.append(AIMessage(content=entry["content"]))
-        messages.append(HumanMessage(content=message))
+        messages.append(HumanMessage(content=message + attach_info))
 
         llm = make_llm(employee_id)
         result = await _llm_invoke_with_retry(llm, messages, category="oneonone", employee_id=employee_id)
@@ -3554,6 +3559,17 @@ async def get_avatar(employee_id: str):
 async def get_employee_projects(employee_id: str) -> list[dict]:
     """Get list of projects an employee participated in."""
     return _scan_employee_projects(employee_id)
+
+
+@router.get("/api/employees/{employee_id}/acp-endpoint")
+async def get_acp_endpoint(employee_id: str):
+    """Return the HTTP port for IDE direct connection to this employee's ACP agent."""
+    mgr = _get_employee_manager()
+    if mgr._acp_manager:
+        port = mgr._acp_manager.get_ide_endpoint(employee_id)
+        if port:
+            return {"port": port, "transport": "streamable-http"}
+    return {"error": "No ACP endpoint available", "port": None}
 
 
 @router.get("/api/employees/{employee_id}/projects/{project_id}/retrospective")
@@ -6399,13 +6415,17 @@ async def send_ceo_session_message(project_id: str, body: dict):
 
     # Persist CEO message (masked for credential requests)
     display_text = result.get("display_text", text)
-    await service.send_message(conv.id, "ceo", "CEO", display_text, mentions=mentions)
+    await service.send_message(
+        conv.id, "ceo", "CEO", display_text,
+        mentions=mentions, attachments=body.get("attachments") or [],
+    )
 
     if result["type"] == "followup":
         # Dispatch as a CEO_FOLLOWUP via the existing task_followup logic.
         try:
             followup_result = await task_followup(
-                project_id, {"instructions": text}
+                project_id,
+                {"instructions": text, "attachments": body.get("attachments") or []},
             )
             result["followup"] = followup_result
             result["message"] = "Follow-up instruction dispatched"
@@ -7478,6 +7498,33 @@ async def api_start_product_planning(slug: str) -> dict:
         product_slug=slug,
         product_id=product["id"],
     )
+
+    # Kickoff: persist a synthetic system message and dispatch to the EA adapter
+    # so the agent posts an opening message and can begin creating KRs/issues.
+    # Use SYSTEM_SENDER so the UI doesn't render this as the CEO speaking — the
+    # prompt builder uses `role` only as a label, so EA still gets a coherent prompt.
+    kickoff_text = f"开始为产品「{product['name']}」做规划。请先帮我梳理目标和关键结果。"
+    try:
+        kickoff_msg = await conversation_service.send_message(
+            conv.id, sender=SYSTEM_SENDER, role="System", text=kickoff_text,
+        )
+        task = asyncio.create_task(_dispatch_conversation_to_adapter(conv.id, kickoff_msg))
+        _active_adapter_tasks.add(task)
+        _active_adapter_by_conv[conv.id] = task
+        def _cleanup(t, _cid=conv.id):
+            _active_adapter_tasks.discard(t)
+            _active_adapter_by_conv.pop(_cid, None)
+        task.add_done_callback(_cleanup)
+    except Exception:
+        logger.exception("[product_planning] failed to kick off EA for product {}", slug)
+        try:
+            await conversation_service.send_message(
+                conv.id, sender=SYSTEM_SENDER, role="System",
+                text="(Failed to start the planning agent. Please send a message to retry.)",
+            )
+        except Exception:
+            logger.exception("[product_planning] failed to send kickoff-failure notice for {}", conv.id)
+
     return {"conversation_id": conv.id, "existing": False}
 
 
