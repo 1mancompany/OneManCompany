@@ -325,11 +325,10 @@ def _build_tree_context(tree, node, project_dir: str) -> str:
     if node.project_id:
         parts.append(f"[Project code: {node.project_id}]")
     if node.product_id:
-        from onemancompany.core.product import find_slug_by_product_id, load_product
-        _pslug = find_slug_by_product_id(node.product_id)
-        _prod = load_product(_pslug) if _pslug else None
-        _pname = f" — {_prod['name']}" if _prod else ""
-        parts.append(f"[Product code: {node.product_id}{_pname}]")
+        # Code only — no name lookup. Resolving the name from an id means a full
+        # list_products() disk scan on every dispatch, and the code is all the
+        # agent needs (the product's name is already in the directive).
+        parts.append(f"[Product code: {node.product_id}]")
         parts.append("This product already exists. Do NOT call create_product_tool to "
                      "re-create it; pass product_code to link, or use its slug directly.")
     if node.project_id or node.product_id:
