@@ -1,0 +1,29 @@
+name: Auto-assign owner
+
+on:
+  pull_request:
+    types: [opened]
+  issues:
+    types: [opened]
+
+jobs:
+  assign-owner:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    env:
+      OWNER: zhengxuyu
+    steps:
+      - name: Assign repo owner
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber =
+              context.payload.pull_request?.number ?? context.payload.issue?.number;
+            await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              assignees: [process.env.OWNER],
+            });
