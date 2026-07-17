@@ -572,6 +572,7 @@ class ClaudeSessionExecutor(Launcher):
             prompt=task_description,
             work_dir=context.work_dir,
             task_id=context.task_id,
+            on_log=on_log,
         )
         output = result.get("output", "")
         error: str | None = None
