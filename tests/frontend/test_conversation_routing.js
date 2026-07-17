@@ -72,8 +72,40 @@ assert(
   "messages for a different conv_id do NOT route to the terminal",
 );
 assert(
-  shouldRouteToTerminal("c-1", "ceo_inbox", "c-1") === true ? false : true,
+  shouldRouteToTerminal("c-1", "ceo_inbox", "c-1") === false,
   "ceo_inbox conversations do NOT route to terminal (they use chatPanel)",
+);
+
+// ── Send-path invariant ───────────────────────────────────────────────────
+// Rendering the EA's reply is only half the flow: the CEO must be able to
+// reply back. The send handler routes to the conversation API only for
+// 'oneonone' / 'product'; without 'product' a reply falls through to the
+// task-creation fallback and silently spawns a spurious task.
+const sendFilterPattern =
+  /this\._currentConvType\s*===\s*'oneonone'\s*\|\|\s*this\._currentConvType\s*===\s*'product'/;
+assert(
+  sendFilterPattern.test(appJsSrc),
+  "send handler routes 'product' replies through the conversation API",
+);
+
+// Behavioral mirror of the send predicate.
+function shouldSendViaConversationApi(currentConvType, currentConvId) {
+  return (
+    (currentConvType === "oneonone" || currentConvType === "product") &&
+    Boolean(currentConvId)
+  );
+}
+assert(
+  shouldSendViaConversationApi("product", "c-1") === true,
+  "product planning replies are sent via the conversation API",
+);
+assert(
+  shouldSendViaConversationApi("oneonone", "c-1") === true,
+  "1-on-1 replies are still sent via the conversation API",
+);
+assert(
+  shouldSendViaConversationApi("product", null) === false,
+  "no send when there is no active conversation id",
 );
 
 if (failures) {

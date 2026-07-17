@@ -2392,8 +2392,10 @@ class AppController {
         return;
       }
 
-      // 1-on-1 conversation mode: send via conversation API
-      if (this._currentConvType === 'oneonone' && this._currentConvId) {
+      // 1-on-1 / product planning mode: send via conversation API.
+      // Product planning shares the conversation transport; without this
+      // a CEO reply falls through to the task-creation fallback below.
+      if ((this._currentConvType === 'oneonone' || this._currentConvType === 'product') && this._currentConvId) {
         try {
           const uploaded = await this._uploadCeoPendingFiles();
           await fetch(`/api/conversation/${this._currentConvId}/message`, {
