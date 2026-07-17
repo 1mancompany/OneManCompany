@@ -288,10 +288,12 @@ class AppController {
           text: p.text || p.message,
           source: p.source_employee || 'system',
         });
-      // Route to terminal — 1-on-1 or EA chat path
-      } else if (this._currentConvId === p.conv_id && this._ceoTerm && (this._currentConvType === 'oneonone' || this._currentConvType === 'ea_chat')) {
+      // Route to terminal — 1-on-1, EA chat, or product planning path
+      } else if (this._currentConvId === p.conv_id && this._ceoTerm && (this._currentConvType === 'oneonone' || this._currentConvType === 'ea_chat' || this._currentConvType === 'product')) {
         if (p.sender !== 'ceo' && p.text != null) {
-          const source = this._currentConvType === 'ea_chat'
+          // Product planning conversations are with the EA — label them
+          // the same as ea_chat. 1-on-1s show the employee's nickname.
+          const source = (this._currentConvType === 'ea_chat' || this._currentConvType === 'product')
             ? '玲珑阁 (EA)'
             : this._resolveEmployeeNickname(p.employee_id || this._currentConvEmployeeId || '');
           this._ceoTerm.appendMessage({
@@ -2398,8 +2400,10 @@ class AppController {
         return;
       }
 
-      // 1-on-1 conversation mode: send via conversation API
-      if (this._currentConvType === 'oneonone' && this._currentConvId) {
+      // 1-on-1 / product planning mode: send via conversation API.
+      // Product planning shares the conversation transport; without this
+      // a CEO reply falls through to the task-creation fallback below.
+      if ((this._currentConvType === 'oneonone' || this._currentConvType === 'product') && this._currentConvId) {
         try {
           const uploaded = await this._uploadCeoPendingFiles();
           await fetch(`/api/conversation/${this._currentConvId}/message`, {
