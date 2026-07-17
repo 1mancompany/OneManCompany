@@ -107,6 +107,35 @@ def _get_current_node(tree: TaskTree, task_id: str):
     return tree.get_node(task_id)
 
 
+def set_current_node_product_id(product_id: str) -> bool:
+    """Stamp the currently-executing task node with a linked product_id and persist.
+
+    Called after an agent creates/links a product so descendant nodes inherit it
+    via dispatch_child (regression guard for #395). Returns False when there is no
+    tree context (e.g. system/adhoc tasks) so callers can no-op gracefully.
+    """
+    from onemancompany.core.vessel import _current_vessel, _current_task_id
+    from onemancompany.core.task_tree import get_tree_lock
+
+    vessel = _current_vessel.get()
+    task_id = _current_task_id.get()
+    if not vessel or not task_id:
+        return False
+    project_dir, tree_path_str = _find_entry_for_task(task_id)
+    if not project_dir or not tree_path_str:
+        return False
+    with get_tree_lock(tree_path_str):
+        tree = _load_tree(project_dir)
+        node = _get_current_node(tree, task_id)
+        if not node:
+            return False
+        if node.product_id == product_id:
+            return True  # already linked, nothing to persist
+        node.product_id = product_id
+        _save_tree(project_dir, tree)
+    return True
+
+
 def _create_standalone_ceo_request(
     description: str,
     requester_task_id: str,
@@ -361,6 +390,7 @@ def dispatch_child(
             title=title,
         )
         child.project_id = current_node.project_id
+        child.product_id = current_node.product_id  # inherit linked product (#395)
         child.project_dir = project_dir
 
         # Propagate directive chain: inherit parent's directives + add new directive

@@ -376,6 +376,56 @@ class TestProductTools:
         assert "Error" in result
         assert "bad input" in result
 
+    @pytest.mark.asyncio
+    async def test_create_product_tool_same_name_links_not_dupes(self):
+        """Regression #395: a second create_product_tool with the same name links to
+        the existing product instead of minting a duplicate."""
+        from onemancompany.agents.product_tools import create_product_tool
+
+        r1 = await create_product_tool.ainvoke(
+            {"name": "Web Agent Safety Framework", "description": "framework", "owner_id": "00004"}
+        )
+        assert "Created product" in r1
+        r2 = await create_product_tool.ainvoke(
+            {"name": "Web Agent Safety Framework", "description": "again", "owner_id": "00010"}
+        )
+        assert "already exists" in r2
+        assert "linked" in r2.lower()
+        # Only one product; no -2 slug
+        slugs = {p["slug"] for p in prod.list_products()}
+        assert "web-agent-safety-framework" in slugs
+        assert "web-agent-safety-framework-2" not in slugs
+        # Owner preserved from the first creation
+        p = prod.load_product("web-agent-safety-framework")
+        assert p["owner_id"] == "00004"
+
+    @pytest.mark.asyncio
+    async def test_create_product_tool_links_by_code(self):
+        """product_code links to an existing product without creating anything."""
+        from onemancompany.agents.product_tools import create_product_tool
+
+        existing = prod.create_product(name="Coded Product", owner_id="00004")
+        before = len(prod.list_products())
+        result = await create_product_tool.ainvoke(
+            {"name": "irrelevant", "description": "d", "product_code": existing["id"]}
+        )
+        assert "Linked to existing product" in result
+        assert existing["id"] in result
+        assert len(prod.list_products()) == before  # nothing created
+
+    @pytest.mark.asyncio
+    async def test_create_product_tool_unknown_code_errors(self):
+        """An unknown product_code returns a clear error, creates nothing."""
+        from onemancompany.agents.product_tools import create_product_tool
+
+        before = len(prod.list_products())
+        result = await create_product_tool.ainvoke(
+            {"name": "x", "description": "d", "product_code": "prod_deadbeef"}
+        )
+        assert "Error" in result
+        assert "not found" in result
+        assert len(prod.list_products()) == before
+
     # ------------------------------------------------------------------
     # create_product_issue error paths (lines 111, 124-125)
     # ------------------------------------------------------------------

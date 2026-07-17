@@ -46,23 +46,53 @@ async def create_product_tool(
     description: str,
     key_results: str = "",
     owner_id: str = "",
+    product_code: str = "",
 ) -> str:
-    """Create a new product with optional key results.
+    """Create a new product with optional key results — or link to an existing one.
+
+    If you were handed a product that already exists (an upstream task mentions a
+    Product code like ``prod_xxxxxxxx``, or you can see one in the task context),
+    pass it as ``product_code`` — this links to that product instead of creating a
+    duplicate. Creating by ``name`` is idempotent: if a product with the same name
+    already exists, you get linked to it, not a second copy (#395).
 
     Args:
         name: Product name (e.g. "OneManCompany官网")
         description: Product objective/description
         key_results: Semicolon-separated KRs, each as "title|target|unit" (e.g. "DAU达到1000|1000|users;页面加载<2s|2.0|seconds")
         owner_id: Employee ID of the product owner (optional, defaults to caller)
+        product_code: Existing product code (prod_...) to link to instead of creating. Optional.
     """
     caller = _resolve_caller_id()
     oid = owner_id or caller
+    from onemancompany.agents.tree_tools import set_current_node_product_id
 
     try:
+        # Explicit link path: an upstream agent already created the product.
+        if product_code:
+            slug = prod.find_slug_by_product_id(product_code)
+            existing = prod.load_product(slug) if slug else None
+            if existing is None:
+                return (f"Error: product_code '{product_code}' not found. "
+                        f"Omit product_code to create a new product by name.")
+            set_current_node_product_id(existing["id"])
+            return (f"Linked to existing product '{existing['name']}' "
+                    f"(code: {existing['id']}, slug: {existing['slug']}). "
+                    f"No new product created; use add_product_key_result to add KRs.")
+
+        # Idempotent create: find_or_create returns the existing product on name collision.
+        pre_existing = prod.load_product(prod._slugify(name))
         product = prod.create_product(name=name, owner_id=oid, description=description)
         slug = product["slug"]
+        set_current_node_product_id(product["id"])
 
-        # Parse and add key results
+        if pre_existing is not None and product["id"] == pre_existing["id"]:
+            # Duplicate create averted — link and leave the owner's KRs untouched.
+            return (f"Product '{product['name']}' already exists "
+                    f"(code: {product['id']}, slug: {slug}) — linked to it instead of "
+                    f"creating a duplicate. KRs were not modified.")
+
+        # Parse and add key results (newly-created product only)
         kr_count = 0
         if key_results:
             for kr_str in key_results.split(";"):
@@ -78,7 +108,7 @@ async def create_product_tool(
                     prod.add_key_result(slug, title=title, target=target, unit=unit)
                     kr_count += 1
 
-        result = f"Created product '{name}' (slug: {slug})"
+        result = f"Created product '{name}' (code: {product['id']}, slug: {slug})"
         if kr_count:
             result += f" with {kr_count} key results"
         return result
