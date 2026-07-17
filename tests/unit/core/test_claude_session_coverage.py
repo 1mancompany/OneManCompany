@@ -231,6 +231,64 @@ class TestSendPrompt:
         assert resp["model"] == "claude-3"
 
     @pytest.mark.asyncio
+    async def test_send_prompt_streams_on_log(self, monkeypatch):
+        """Issue #3: send_prompt emits live on_log per step (assistant text,
+        tool_call, tool_result) so the self-hosted path is observable."""
+        from onemancompany.core.claude_session import ClaudeDaemon
+        monkeypatch.setattr("onemancompany.core.config.IS_DEBUG", False)
+
+        daemon = ClaudeDaemon("emp1", "proj1", "sid1", True)
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.write = MagicMock()
+        mock_proc.stdin.drain = AsyncMock()
+
+        lines = [
+            json.dumps({"type": "assistant", "message": {
+                "model": "claude-3",
+                "usage": {"input_tokens": 5, "output_tokens": 2},
+                "content": [
+                    {"type": "text", "text": "Cloning the repo now"},
+                    {"type": "tool_use", "name": "bash",
+                     "input": {"command": "git clone https://example/x"}},
+                ],
+            }}).encode() + b"\n",
+            json.dumps({"type": "user", "message": {
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "t1",
+                     "content": "fatal: could not resolve host"},
+                ],
+            }}).encode() + b"\n",
+            json.dumps({"type": "result", "result": "gave up",
+                        "output_tokens": 2}).encode() + b"\n",
+        ]
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = AsyncMock(side_effect=lines)
+        daemon.proc = mock_proc
+
+        events: list[tuple[str, object]] = []
+
+        def _on_log(kind, content):
+            events.append((kind, content))
+
+        with patch("onemancompany.core.claude_session._mark_session_used"):
+            resp = await daemon.send_prompt("clone the repo", timeout=5, on_log=_on_log)
+
+        assert resp["output"] == "gave up"
+        kinds = [k for k, _ in events]
+        assert "llm_output" in kinds
+        assert "tool_call" in kinds
+        assert "tool_result" in kinds
+        # tool_call carries a structured dict with a one-line summary.
+        tool_call = next(c for k, c in events if k == "tool_call")
+        assert tool_call["tool_name"] == "bash"
+        assert "git clone" in tool_call["content"]
+        # tool_result surfaces the failure so a stuck/looping clone is visible.
+        tool_result = next(c for k, c in events if k == "tool_result")
+        assert "could not resolve host" in tool_result["content"]
+
+    @pytest.mark.asyncio
     async def test_send_prompt_timeout(self, monkeypatch):
         import onemancompany.core.claude_session as cs_mod
         from onemancompany.core.claude_session import ClaudeDaemon
