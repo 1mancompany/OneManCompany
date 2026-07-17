@@ -2674,10 +2674,18 @@ class AppController {
           this._ceoTerm?.appendMessage({ role: 'system', text: '/clear only works in EA chat.', source: 'system' });
           return;
         }
-        // Forget old conversation and create a new one
-        this._eaChatConvId = null;
-        localStorage.removeItem('ea-chat-conv-id');
-        await this._ensureEaChatConversation();
+        // Clear history on disk (SSOT) for the current conversation, keeping the
+        // same conv_id so a page refresh does not resurrect the old messages.
+        if (!this._eaChatConvId) {
+          await this._ensureEaChatConversation();
+        }
+        if (this._eaChatConvId) {
+          try {
+            await fetch(`/api/conversation/${this._eaChatConvId}/clear`, { method: 'POST' });
+          } catch (e) {
+            console.error('Failed to clear EA chat history:', e);
+          }
+        }
         this._ceoTerm?.showChat(this._EA_CHAT, []);
       }},
     ];
