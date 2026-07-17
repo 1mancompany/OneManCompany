@@ -221,6 +221,9 @@ class XTermLog {
     } else if (step.type === 'holding' || step.type === 'auto_holding') {
       const content = step.content || '';
       this.writeln(`${ts} ${ANSI.yellow}hold${ANSI.reset}  ${this._clip(content)}`);
+    } else if (step.type === 'heartbeat') {
+      const content = (step.content || '').replace(/\n/g, ' ');
+      this.writeln(`${ts} ${ANSI.gray}beat${ANSI.reset}  ${ANSI.dim}${this._clip(content)}${ANSI.reset}`);
     } else if (step.type === 'error') {
       const content = (step.content || '').replace(/\n/g, ' ');
       this.writeln(`${ts} ${ANSI.red}error${ANSI.reset} ${this._clip(content)}`);
