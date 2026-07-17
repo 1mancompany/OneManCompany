@@ -1362,8 +1362,36 @@ def list_automations(employee_id: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# CEO communication — report_to_ceo
+# CEO communication — notify_ceo + report_to_ceo
 # ---------------------------------------------------------------------------
+
+
+@tool
+def notify_ceo(message: str, urgency: str = "normal", employee_id: str = "") -> str:
+    """Send a fire-and-forget notification to the CEO. Does NOT block.
+
+    The CEO is a human decision-maker, not an AI agent.
+    Use this to report progress, flag issues, or share results.
+    Do NOT use dispatch_child to send tasks to the CEO.
+
+    Args:
+        message: The notification content
+        urgency: "normal" | "high" | "critical"
+        employee_id: Your employee ID (auto-filled).
+    """
+    from onemancompany.core.models import EventType
+
+    event = CompanyEvent(
+        type=EventType.CEO_SESSION_MESSAGE,
+        payload={"message": message, "urgency": urgency, "from": employee_id, "type": "notification"},
+        agent=employee_id or "system",
+    )
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(event_bus.publish(event))
+    except RuntimeError:
+        logger.debug("[notify_ceo] no running event loop — notification dropped (employee={}, urgency={})", employee_id, urgency)
+    return f"Notification sent to CEO (urgency={urgency})"
 
 
 def _get_current_project_id() -> str | None:
@@ -1904,7 +1932,7 @@ def _register_all_internal_tools() -> None:
         # Formerly gated — now available to all employees
         bash, use_tool, set_project_budget,
         set_cron, stop_cron_job, setup_webhook, remove_webhook,
-        list_automations, report_to_ceo,
+        list_automations, notify_ceo, report_to_ceo,
         start_background_task, check_background_task, stop_background_task,
         list_background_tasks, request_api_key,
     ]

@@ -1,6 +1,6 @@
 [project]
 name = "onemancompany"
-version = "0.7.86"
+version = "0.7.89"
 description = "A one-man company simulation with pixel art visualization and LangChain AI agents"
 requires-python = ">=3.12"
 dependencies = [
@@ -25,6 +25,8 @@ dependencies = [
     "InquirerPy>=0.3",
     "datasets>=4.8.3",
     "ddgs>=8.0",
+    # Pinned exactly: 0.10+ renamed/removed SetSessionModelRequest (see acp/adapter.py).
+    "agent-client-protocol==0.9.0",
 ]
 
 [project.optional-dependencies]
