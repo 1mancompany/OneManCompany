@@ -67,6 +67,9 @@ AUTH_CHOICE_GROUPS: list[AuthChoiceGroup] = [
         AuthChoiceOption("minimax-oauth", "OAuth", provider="minimax", auth_method="oauth", available=False),
         AuthChoiceOption("minimax-api-key", "API Key", provider="minimax", auth_method="api_key"),
     ]),
+    AuthChoiceGroup("azure", "Azure AI Foundry", "OpenAI-compatible v1 endpoint + API key", [
+        AuthChoiceOption("azure-api-key", "API Key", provider="azure", auth_method="api_key"),
+    ]),
     AuthChoiceGroup("custom", "Custom Provider", "Any OpenAI/Anthropic compatible endpoint", [
         AuthChoiceOption("custom-api-key", "Custom API Key", provider="custom", auth_method="api_key"),
     ]),

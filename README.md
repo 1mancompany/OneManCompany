@@ -312,6 +312,8 @@ open http://localhost:8000
 | `.onemancompany/config.yaml` | App config (Talent Market URL, etc.)   |
 | Browser Settings panel       | Frontend preferences                   |
 
+Using Azure AI Foundry / Azure OpenAI? See [docs/providers-azure.md](docs/providers-azure.md).
+
 ---
 
 ## Under the Hood
