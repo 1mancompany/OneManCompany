@@ -265,3 +265,72 @@ async def test_list_provider_models_unknown_provider():
     result = await list_provider_models("nonexistent")
     assert result["models"] == []
     assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Issue #4: custom third-party LLM provider — base_url + api format config
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_api_settings_custom_persists_endpoint():
+    """PUT /api/settings/api for the custom provider persists api_key, base_url,
+    chat_class, model, and sets it as the default provider."""
+    from onemancompany.api.routes import update_api_settings
+
+    calls: dict[str, str] = {}
+
+    with patch("onemancompany.core.config.update_env_var",
+               side_effect=lambda k, v: calls.__setitem__(k, v)), \
+         patch("onemancompany.core.config.sync_founding_defaults"):
+        result = await update_api_settings({
+            "provider": "custom",
+            "api_key": "sk-custom-123",
+            "base_url": "https://my-llm.example/v1",
+            "chat_class": "anthropic",
+            "default_model": "my-model-x",
+        })
+
+    assert result["status"] == "updated"
+    assert calls.get("CUSTOM_API_KEY") == "sk-custom-123"
+    assert calls.get("DEFAULT_API_BASE_URL") == "https://my-llm.example/v1"
+    assert calls.get("CUSTOM_CHAT_CLASS") == "anthropic"
+    assert calls.get("DEFAULT_LLM_MODEL") == "my-model-x"
+    assert calls.get("DEFAULT_API_PROVIDER") == "custom"
+
+
+@pytest.mark.asyncio
+async def test_update_api_settings_chat_class_only_for_custom():
+    """chat_class is only persisted for the custom provider, not others."""
+    from onemancompany.api.routes import update_api_settings
+
+    calls: dict[str, str] = {}
+    with patch("onemancompany.core.config.update_env_var",
+               side_effect=lambda k, v: calls.__setitem__(k, v)), \
+         patch("onemancompany.core.config.sync_founding_defaults"):
+        await update_api_settings({
+            "provider": "openrouter",
+            "api_key": "sk-or-1",
+            "chat_class": "anthropic",
+        })
+    assert "CUSTOM_CHAT_CLASS" not in calls
+
+
+@pytest.mark.asyncio
+async def test_get_api_settings_custom_surfaces_base_url():
+    """GET /api/settings/api exposes the custom endpoint + API format so the
+    UI can prefill the Base URL / API Format inputs."""
+    import onemancompany.core.config as cfg_mod
+    from onemancompany.api.routes import get_api_settings
+
+    s = cfg_mod.Settings()
+    s.default_api_base_url = "https://my-llm.example/v1"
+    s.custom_chat_class = "anthropic"
+
+    with patch("onemancompany.core.config.settings", s), \
+         patch("onemancompany.api.routes._get_talent_market_connected", return_value=False), \
+         patch("onemancompany.api.routes._get_local_talent_count", return_value=0):
+        result = await get_api_settings()
+
+    assert result["custom"]["base_url"] == "https://my-llm.example/v1"
+    assert result["custom"]["chat_class"] == "anthropic"

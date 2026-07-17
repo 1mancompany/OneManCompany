@@ -5757,6 +5757,19 @@ class AppController {
                 <label class="api-field-label" style="font-size:5.5px;color:var(--text-dim);">Or use API Key directly</label>
               </div>` : '';
 
+        // Custom provider: extra Base URL + API Format inputs for an arbitrary
+        // OpenAI/Anthropic-compatible third-party endpoint.
+        const customFields = providerId === 'custom' ? `
+              <div style="margin-top:6px;">
+                <label class="api-field-label">Base URL / Endpoint</label>
+                <input type="text" id="api-custom-baseurl" class="api-key-input" placeholder="https://your-endpoint/v1" value="${this._escAttr(providerSettings.base_url || '')}" />
+                <label class="api-field-label" style="margin-top:4px;">API Format</label>
+                <select id="api-custom-chatclass" class="emp-model-select" style="font-size:6px;width:100%;padding:3px 4px;background:var(--bg-dark);color:var(--pixel-green);border:1px solid var(--border);">
+                  <option value="openai"${(providerSettings.chat_class || 'openai') === 'openai' ? ' selected' : ''}>OpenAI-compatible</option>
+                  <option value="anthropic"${providerSettings.chat_class === 'anthropic' ? ' selected' : ''}>Anthropic-compatible</option>
+                </select>
+              </div>` : '';
+
         html += `
           <div class="api-provider-card${isDefault ? ' is-default' : ''}">
             <div class="api-card-header api-card-toggle" data-target="${bodyId}">
@@ -5770,6 +5783,7 @@ class AppController {
               ${oauthSection}
               <label class="api-field-label">API Key</label>
               <input type="password" id="api-${providerId}-key" class="api-key-input" placeholder="${isConfigured ? '••••••••' : 'Enter API key...'}" />
+              ${customFields}
               <div class="api-card-actions">
                 <button class="pixel-btn small api-test-btn" onclick="app._testProviderKey('${providerId}')">Test</button>
                 <button class="pixel-btn small" onclick="app._saveProviderKey('${providerId}')">Save</button>
@@ -5887,10 +5901,49 @@ class AppController {
     }
   }
 
+  // Collect the custom provider's Base URL + API Format inputs, if present.
+  _customProviderFields() {
+    const baseUrlEl = document.getElementById('api-custom-baseurl');
+    const chatClassEl = document.getElementById('api-custom-chatclass');
+    const out = {};
+    if (baseUrlEl && baseUrlEl.value.trim()) out.base_url = baseUrlEl.value.trim();
+    if (chatClassEl && chatClassEl.value) out.chat_class = chatClassEl.value;
+    return out;
+  }
+
   async _saveProviderKey(providerId) {
     const keyInput = document.getElementById(`api-${providerId}-key`);
     const resultEl = document.getElementById(`api-${providerId}-result`);
     const apiKey = keyInput ? keyInput.value.trim() : '';
+
+    // Custom provider: persist endpoint + format + key in one call via
+    // PUT /api/settings/api (the /api/auth/apply path drops base_url/chat_class).
+    if (providerId === 'custom') {
+      const extra = this._customProviderFields();
+      if (!apiKey && !extra.base_url) {
+        if (resultEl) { resultEl.textContent = 'Enter key or endpoint'; resultEl.className = 'api-test-result fail'; }
+        return;
+      }
+      try {
+        const resp = await fetch('/api/settings/api', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: 'custom', ...(apiKey ? { api_key: apiKey } : {}), ...extra }),
+        });
+        const data = await resp.json();
+        if (data.status === 'updated') {
+          if (resultEl) { resultEl.textContent = 'Saved'; resultEl.className = 'api-test-result success'; }
+          this._settingsLoaded = false;
+          this._renderApiSettings();
+        } else {
+          if (resultEl) { resultEl.textContent = data.error || 'Error'; resultEl.className = 'api-test-result fail'; }
+        }
+      } catch (e) {
+        if (resultEl) { resultEl.textContent = 'Error'; resultEl.className = 'api-test-result fail'; }
+      }
+      return;
+    }
+
     if (!apiKey) { if (resultEl) { resultEl.textContent = 'No key'; resultEl.className = 'api-test-result fail'; } return; }
 
     try {
@@ -5925,12 +5978,14 @@ class AppController {
     const apiKey = keyInput ? keyInput.value.trim() : '';
 
     try {
+      const extra = providerId === 'custom' ? this._customProviderFields() : {};
       const resp = await fetch('/api/auth/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider: providerId,
           ...(apiKey ? { api_key: apiKey } : { use_saved: true }),
+          ...extra,
         }),
       });
       const data = await resp.json();
@@ -5955,10 +6010,11 @@ class AppController {
     }
 
     try {
+      const extra = providerId === 'custom' ? this._customProviderFields() : {};
       const resp = await fetch('/api/settings/api', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: providerId, default_model: model }),
+        body: JSON.stringify({ provider: providerId, default_model: model, ...extra }),
       });
       const data = await resp.json();
       if (data.status === 'updated') {

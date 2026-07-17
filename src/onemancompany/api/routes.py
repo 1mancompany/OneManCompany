@@ -2149,6 +2149,11 @@ async def get_api_settings() -> dict:
         elif name == "anthropic":
             entry["oauth_token_set"] = bool(settings.anthropic_oauth_token)
             entry["auth_method"] = settings.anthropic_auth_method
+        elif name == "custom":
+            # Surface the configured custom endpoint + API format so the UI
+            # can prefill the Base URL / API Format inputs.
+            entry["base_url"] = settings.default_api_base_url
+            entry["chat_class"] = settings.custom_chat_class or "openai"
         result[name] = entry
 
     # Talent market (stored in config.yaml, not .env)
@@ -2232,6 +2237,11 @@ async def update_api_settings(body: dict) -> dict:
     default_model = body.get("default_model", "")
     if default_model:
         update_env_var("DEFAULT_LLM_MODEL", default_model)
+    # Custom provider API format (openai|anthropic) — selects ChatOpenAI vs
+    # ChatAnthropic in make_llm for an arbitrary OpenAI/Anthropic-compatible endpoint.
+    chat_class = body.get("chat_class", "")
+    if chat_class and provider == "custom":
+        update_env_var("CUSTOM_CHAT_CLASS", chat_class)
     # Also update DEFAULT_API_PROVIDER so make_llm fallback uses the right provider
     update_env_var("DEFAULT_API_PROVIDER", provider)
 
