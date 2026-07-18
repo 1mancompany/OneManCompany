@@ -81,14 +81,27 @@ class TestProductCRUD:
         assert loaded["status"] == ProductStatus.ACTIVE.value
         assert loaded["description"] == "New desc"
 
-    def test_slug_dedup(self):
-        p1 = prod.create_product(name="Dupe Name", owner_id="00010")
-        p2 = prod.create_product(name="Dupe Name", owner_id="00011")
+    def test_slug_dedup_explicit_opt_in(self):
+        """The -2/-3 auto-increment only happens when find_or_create=False."""
+        p1 = prod.create_product(name="Dupe Name", owner_id="00010", find_or_create=False)
+        p2 = prod.create_product(name="Dupe Name", owner_id="00011", find_or_create=False)
         assert p1["slug"] == "dupe-name"
         assert p2["slug"] == "dupe-name-2"
         # Third should get -3
-        p3 = prod.create_product(name="Dupe Name", owner_id="00012")
+        p3 = prod.create_product(name="Dupe Name", owner_id="00012", find_or_create=False)
         assert p3["slug"] == "dupe-name-3"
+
+    def test_find_or_create_returns_existing_by_default(self):
+        """Regression for #395: a second create with the same name must NOT mint a
+        duplicate. It returns the existing product (same id, canonical slug, no -2)."""
+        p1 = prod.create_product(name="Web Agent Safety Framework", owner_id="00010")
+        p2 = prod.create_product(name="Web Agent Safety Framework", owner_id="00011")
+        assert p2["id"] == p1["id"]
+        assert p2["slug"] == "web-agent-safety-framework"
+        assert p2["owner_id"] == "00010"  # original owner preserved, not overwritten
+        assert len(prod.list_products()) == 1
+        # No "-2" directory was created
+        assert prod.load_product("web-agent-safety-framework-2") is None
 
 
 # ---------------------------------------------------------------------------
