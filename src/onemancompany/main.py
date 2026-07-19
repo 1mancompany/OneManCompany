@@ -43,6 +43,26 @@ OBSERVER_JOIN_TIMEOUT = 2
 
 # ---------------------------------------------------------------------------
 
+
+def _make_stream_utf8(stream) -> None:
+    """Force a text stream to UTF-8 (errors='replace') so emoji/CJK output never
+    raises UnicodeEncodeError on a locale-encoded console.
+
+    Windows PowerShell defaults stdout/stderr to GBK/CP936, which cannot encode
+    the '🏢' in the startup banner. That print runs inside the FastAPI lifespan,
+    so the encode error killed uvicorn during startup (#403). Reconfiguring both
+    streams up front makes every print AND all loguru output safe. Streams without
+    ``.reconfigure`` (already-wrapped writers, test doubles) are left untouched.
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding=ENCODING_UTF8, errors="replace")
+
+
+# Must run before logger.add(sys.stderr) below so loguru writes to UTF-8 streams too.
+for _std_stream in (sys.stdout, sys.stderr):
+    _make_stream_utf8(_std_stream)
+
 # Configure loguru: DEBUG level when OMC_DEBUG=1, else INFO
 _debug_mode = os.environ.get(ENV_OMC_DEBUG, "0") == "1"
 _log_level = LogLevel.DEBUG if _debug_mode else LogLevel.INFO

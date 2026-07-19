@@ -70,7 +70,10 @@ class XTermLog {
       scrollback: 10000,
       cursorBlink: false,
       cursorStyle: 'bar',
-      cursorWidth: 0,
+      // xterm.js requires cursorWidth >= 1 (0 throws "cursorWidth cannot be less
+      // than 1"). The cursor stays effectively hidden — its color matches the
+      // terminal background. (#403)
+      cursorWidth: 1,
     });
 
     if (typeof FitAddon !== 'undefined') {
