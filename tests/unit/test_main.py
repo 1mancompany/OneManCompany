@@ -100,6 +100,43 @@ class TestNoCacheStaticMiddleware:
 # ---------------------------------------------------------------------------
 
 
+class TestStdioUtf8Safety:
+    """Regression for #403: emoji output must not crash the app on Windows GBK/CP936
+    consoles. main.py prints '🏢 ... is running!' inside the FastAPI lifespan — on a
+    GBK stream that raised UnicodeEncodeError and killed uvicorn during startup."""
+
+    def test_gbk_stream_cannot_encode_office_emoji(self):
+        """Baseline: the actual crash — a GBK stream can't encode the office emoji."""
+        import io
+        gbk = io.TextIOWrapper(io.BytesIO(), encoding="gbk")
+        with pytest.raises(UnicodeEncodeError):
+            gbk.write("🏢")
+            gbk.flush()
+
+    def test_make_stream_utf8_makes_emoji_safe(self):
+        """After reconfiguring, the same emoji output no longer raises."""
+        import io
+        stream = io.TextIOWrapper(io.BytesIO(), encoding="gbk")
+        main_mod._make_stream_utf8(stream)
+        assert stream.encoding.lower() == "utf-8"
+        stream.write("🏢 One Man Company HQ v1.0 is running!")
+        stream.flush()  # must not raise UnicodeEncodeError
+
+    def test_make_stream_utf8_uses_replace_errors(self):
+        """errors='replace' is set so even a non-representable char degrades, not crashes."""
+        import io
+        stream = io.TextIOWrapper(io.BytesIO(), encoding="gbk")
+        main_mod._make_stream_utf8(stream)
+        assert stream.errors == "replace"
+
+    def test_make_stream_utf8_noop_on_non_reconfigurable(self):
+        """A stream without .reconfigure (e.g. a captured writer) is a graceful no-op."""
+        class _Plain:
+            def write(self, s):
+                return len(s)
+        main_mod._make_stream_utf8(_Plain())  # must not raise
+
+
 class TestSaveEphemeralState:
     def test_save_delegates_to_snapshot_harness(self, monkeypatch):
         """_save_ephemeral_state delegates to core.snapshot.save_snapshot."""
