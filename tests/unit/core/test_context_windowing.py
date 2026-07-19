@@ -37,6 +37,27 @@ class TestBuildTreeContext:
         assert "Great-grandchild: tests" in ctx
         assert "Great-gc result: tests pass" in ctx
 
+    def test_surfaces_entity_codes(self, tmp_path):
+        """Regression #395: project/product codes appear up front so the agent
+        references existing records by code instead of re-creating them."""
+        from onemancompany.core.vessel import _build_tree_context
+        tree, _, _, _, great_gc = self._make_tree(tmp_path)
+        great_gc.project_id = "fb87c5a5ca18"
+        great_gc.product_id = "prod_099301bf"
+        ctx = _build_tree_context(tree, great_gc, str(tmp_path))
+        assert "[Project code: fb87c5a5ca18]" in ctx
+        assert "[Product code: prod_099301bf" in ctx
+        assert "Do NOT call create_product_tool to re-create" in ctx
+
+    def test_no_entity_codes_when_unset(self, tmp_path):
+        """No code lines when the node has no linked project/product."""
+        from onemancompany.core.vessel import _build_tree_context
+        tree, _, _, _, great_gc = self._make_tree(tmp_path)
+        great_gc.project_id = ""
+        great_gc.product_id = ""
+        ctx = _build_tree_context(tree, great_gc, str(tmp_path))
+        assert "[Product code:" not in ctx
+
     def test_parent_has_full_content(self, tmp_path):
         from onemancompany.core.vessel import _build_tree_context
         tree, _, _, grandchild, great_gc = self._make_tree(tmp_path)

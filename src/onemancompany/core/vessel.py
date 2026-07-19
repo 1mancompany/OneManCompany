@@ -320,6 +320,20 @@ def _build_tree_context(tree, node, project_dir: str) -> str:
     """
     parts: list[str] = []
 
+    # Stable entity codes up front so the agent references existing records by
+    # code instead of re-creating them by name (#395).
+    if node.project_id:
+        parts.append(f"[Project code: {node.project_id}]")
+    if node.product_id:
+        # Code only — no name lookup. Resolving the name from an id means a full
+        # list_products() disk scan on every dispatch, and the code is all the
+        # agent needs (the product's name is already in the directive).
+        parts.append(f"[Product code: {node.product_id}]")
+        parts.append("This product already exists. Do NOT call create_product_tool to "
+                     "re-create it; pass product_code to link, or use its slug directly.")
+    if node.project_id or node.product_id:
+        parts.append("")
+
     # Walk up: ancestors
     ancestors: list[tuple] = []  # (node, distance)
     current = node

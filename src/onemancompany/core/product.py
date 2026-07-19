@@ -122,13 +122,52 @@ def create_product(
     description: str = "",
     status: ProductStatus = ProductStatus.PLANNING,
     current_version: str = "0.1.0",
+    find_or_create: bool = True,
 ) -> dict:
-    """Create a new product. Returns the product dict."""
+    """Create a new product. Returns the product dict.
+
+    find_or_create (default True): if a product with the canonical slug already
+    exists, return it instead of minting a duplicate. This makes repeated calls
+    with the same name idempotent (regression guard for #395, where a downstream
+    agent re-ran create_product and silently produced a second product with a
+    ``-2`` slug). Pass find_or_create=False to force the old auto-increment
+    behavior (``-2``/``-3``) for callers that intentionally want distinct records.
+    """
     _validate_employee_id(owner_id, label="Owner")
-    slug = _dedup_slug(_slugify(name))
+    canonical_slug = _slugify(name)
+    if find_or_create:
+        # Serialize on the canonical slug so a concurrent create can't slip a
+        # duplicate in between the existence check and the write.
+        with _get_slug_lock(canonical_slug):
+            existing = load_product(canonical_slug)
+            if existing is not None:
+                logger.debug("find_or_create: returning existing product {} (slug={})",
+                             existing.get("id"), canonical_slug)
+                return existing
+            return _write_new_product(
+                slug=canonical_slug, name=name, owner_id=owner_id,
+                description=description, status=status, current_version=current_version,
+            )
+    slug = _dedup_slug(canonical_slug)
+    with _get_slug_lock(slug):
+        return _write_new_product(
+            slug=slug, name=name, owner_id=owner_id,
+            description=description, status=status, current_version=current_version,
+        )
+
+
+def _write_new_product(
+    *,
+    slug: str,
+    name: str,
+    owner_id: str,
+    description: str,
+    status: ProductStatus,
+    current_version: str,
+) -> dict:
+    """Build and persist a new product record. Caller must hold the slug lock."""
     product_id = _gen_id("prod_")
     now = datetime.now().isoformat()
-
     data = {
         "id": product_id,
         "name": name,
@@ -142,12 +181,9 @@ def create_product(
         "created_at": now,
         "updated_at": now,
     }
-
-    with _get_slug_lock(slug):
-        path = _product_yaml_path(slug)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _write_yaml(path, data)
-
+    path = _product_yaml_path(slug)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_yaml(path, data)
     mark_dirty(DirtyCategory.PRODUCTS)
     logger.debug("Created product {} (slug={})", product_id, slug)
     return data
@@ -1128,11 +1164,14 @@ def import_product(bundle: dict, owner_id: str = "", auto_activate: bool = True)
         raise ValueError("Product name is required")
 
     status = ProductStatus.ACTIVE if auto_activate and owner_id else ProductStatus.PLANNING
+    # Import always creates a distinct record (a copy), even if the name collides
+    # with an existing product — so keep the -2/-3 auto-increment behavior here.
     product = create_product(
         name=name,
         owner_id=owner_id,
         description=product_data.get("description", ""),
         status=status,
+        find_or_create=False,
     )
     slug = product["slug"]
 
