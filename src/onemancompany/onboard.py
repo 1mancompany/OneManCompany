@@ -26,7 +26,8 @@ SOURCE_ROOT = Path(__file__).parent.parent.parent
 from onemancompany.core.config import (
     COMPANY_TEMPLATE_DIR, CONFIG_YAML_FILENAME,
     DATA_DIR_NAME, DOT_ENV_FILENAME, EMPLOYEES_DIR,
-    ENV_KEY_ANTHROPIC, ENV_KEY_ANTHROPIC_AUTH, ENV_KEY_DEFAULT_MODEL,
+    ENV_KEY_ANTHROPIC, ENV_KEY_ANTHROPIC_AUTH, ENV_KEY_CUSTOM_CHAT_CLASS,
+    ENV_KEY_DEFAULT_BASE_URL, ENV_KEY_DEFAULT_MODEL,
     ENV_KEY_DEFAULT_PROVIDER, ENV_KEY_HOST, ENV_KEY_OPENROUTER,
     ENV_KEY_PORT, ENV_KEY_SANDBOX_ENABLED, ENV_KEY_SKILLSMP,
     ENV_KEY_TALENT_MARKET,
@@ -385,9 +386,61 @@ def _step_llm(console: Console) -> tuple[str, str, str, str]:
             console.print("  [red]Base URL is required for custom providers.[/red]")
             base_url = _inq.text(message="Base URL:", style=INQ_STYLE).execute().strip()
 
-    # 4. Select model — try fetching from provider, fall back to manual input
-    model = _select_or_enter_model(console, provider, api_key)
+    # 3b. Azure AI Foundry: build the OpenAI-compatible v1 endpoint from a resource
+    #     name (or accept a full URL), then take the model id as the deployment name.
+    if provider == "azure":
+        console.print(
+            "\n  [dim]Enter your Azure resource name or full endpoint.[/dim]\n"
+            "  [dim]Name 'myres' -> https://myres.services.ai.azure.com/openai/v1/[/dim]"
+        )
+        while not base_url:
+            resource = _inq.text(
+                message="Azure resource name or endpoint URL:",
+                default="",
+                style=INQ_STYLE,
+            ).execute().strip()
+            if resource:
+                base_url = _azure_base_url(resource)
+            if not base_url:
+                console.print("  [red]An Azure resource name or endpoint URL is required.[/red]")
+        console.print(f"  [bright_green]▸[/bright_green] Endpoint: [bold bright_cyan]{base_url}[/bold bright_cyan]")
+
+    # 4. Select model — for Azure the id is the deployment name (manual entry);
+    #    otherwise try fetching from the provider, falling back to manual input.
+    if provider == "azure":
+        console.print(
+            "\n  [dim]Enter your Azure *deployment name* (not the base model id).[/dim]"
+        )
+        model = ""
+        while not model:
+            model = _inq.text(message="Deployment name:", style=INQ_STYLE).execute().strip()
+            if not model:
+                console.print("  [red]Deployment name is required for Azure.[/red]")
+        console.print(f"  [bright_green]▸[/bright_green] Deployment: [bold bright_cyan]{model}[/bold bright_cyan]")
+    else:
+        model = _select_or_enter_model(console, provider, api_key)
     return provider, api_key.strip(), model, base_url, custom_chat_class
+
+
+def _azure_base_url(resource: str) -> str:
+    """Build the Azure Foundry OpenAI-compatible v1 base URL from a resource name.
+
+    Accepts a bare resource name (``myres``) or a full endpoint URL. Any URL is
+    normalized to end with ``/openai/v1/`` so ``ChatOpenAI`` hits the v1 API.
+    """
+    resource = resource.strip().rstrip("/")
+    if not resource:
+        return ""
+    if resource.startswith(("http://", "https://")):
+        host = resource
+    else:
+        host = f"https://{resource}.services.ai.azure.com"
+    # Normalize to the /openai/v1/ form regardless of what the user pasted.
+    marker = "/openai/v1"
+    idx = host.find(marker)
+    if idx != -1:
+        host = host[:idx]
+    return f"{host}/openai/v1/"
 
 
 def _select_or_enter_model(console: Console, provider: str, api_key: str) -> str:
@@ -995,6 +1048,11 @@ def run_auto(*, skip_confirm: bool = False) -> None:
     host = env.get(ENV_KEY_HOST, "0.0.0.0")
     port = int(env.get(ENV_KEY_PORT, "8000"))
 
+    # Preserve custom/Azure endpoint config from the source .env — otherwise the
+    # regenerated .env drops these and the setup silently falls back to defaults.
+    base_url = env.get(ENV_KEY_DEFAULT_BASE_URL, "")
+    custom_chat_class = env.get(ENV_KEY_CUSTOM_CHAT_CLASS, "")
+
     extras: dict[str, str] = {}
     if env.get(ENV_KEY_ANTHROPIC):
         extras[ENV_KEY_ANTHROPIC] = env[ENV_KEY_ANTHROPIC]
@@ -1022,7 +1080,9 @@ def run_auto(*, skip_confirm: bool = False) -> None:
             console.print("\n  Aborted.")
             return
 
-    _step_execute(console, provider, api_key, model, host, port, extras, sandbox_enabled=sandbox_enabled)
+    _step_execute(console, provider, api_key, model, host, port, extras,
+                  sandbox_enabled=sandbox_enabled, base_url=base_url,
+                  custom_chat_class=custom_chat_class)
     _step_done(console, host, port)
 
 

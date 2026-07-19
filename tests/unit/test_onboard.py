@@ -222,6 +222,34 @@ class TestStepLlmBaseUrlPrompt:
         assert custom_chat_class == ""
         assert [call.kwargs["message"] for call in mock_text_fn.call_args_list] == ["Model ID:"]
 
+    def test_azure_provider_builds_endpoint_and_uses_deployment_name(self):
+        from onemancompany.onboard import _step_llm
+
+        mock_console = MagicMock()
+        provider_select = MagicMock()
+        provider_select.execute.return_value = "azure"
+        mock_secret = MagicMock()
+        mock_secret.execute.return_value = "az-key"
+        resource_text = MagicMock()
+        resource_text.execute.return_value = "myres"
+        deployment_text = MagicMock()
+        deployment_text.execute.return_value = "gpt-5.5"
+
+        with patch("InquirerPy.inquirer.select", return_value=provider_select), \
+             patch("InquirerPy.inquirer.secret", return_value=mock_secret), \
+             patch("InquirerPy.inquirer.text", side_effect=[resource_text, deployment_text]) as mock_text_fn:
+            provider, api_key, model, base_url, custom_chat_class = _step_llm(mock_console)
+
+        assert provider == "azure"
+        assert api_key == "az-key"
+        # Azure uses the *deployment name* as the model id — no /models fetch.
+        assert model == "gpt-5.5"
+        assert base_url == "https://myres.services.ai.azure.com/openai/v1/"
+        # chat_class stays the registry default (openai); no CUSTOM_CHAT_CLASS needed.
+        assert custom_chat_class == ""
+        prompts = [call.kwargs["message"] for call in mock_text_fn.call_args_list]
+        assert prompts == ["Azure resource name or endpoint URL:", "Deployment name:"]
+
     def test_custom_provider_prompts_for_base_url(self):
         from onemancompany.onboard import _step_llm
 
@@ -502,3 +530,68 @@ class TestSandboxPromptRemoved:
         from onemancompany.onboard import TOTAL_STEPS
 
         assert TOTAL_STEPS == 5
+
+
+class TestAzureBaseUrl:
+    """_azure_base_url builds the OpenAI-compatible v1 endpoint from a resource."""
+
+    def test_bare_resource_name(self):
+        from onemancompany.onboard import _azure_base_url
+        assert _azure_base_url("myres") == "https://myres.services.ai.azure.com/openai/v1/"
+
+    def test_full_services_endpoint_normalized(self):
+        from onemancompany.onboard import _azure_base_url
+        url = _azure_base_url("https://myres.services.ai.azure.com")
+        assert url == "https://myres.services.ai.azure.com/openai/v1/"
+
+    def test_openai_azure_com_endpoint(self):
+        from onemancompany.onboard import _azure_base_url
+        url = _azure_base_url("https://myres.openai.azure.com/")
+        assert url == "https://myres.openai.azure.com/openai/v1/"
+
+    def test_already_has_openai_v1_suffix_is_idempotent(self):
+        from onemancompany.onboard import _azure_base_url
+        url = _azure_base_url("https://myres.services.ai.azure.com/openai/v1/")
+        assert url == "https://myres.services.ai.azure.com/openai/v1/"
+
+    def test_empty_resource_returns_empty(self):
+        from onemancompany.onboard import _azure_base_url
+        assert _azure_base_url("") == ""
+        assert _azure_base_url("   ") == ""
+
+
+class TestRunAutoPreservesEndpointConfig:
+    """run_auto must not drop DEFAULT_API_BASE_URL / CUSTOM_CHAT_CLASS (issue #402)."""
+
+    def _write_env(self, tmp_path, body):
+        (tmp_path / ".onemancompany.env").write_text(body, encoding="utf-8")
+
+    def test_run_auto_passes_base_url_and_chat_class(self, tmp_path, monkeypatch):
+        import onemancompany.onboard as onboard
+
+        env_body = (
+            "DEFAULT_API_PROVIDER=azure\n"
+            "AZURE_API_KEY=az-secret\n"
+            "DEFAULT_LLM_MODEL=gpt-5.5\n"
+            "DEFAULT_API_BASE_URL=https://myres.services.ai.azure.com/openai/v1/\n"
+            "CUSTOM_CHAT_CLASS=openai\n"
+        )
+        self._write_env(tmp_path, env_body)
+        monkeypatch.setattr(onboard, "DOT_ENV_FILENAME", ".onemancompany.env")
+        monkeypatch.chdir(tmp_path)
+
+        captured = {}
+
+        def fake_execute(console, provider, api_key, model, host, port, extras, **kwargs):
+            captured.update(kwargs)
+            captured["provider"] = provider
+            captured["api_key"] = api_key
+
+        with patch.object(onboard, "_step_execute", side_effect=fake_execute), \
+             patch.object(onboard, "_step_done"):
+            onboard.run_auto(skip_confirm=True)
+
+        assert captured["provider"] == "azure"
+        assert captured["api_key"] == "az-secret"
+        assert captured["base_url"] == "https://myres.services.ai.azure.com/openai/v1/"
+        assert captured["custom_chat_class"] == "openai"

@@ -246,7 +246,9 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
             # Allow custom base_url override: provider-specific or global
             if api_provider == "openrouter":
                 base_url = settings.openrouter_base_url
-            elif api_provider == "custom":
+            elif api_provider in ("custom", "azure"):
+                # Azure Foundry & custom providers carry a user-supplied endpoint
+                # (resource-specific for Azure) via DEFAULT_API_BASE_URL.
                 base_url = employee_api_base_url or settings.default_api_base_url
             elif settings.default_api_base_url and api_provider == settings.default_api_provider:
                 base_url = settings.default_api_base_url

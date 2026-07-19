@@ -34,6 +34,24 @@ class TestResolveAuthChoice:
         assert option.provider == "custom"
         assert option.auth_method == "api_key"
 
+    def test_resolve_azure(self):
+        from onemancompany.core.auth_choices import resolve_auth_choice
+
+        option = resolve_auth_choice("azure-api-key")
+        assert option is not None
+        assert option.provider == "azure"
+        assert option.auth_method == "api_key"
+        assert option.available is True
+
+    def test_azure_in_provider_registry(self):
+        """Unlike 'custom', 'azure' is a first-class registry provider."""
+        from onemancompany.core.config import PROVIDER_REGISTRY, get_provider
+
+        assert "azure" in PROVIDER_REGISTRY
+        prov = get_provider("azure")
+        assert prov.chat_class == "openai"
+        assert prov.env_key == "azure_api_key"
+
 
 class TestAuthChoiceGroupsIntegrity:
     def test_all_groups_have_choices(self):
