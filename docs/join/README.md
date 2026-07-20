@@ -8,7 +8,8 @@ The permanent public entry point is:
 shown in the repository README and can also be reused in posters or other
 promotional material.
 
-To update an expired or full WeChat group, open `/join/admin/`, sign in with the
+To update an expired or full WeChat group, open
+`https://1mancompany.github.io/OneManCompany/join/admin/`, sign in with the
 designated administrator account, choose the new QR image, and upload it. The
 image is stored as `community-assets/wechat-group.png` in the `onemancompany`
 Supabase project. No Git commit or deployment is needed.

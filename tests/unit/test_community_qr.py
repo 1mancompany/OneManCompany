@@ -1,4 +1,5 @@
 from pathlib import Path
+import tomllib
 
 
 ROOT = Path(__file__).parents[2]
@@ -48,3 +49,18 @@ def test_storage_migration_enforces_admin_and_object_boundaries() -> None:
 
 def test_group_qr_is_not_stored_in_git_anymore() -> None:
     assert not (JOIN_DIR / OBJECT_NAME).exists()
+
+
+def test_admin_only_project_disables_public_signups() -> None:
+    with (ROOT / "supabase" / "config.toml").open("rb") as config_file:
+        config = tomllib.load(config_file)
+
+    assert config["auth"]["enable_signup"] is False
+    assert config["auth"]["email"]["enable_signup"] is False
+
+
+def test_maintenance_docs_use_the_complete_pages_admin_url() -> None:
+    docs = (JOIN_DIR / "README.md").read_text(encoding="utf-8")
+
+    assert "https://1mancompany.github.io/OneManCompany/join/admin/" in docs
+    assert "open `/join/admin/`" not in docs
