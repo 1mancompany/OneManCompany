@@ -445,6 +445,12 @@ npx --yes @1mancompany/onemancompany@latest uninstall
 - **分享 Demo** —— 展示你的 AI 公司能做什么
 - **报告问题** —— 帮我们发现和修复 Bug
 
+<p align="center">
+  <a href="https://1mancompany.github.io/OneManCompany/join/"><img src="docs/join/entry-qr.png" alt="OMC 微信社区永久入口二维码" width="200" /></a>
+  <br />
+  <sub>扫码打开 OMC 微信社区永久入口</sub>
+</p>
+
 详细编码规范见 [vibe-coding-guide.md](vibe-coding-guide.md)。
 
 ---

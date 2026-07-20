@@ -49,6 +49,7 @@ jobs:
           cp docs/robots.txt _site/
           cp docs/llms.txt _site/
           cp -r docs/img _site/img 2>/dev/null || true
+          cp -r docs/join _site/join
           cp -r img _site/ 2>/dev/null || true
 
       - uses: actions/upload-pages-artifact@v3

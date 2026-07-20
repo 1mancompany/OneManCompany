@@ -435,9 +435,9 @@ This is a living plan — [request a feature](https://github.com/1mancompany/One
 - **Report Issues** — Help us find and fix bugs
 
 <p align="center">
-  <a href="wechat.jpg"><img src="wechat.jpg" alt="WeChat QR — OMC 交流群" width="200" /></a>
+  <a href="https://1mancompany.github.io/OneManCompany/join/"><img src="docs/join/entry-qr.png" alt="WeChat live QR — OMC community" width="200" /></a>
   <br />
-  <sub>Scan to join the OMC WeChat community group</sub>
+  <sub>Scan to open the permanent OMC WeChat community entry</sub>
 </p>
 
 See [vibe-coding-guide.md](vibe-coding-guide.md) for coding guidelines.
