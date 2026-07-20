@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f5f2">
+  <meta name="description" content="加入 OneManCompany 微信交流群">
+  <title>加入 OneManCompany 社区</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #191919;
+      --muted: #6f6f6a;
+      --paper: rgba(255, 255, 255, .9);
+      --line: rgba(25, 25, 25, .09);
+      --accent: #1677ff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-height: 100svh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 20% 10%, rgba(80, 170, 255, .16), transparent 34%),
+        radial-gradient(circle at 85% 85%, rgba(95, 210, 150, .14), transparent 32%),
+        #f5f5f2;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    main {
+      width: min(100%, 440px);
+      padding: 36px 28px 28px;
+      text-align: center;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      box-shadow: 0 24px 70px rgba(25, 25, 25, .09);
+      backdrop-filter: blur(18px);
+    }
+
+    .mark {
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 20px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 24px;
+      font-weight: 750;
+      background: var(--ink);
+      border-radius: 15px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(25px, 7vw, 32px);
+      letter-spacing: -.04em;
+    }
+
+    .intro {
+      margin: 12px 0 26px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .qr-frame {
+      width: min(100%, 310px);
+      margin: 0 auto;
+      padding: 12px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: 0 12px 35px rgba(25, 25, 25, .07);
+    }
+
+    .qr-frame img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 13px;
+    }
+
+    .hint {
+      margin: 20px 0 0;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .help {
+      margin-top: 24px;
+      padding-top: 22px;
+      border-top: 1px solid var(--line);
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    a {
+      color: var(--accent);
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    a:hover { text-decoration: underline; }
+
+    @media (max-width: 420px) {
+      body { padding: 14px; }
+      main { padding: 30px 20px 24px; border-radius: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark" aria-hidden="true">1</div>
+    <h1>加入 OneManCompany<br>社区</h1>
+    <p class="intro">和开发者、独立创业者一起交流 AI 公司实践。<br>请使用微信扫描下方二维码加入交流群。</p>
+
+    <div class="qr-frame">
+      <img id="group-qr" src="https://ylxbdvgwmiakbovjdfsq.supabase.co/storage/v1/object/public/community-assets/wechat-group.png" alt="OneManCompany 微信交流群二维码" width="400" height="400">
+    </div>
+    <p class="hint">长按图片可识别二维码</p>
+
+    <p class="help">二维码失效或群已满？<a href="mailto:yuzxfred@gmail.com?subject=OneManCompany%20微信群">联系我们</a></p>
+  </main>
+
+  <script>
+    // Avoid showing a previously cached group code after an administrator replaces it.
+    const qr = document.querySelector('#group-qr');
+    qr.src = `${qr.src}?v=${Date.now()}`;
+  </script>
+</body>
+</html>

@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#f5f5f2">
+  <title>更新社区二维码</title>
+  <style>
+    :root { color-scheme: light; --ink: #191919; --muted: #6f6f6a; --line: #e5e5df; --blue: #1677ff; }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100svh; margin: 0; display: grid; place-items: center; padding: 20px;
+      color: var(--ink); background: #f5f5f2;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+    }
+    main { width: min(100%, 440px); padding: 32px; background: #fff; border: 1px solid var(--line); border-radius: 24px; box-shadow: 0 20px 60px #00000012; }
+    h1 { margin: 0 0 8px; font-size: 26px; }
+    .lead, .note { color: var(--muted); line-height: 1.6; }
+    form { display: grid; gap: 14px; margin-top: 24px; }
+    label { display: grid; gap: 7px; font-size: 14px; font-weight: 650; }
+    input, button { width: 100%; min-height: 46px; border-radius: 12px; font: inherit; }
+    input { padding: 10px 12px; border: 1px solid var(--line); }
+    input:focus { outline: 3px solid #1677ff22; border-color: var(--blue); }
+    button { padding: 10px 16px; border: 0; color: #fff; background: var(--ink); font-weight: 700; cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .55; }
+    button.secondary { color: var(--ink); background: #f1f1ed; }
+    .hidden { display: none; }
+    .preview { display: block; width: min(100%, 280px); margin: 18px auto; border: 1px solid var(--line); border-radius: 16px; }
+    .status { min-height: 24px; margin: 14px 0 0; font-size: 14px; }
+    .status.error { color: #b42318; }
+    .status.success { color: #087443; }
+    .note { margin: 18px 0 0; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>更新微信群二维码</h1>
+    <p class="lead">登录后选择新群码，上传成功即刻生效，无需修改代码或重新部署。</p>
+
+    <form id="login-form">
+      <label>管理员邮箱
+        <input id="email" type="email" value="yuzxfred@gmail.com" autocomplete="username" required>
+      </label>
+      <label>密码
+        <input id="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button type="submit">登录</button>
+    </form>
+
+    <form id="upload-form" class="hidden">
+      <label>新的群二维码
+        <input id="qr-file" type="file" accept="image/png,image/jpeg,image/webp" required>
+      </label>
+      <img id="preview" class="preview hidden" alt="新群二维码预览">
+      <button type="submit">上传并立即更新</button>
+      <button id="logout" class="secondary" type="button">退出登录</button>
+    </form>
+
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <p class="note">图片限制 2 MB，支持 PNG、JPEG 和 WebP。上传权限仅授予指定管理员账号。</p>
+  </main>
+
+  <script>
+    const SUPABASE_URL = 'https://ylxbdvgwmiakbovjdfsq.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_z_Np5sLO_mwsVtupLEdlEQ_hzTReLFv';
+    const BUCKET = 'community-assets';
+    const OBJECT_NAME = 'wechat-group.png';
+    const MAX_FILE_SIZE = 2 * 1024 * 1024;
+    const ALLOWED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+
+    const loginForm = document.querySelector('#login-form');
+    const uploadForm = document.querySelector('#upload-form');
+    const fileInput = document.querySelector('#qr-file');
+    const preview = document.querySelector('#preview');
+    const status = document.querySelector('#status');
+    let accessToken = sessionStorage.getItem('omc-community-token');
+
+    function setStatus(message, type = '') {
+      status.textContent = message;
+      status.className = `status ${type}`;
+    }
+
+    function setAuthenticated(authenticated) {
+      loginForm.classList.toggle('hidden', authenticated);
+      uploadForm.classList.toggle('hidden', !authenticated);
+    }
+
+    async function request(path, options = {}) {
+      const headers = new Headers(options.headers);
+      headers.set('apikey', SUPABASE_KEY);
+      if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+      const response = await fetch(`${SUPABASE_URL}${path}`, { ...options, headers });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.msg || body.message || body.error || `请求失败 (${response.status})`);
+      }
+      return response;
+    }
+
+    loginForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = loginForm.querySelector('button');
+      button.disabled = true;
+      setStatus('正在登录…');
+      try {
+        const response = await request('/auth/v1/token?grant_type=password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: document.querySelector('#email').value.trim(),
+            password: document.querySelector('#password').value,
+          }),
+        });
+        const session = await response.json();
+        accessToken = session.access_token;
+        sessionStorage.setItem('omc-community-token', accessToken);
+        setAuthenticated(true);
+        setStatus('登录成功，请选择新的二维码。', 'success');
+      } catch (error) {
+        setStatus(error.message, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      preview.src = URL.createObjectURL(file);
+      preview.classList.remove('hidden');
+      setStatus('请确认预览后上传。');
+    });
+
+    uploadForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const file = fileInput.files[0];
+      if (!file || !ALLOWED_TYPES.has(file.type) || file.size > MAX_FILE_SIZE) {
+        setStatus('请选择 2 MB 以内的 PNG、JPEG 或 WebP 图片。', 'error');
+        return;
+      }
+      const button = uploadForm.querySelector('button[type="submit"]');
+      button.disabled = true;
+      setStatus('正在上传…');
+      try {
+        await request(`/storage/v1/object/${BUCKET}/${OBJECT_NAME}`, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type, 'x-upsert': 'true', 'Cache-Control': 'no-cache' },
+          body: file,
+        });
+        fileInput.value = '';
+        setStatus('更新成功。新的群二维码已经生效。', 'success');
+      } catch (error) {
+        if (/jwt|token|unauthorized/i.test(error.message)) {
+          sessionStorage.removeItem('omc-community-token');
+          accessToken = null;
+          setAuthenticated(false);
+        }
+        setStatus(error.message, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    document.querySelector('#logout').addEventListener('click', () => {
+      sessionStorage.removeItem('omc-community-token');
+      accessToken = null;
+      setAuthenticated(false);
+      setStatus('已退出登录。');
+    });
+
+    setAuthenticated(Boolean(accessToken));
+  </script>
+</body>
+</html>
