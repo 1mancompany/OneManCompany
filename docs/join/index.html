@@ -122,7 +122,7 @@
     <p class="intro">和开发者、独立创业者一起交流 AI 公司实践。<br>请使用微信扫描下方二维码加入交流群。</p>
 
     <div class="qr-frame">
-      <img id="group-qr" src="wechat-group.png" alt="OneManCompany 微信交流群二维码" width="400" height="400">
+      <img id="group-qr" src="https://ylxbdvgwmiakbovjdfsq.supabase.co/storage/v1/object/public/community-assets/wechat-group.png" alt="OneManCompany 微信交流群二维码" width="400" height="400">
     </div>
     <p class="hint">长按图片可识别二维码</p>
 
@@ -130,9 +130,9 @@
   </main>
 
   <script>
-    // Avoid showing a previously cached group code after the image is replaced.
+    // Avoid showing a previously cached group code after an administrator replaces it.
     const qr = document.querySelector('#group-qr');
-    qr.src = `wechat-group.png?v=${Date.now()}`;
+    qr.src = `${qr.src}?v=${Date.now()}`;
   </script>
 </body>
 </html>

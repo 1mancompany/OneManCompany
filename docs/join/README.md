@@ -8,6 +8,11 @@ The permanent public entry point is:
 shown in the repository README and can also be reused in posters or other
 promotional material.
 
-To update an expired or full WeChat group, replace `wechat-group.png` with the
-new group QR image, keeping the same filename, and deploy the change to `main`.
-No HTML or README edits are needed.
+To update an expired or full WeChat group, open `/join/admin/`, sign in with the
+designated administrator account, choose the new QR image, and upload it. The
+image is stored as `community-assets/wechat-group.png` in the `onemancompany`
+Supabase project. No Git commit or deployment is needed.
+
+The administrator password is stored in the macOS Keychain under
+`supabase-onemancompany-admin`. Never add it or a Supabase secret/service-role
+key to this repository.
