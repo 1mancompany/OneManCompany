@@ -262,6 +262,9 @@ class TestSubprocessExecutor:
         assert result.error is not None
         assert "API_KEY_FAILURE" in result.error
 
+        diagnostic = result.error.split(": ", 1)[1]
+        assert len(diagnostic) <= 500
+
     @pytest.mark.asyncio
     async def test_prompt_file_cleaned_up_on_error(self):
         """Temp prompt file is cleaned up even when execution fails."""

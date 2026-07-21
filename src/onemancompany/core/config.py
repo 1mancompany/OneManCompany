@@ -629,7 +629,8 @@ def format_process_error(stdout: bytes, stderr: bytes, *, max_length: int = 500)
     if len(streams) == 1:
         return streams[0][:max_length]
     half_length = max_length // 2
-    return f"{streams[0][:half_length]}\n{streams[1][:half_length]}"
+    second_length = max_length - half_length - 1
+    return f"{streams[0][:half_length]}\n{streams[1][:second_length]}"
 
 
 def update_env_var(key: str, value: str) -> None:
