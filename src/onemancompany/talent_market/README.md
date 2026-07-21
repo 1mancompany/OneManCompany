@@ -426,6 +426,7 @@ Environment variables (auto-injected):
     OMC_PROJECT_ID       — Project ID
     OMC_PROJECT_DIR      — Project working directory (cwd)
     OMC_TASK_DESCRIPTION_FILE — Path to temp file containing task prompt
+    OMC_PYTHON_EXECUTABLE — Absolute path to the Python interpreter running OneManCompany
     OMC_SERVER_URL       — Backend URL (http://localhost:8000)
     OMC_MAX_ITERATIONS   — Max agent iteration count (default 20)
 

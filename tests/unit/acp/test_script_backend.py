@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -55,6 +56,7 @@ class TestScriptBackendExecute:
         mock_create.assert_called_once()
         call_args = mock_create.call_args
         assert "bash" in call_args[0]
+        assert call_args.kwargs["env"]["OMC_PYTHON_EXECUTABLE"] == sys.executable
 
         assert isinstance(result, dict)
         assert result["output"] == "done"

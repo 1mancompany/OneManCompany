@@ -12,19 +12,32 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Callable
 
 from loguru import logger
 
-from onemancompany.core.config import EMPLOYEES_DIR, LAUNCH_SH_FILENAME
+from onemancompany.core.config import EMPLOYEES_DIR, ENV_OMC_PYTHON_EXECUTABLE, LAUNCH_SH_FILENAME
 from onemancompany.core.vessel import Launcher, LaunchResult, TaskContext
 
 _KILL_POLL_INTERVAL = 5
 _KILL_GRACE_PERIOD = 30
 
 _GENERAL_ASSISTANT_LAUNCHER_MARKER = "# General AI Assistant — Ralph-style agent loop"
+_SCRIPT_DIR_LINE = 'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'
+_MANAGED_PYTHON_RESOLUTION = f"""{_SCRIPT_DIR_LINE}
+if [ -n "${{OMC_PYTHON_EXECUTABLE:-}}" ]; then
+  PYTHON_EXECUTABLE="$OMC_PYTHON_EXECUTABLE"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_EXECUTABLE="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_EXECUTABLE="$(command -v python)"
+else
+  echo "No Python interpreter found. Set OMC_PYTHON_EXECUTABLE." >&2
+  exit 1
+fi"""
 _LEGACY_MAX_ITERATIONS = 'MAX_ITERATIONS="${1:-10}"'
 _MANAGED_MAX_ITERATIONS = """if [ -n "${OMC_EMPLOYEE_ID:-}" ]; then
   MAX_ITERATIONS="${OMC_MAX_ITERATIONS:-10}"
@@ -53,6 +66,8 @@ else
   echo "No task provided. Set OMC_TASK_DESCRIPTION_FILE, OMC_TASK_DESCRIPTION, TASK, or create task.txt"
   exit 1
 fi"""
+_LEGACY_PYTHON_INVOCATION = '| python "$SCRIPT_DIR/run.py"'
+_MANAGED_PYTHON_INVOCATION = '| "$PYTHON_EXECUTABLE" "$SCRIPT_DIR/run.py"'
 
 
 def _migrate_managed_general_assistant_launcher(script_path: str) -> bool:
@@ -70,8 +85,12 @@ def _migrate_managed_general_assistant_launcher(script_path: str) -> bool:
     if _GENERAL_ASSISTANT_LAUNCHER_MARKER not in content:
         return False
 
-    migrated = content.replace(_LEGACY_MAX_ITERATIONS, _MANAGED_MAX_ITERATIONS)
+    migrated = content
+    if _MANAGED_PYTHON_RESOLUTION not in migrated:
+        migrated = migrated.replace(_SCRIPT_DIR_LINE, _MANAGED_PYTHON_RESOLUTION, 1)
+    migrated = migrated.replace(_LEGACY_MAX_ITERATIONS, _MANAGED_MAX_ITERATIONS)
     migrated = migrated.replace(_LEGACY_TASK_RESOLUTION, _MANAGED_TASK_RESOLUTION)
+    migrated = migrated.replace(_LEGACY_PYTHON_INVOCATION, _MANAGED_PYTHON_INVOCATION)
     if migrated == content:
         return False
 
@@ -139,6 +158,7 @@ class SubprocessExecutor(Launcher):
             "OMC_TASK_DESCRIPTION_FILE": prompt_path,
             # Keep OMC_TASK_DESCRIPTION for backward compat with old launch.sh scripts
             "OMC_TASK_DESCRIPTION": task_description,
+            ENV_OMC_PYTHON_EXECUTABLE: sys.executable,
             "OMC_SERVER_URL": f"http://localhost:{os.environ.get('OMC_PORT', '8000')}",
         }
 

@@ -13,6 +13,16 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -n "${OMC_PYTHON_EXECUTABLE:-}" ]; then
+  PYTHON_EXECUTABLE="$OMC_PYTHON_EXECUTABLE"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_EXECUTABLE="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_EXECUTABLE="$(command -v python)"
+else
+  echo "No Python interpreter found. Set OMC_PYTHON_EXECUTABLE." >&2
+  exit 1
+fi
 if [ -n "${OMC_EMPLOYEE_ID:-}" ]; then
   MAX_ITERATIONS="${OMC_MAX_ITERATIONS:-10}"
 else
@@ -66,7 +76,7 @@ When all tasks are complete, output <done>COMPLETE</done> as the last line."
   fi
 
   # Run the standalone agent
-  OUTPUT=$(echo "$PROMPT" | python "$SCRIPT_DIR/run.py" 2>&1 | tee /dev/stderr) || true
+  OUTPUT=$(echo "$PROMPT" | "$PYTHON_EXECUTABLE" "$SCRIPT_DIR/run.py" 2>&1 | tee /dev/stderr) || true
 
   # Log progress
   echo "" >> "$PROGRESS_FILE"
