@@ -245,6 +245,24 @@ class TestSubprocessExecutor:
         assert "Set OPENROUTER_API_KEY" in result.error
 
     @pytest.mark.asyncio
+    async def test_nonzero_exit_preserves_stdout_when_stderr_is_long(self):
+        """A verbose stderr traceback must not hide the useful stdout diagnosis."""
+        from onemancompany.core.subprocess_executor import SubprocessExecutor
+
+        exe = SubprocessExecutor(employee_id="00010", script_path="/tmp/test.sh")
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b"API_KEY_FAILURE", b"E" * 1000)
+        mock_proc.returncode = 1
+        mock_proc.pid = 12345
+        ctx = TaskContext(project_id="p1", work_dir="/tmp", employee_id="00010", task_id="t1")
+
+        with patch("onemancompany.core.subprocess_executor.asyncio.create_subprocess_exec", return_value=mock_proc):
+            result = await exe.execute("hello", ctx)
+
+        assert result.error is not None
+        assert "API_KEY_FAILURE" in result.error
+
+    @pytest.mark.asyncio
     async def test_prompt_file_cleaned_up_on_error(self):
         """Temp prompt file is cleaned up even when execution fails."""
         from onemancompany.core.subprocess_executor import SubprocessExecutor

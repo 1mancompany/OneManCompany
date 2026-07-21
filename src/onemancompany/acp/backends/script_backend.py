@@ -20,7 +20,12 @@ from typing import Any
 
 from loguru import logger
 
-from onemancompany.core.config import EMPLOYEES_DIR, ENV_OMC_PYTHON_EXECUTABLE, get_settings_environment
+from onemancompany.core.config import (
+    EMPLOYEES_DIR,
+    ENV_OMC_PYTHON_EXECUTABLE,
+    format_process_error,
+    get_settings_environment,
+)
 
 _LAUNCH_SH = "launch.sh"
 _TIMEOUT_SECONDS = 3600
@@ -154,12 +159,7 @@ class ScriptAcpBackend:
             return _error_result(f"[script timeout] {_TIMEOUT_SECONDS}s exceeded")
 
         if proc.returncode != 0:
-            error_parts = [
-                stream.decode(errors="replace").strip()
-                for stream in (stderr, stdout)
-                if stream
-            ]
-            err_msg = "\n".join(error_parts)[:500] or "Unknown error"
+            err_msg = format_process_error(stdout, stderr)
             error = f"Error (exit {proc.returncode}): {err_msg}"
             logger.warning(
                 "ScriptAcpBackend: non-zero exit {} for employee {}: {}",
