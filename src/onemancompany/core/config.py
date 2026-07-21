@@ -607,6 +607,16 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+def get_settings_environment() -> dict[str, str]:
+    """Return non-empty application settings in child-process env format."""
+    values = settings.model_dump()
+    return {
+        key.upper(): str(value)
+        for key, value in values.items()
+        if value not in (None, "")
+    }
+
+
 def update_env_var(key: str, value: str) -> None:
     """Update or add a variable in the .env file, then reload settings.
 

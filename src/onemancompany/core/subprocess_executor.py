@@ -19,7 +19,12 @@ from typing import Callable
 
 from loguru import logger
 
-from onemancompany.core.config import EMPLOYEES_DIR, ENV_OMC_PYTHON_EXECUTABLE, LAUNCH_SH_FILENAME
+from onemancompany.core.config import (
+    EMPLOYEES_DIR,
+    ENV_OMC_PYTHON_EXECUTABLE,
+    LAUNCH_SH_FILENAME,
+    get_settings_environment,
+)
 from onemancompany.core.vessel import Launcher, LaunchResult, TaskContext
 
 _KILL_POLL_INTERVAL = 5
@@ -150,6 +155,7 @@ class SubprocessExecutor(Launcher):
         on_log: Callable[[str, str], None] | None,
     ) -> LaunchResult:
         env = {
+            **get_settings_environment(),
             **os.environ,
             "OMC_EMPLOYEE_ID": context.employee_id,
             "OMC_TASK_ID": context.task_id,
@@ -192,7 +198,12 @@ class SubprocessExecutor(Launcher):
             on_log("stderr", stderr.decode(errors="replace")[:2000])
 
         if self._process.returncode != 0:
-            err_msg = stderr.decode(errors="replace")[:500] if stderr else "Unknown error"
+            error_parts = [
+                stream.decode(errors="replace").strip()
+                for stream in (stderr, stdout)
+                if stream
+            ]
+            err_msg = "\n".join(error_parts)[:500] or "Unknown error"
             error = f"Error (exit {self._process.returncode}): {err_msg}"
             if on_log:
                 on_log("error", error)
