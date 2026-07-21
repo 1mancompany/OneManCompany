@@ -1,0 +1,69 @@
+"""Regression tests for the built-in general-assistant launch protocol."""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+
+REPO_ROOT = Path(__file__).parents[3]
+LAUNCH_SCRIPTS = (
+    REPO_ROOT / "src/onemancompany/talent_market/talents/general-assistant/launch.sh",
+    REPO_ROOT / "src/onemancompany/talent_market/talents/general-assistant/general-assistant/launch.sh",
+)
+
+
+def _run_launch(tmp_path: Path, script: Path, env_updates: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """Run a launch script with a fake Python agent that completes immediately."""
+    launch_script = tmp_path / "launch.sh"
+    shutil.copy2(script, launch_script)
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_python = fake_bin / "python"
+    fake_python.write_text("#!/bin/sh\ncat\nprintf '<done>COMPLETE</done>\\n'\n")
+    fake_python.chmod(0o755)
+
+    env = os.environ.copy()
+    env.pop("TASK", None)
+    env.pop("OMC_TASK_DESCRIPTION", None)
+    env.pop("OMC_TASK_DESCRIPTION_FILE", None)
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+    env.update(env_updates)
+
+    return subprocess.run(
+        ["bash", str(launch_script)],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize("script", LAUNCH_SCRIPTS)
+def test_launch_reads_subprocess_executor_task_file(tmp_path: Path, script: Path) -> None:
+    prompt_file = tmp_path / "task-prompt.txt"
+    prompt_file.write_text("task delivered through the executor file")
+
+    result = _run_launch(tmp_path, script, {"OMC_TASK_DESCRIPTION_FILE": str(prompt_file)})
+
+    assert result.returncode == 0, result.stderr
+    assert "Task: task delivered through the executor file" in result.stdout
+
+
+@pytest.mark.parametrize("script", LAUNCH_SCRIPTS)
+def test_launch_falls_back_to_direct_task_description(tmp_path: Path, script: Path) -> None:
+    result = _run_launch(
+        tmp_path,
+        script,
+        {"OMC_TASK_DESCRIPTION": "task delivered directly in the environment"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Task: task delivered directly in the environment" in result.stdout
