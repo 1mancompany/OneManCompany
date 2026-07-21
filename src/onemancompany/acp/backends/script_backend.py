@@ -14,12 +14,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import tempfile
 from typing import Any
 
 from loguru import logger
 
-from onemancompany.core.config import EMPLOYEES_DIR
+from onemancompany.core.config import EMPLOYEES_DIR, ENV_OMC_PYTHON_EXECUTABLE
 
 _LAUNCH_SH = "launch.sh"
 _TIMEOUT_SECONDS = 3600
@@ -111,6 +112,7 @@ class ScriptAcpBackend:
             "OMC_TASK_DESCRIPTION_FILE": prompt_path,
             # Backward compat — some scripts read OMC_TASK_DESCRIPTION directly
             "OMC_TASK_DESCRIPTION": task_description,
+            ENV_OMC_PYTHON_EXECUTABLE: sys.executable,
             "OMC_SERVER_URL": self._server_url,
         }
 

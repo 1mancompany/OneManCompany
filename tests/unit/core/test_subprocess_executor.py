@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,6 +20,7 @@ class TestSubprocessExecutor:
         launch_sh.write_text(
             "#!/bin/bash\n"
             "# General AI Assistant — Ralph-style agent loop\n"
+            'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
             'MAX_ITERATIONS="${1:-10}"\n'
             '# Resolve task: env var > first arg > interactive\n'
             'if [ -z "$TASK" ]; then\n'
@@ -29,6 +31,7 @@ class TestSubprocessExecutor:
             "    exit 1\n"
             "  fi\n"
             "fi\n"
+            'OUTPUT=$(echo "$PROMPT" | python "$SCRIPT_DIR/run.py")\n'
         )
 
         SubprocessExecutor(employee_id="00010", script_path=str(launch_sh))
@@ -36,7 +39,12 @@ class TestSubprocessExecutor:
         migrated = launch_sh.read_text()
         assert "OMC_TASK_DESCRIPTION_FILE" in migrated
         assert "OMC_MAX_ITERATIONS" in migrated
+        assert "OMC_PYTHON_EXECUTABLE" in migrated
         assert 'MAX_ITERATIONS="${1:-10}"' not in migrated
+        assert '| python "$SCRIPT_DIR/run.py"' not in migrated
+
+        SubprocessExecutor(employee_id="00010", script_path=str(launch_sh))
+        assert launch_sh.read_text() == migrated
 
     def test_init_preserves_custom_launcher(self, tmp_path):
         """Migration must never rewrite an unrecognized user launcher."""
@@ -177,6 +185,7 @@ class TestSubprocessExecutor:
             await exe.execute("hello from CEO", ctx)
 
         assert "OMC_TASK_DESCRIPTION_FILE" in captured_env
+        assert captured_env["OMC_PYTHON_EXECUTABLE"] == sys.executable
         # Temp file should be cleaned up after execution
         assert not os.path.exists(captured_env["OMC_TASK_DESCRIPTION_FILE"])
 
