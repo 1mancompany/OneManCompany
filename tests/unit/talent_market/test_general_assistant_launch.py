@@ -17,7 +17,13 @@ LAUNCH_SCRIPTS = (
 )
 
 
-def _run_launch(tmp_path: Path, script: Path, env_updates: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def _run_launch(
+    tmp_path: Path,
+    script: Path,
+    env_updates: dict[str, str],
+    *,
+    executor_mode: bool = True,
+) -> subprocess.CompletedProcess[str]:
     """Run a launch script with a fake Python agent that completes immediately."""
     launch_script = tmp_path / "launch.sh"
     shutil.copy2(script, launch_script)
@@ -35,8 +41,20 @@ def _run_launch(tmp_path: Path, script: Path, env_updates: dict[str, str]) -> su
     env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
     env.update(env_updates)
 
+    command = ["bash", str(launch_script)]
+    if executor_mode:
+        employee_dir = tmp_path / "employee"
+        employee_dir.mkdir()
+        env["OMC_EMPLOYEE_ID"] = "00010"
+        env["OMC_MAX_ITERATIONS"] = "1"
+        command.append(str(employee_dir))
+    else:
+        env.pop("OMC_EMPLOYEE_ID", None)
+        env.pop("OMC_MAX_ITERATIONS", None)
+        command.append("1")
+
     return subprocess.run(
-        ["bash", str(launch_script)],
+        command,
         cwd=tmp_path,
         env=env,
         capture_output=True,
@@ -67,3 +85,16 @@ def test_launch_falls_back_to_direct_task_description(tmp_path: Path, script: Pa
 
     assert result.returncode == 0, result.stderr
     assert "Task: task delivered directly in the environment" in result.stdout
+
+
+@pytest.mark.parametrize("script", LAUNCH_SCRIPTS)
+def test_launch_preserves_legacy_numeric_iteration_argument(tmp_path: Path, script: Path) -> None:
+    result = _run_launch(
+        tmp_path,
+        script,
+        {"TASK": "legacy standalone task"},
+        executor_mode=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Max iterations: 1" in result.stdout

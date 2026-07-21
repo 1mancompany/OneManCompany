@@ -11,6 +11,57 @@ from onemancompany.core.vessel import LaunchResult, TaskContext
 
 
 class TestSubprocessExecutor:
+    def test_init_migrates_managed_legacy_general_assistant_launcher(self, tmp_path):
+        """Existing built-in launchers are upgraded without a re-hire."""
+        from onemancompany.core.subprocess_executor import SubprocessExecutor
+
+        launch_sh = tmp_path / "launch.sh"
+        launch_sh.write_text(
+            "#!/bin/bash\n"
+            "# General AI Assistant — Ralph-style agent loop\n"
+            'MAX_ITERATIONS="${1:-10}"\n'
+            '# Resolve task: env var > first arg > interactive\n'
+            'if [ -z "$TASK" ]; then\n'
+            '  if [ -f "$SCRIPT_DIR/task.txt" ]; then\n'
+            '    TASK="$(cat "$SCRIPT_DIR/task.txt")"\n'
+            "  else\n"
+            '    echo "No task provided. Set TASK env var or create task.txt"\n'
+            "    exit 1\n"
+            "  fi\n"
+            "fi\n"
+        )
+
+        SubprocessExecutor(employee_id="00010", script_path=str(launch_sh))
+
+        migrated = launch_sh.read_text()
+        assert "OMC_TASK_DESCRIPTION_FILE" in migrated
+        assert "OMC_MAX_ITERATIONS" in migrated
+        assert 'MAX_ITERATIONS="${1:-10}"' not in migrated
+
+    def test_init_preserves_custom_launcher(self, tmp_path):
+        """Migration must never rewrite an unrecognized user launcher."""
+        from onemancompany.core.subprocess_executor import SubprocessExecutor
+
+        launch_sh = tmp_path / "launch.sh"
+        custom_content = "#!/bin/bash\necho custom launcher\n"
+        launch_sh.write_text(custom_content)
+
+        SubprocessExecutor(employee_id="00010", script_path=str(launch_sh))
+
+        assert launch_sh.read_text() == custom_content
+
+    def test_init_preserves_non_utf8_launcher(self, tmp_path):
+        """Binary or non-UTF-8 launchers are ignored by the managed migration."""
+        from onemancompany.core.subprocess_executor import SubprocessExecutor
+
+        launch_sh = tmp_path / "launch.sh"
+        custom_content = b"\xca\xfe\xba\xbe"
+        launch_sh.write_bytes(custom_content)
+
+        SubprocessExecutor(employee_id="00010", script_path=str(launch_sh))
+
+        assert launch_sh.read_bytes() == custom_content
+
     @pytest.mark.asyncio
     async def test_execute_happy_path(self):
         """Execute runs launch.sh and captures JSON output."""

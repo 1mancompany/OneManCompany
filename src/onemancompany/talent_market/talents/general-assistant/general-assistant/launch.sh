@@ -3,6 +3,7 @@
 # Iteratively runs the standalone agent, checking for task completion each round.
 #
 # Usage:
+#   ./launch.sh <employee_dir>  # SubprocessExecutor mode
 #   ./launch.sh [max_iterations]
 #   ./launch.sh 20              # run up to 20 iterations
 #   OMC_TASK_DESCRIPTION_FILE=/tmp/task.txt ./launch.sh
@@ -12,7 +13,11 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MAX_ITERATIONS="${1:-10}"
+if [ -n "${OMC_EMPLOYEE_ID:-}" ]; then
+  MAX_ITERATIONS="${OMC_MAX_ITERATIONS:-10}"
+else
+  MAX_ITERATIONS="${OMC_MAX_ITERATIONS:-${1:-10}}"
+fi
 PROGRESS_FILE="$SCRIPT_DIR/progress.log"
 
 # Initialize progress log

@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import tempfile
+from pathlib import Path
 from typing import Callable
 
 from loguru import logger
@@ -22,6 +23,66 @@ from onemancompany.core.vessel import Launcher, LaunchResult, TaskContext
 
 _KILL_POLL_INTERVAL = 5
 _KILL_GRACE_PERIOD = 30
+
+_GENERAL_ASSISTANT_LAUNCHER_MARKER = "# General AI Assistant — Ralph-style agent loop"
+_LEGACY_MAX_ITERATIONS = 'MAX_ITERATIONS="${1:-10}"'
+_MANAGED_MAX_ITERATIONS = """if [ -n "${OMC_EMPLOYEE_ID:-}" ]; then
+  MAX_ITERATIONS="${OMC_MAX_ITERATIONS:-10}"
+else
+  MAX_ITERATIONS="${OMC_MAX_ITERATIONS:-${1:-10}}"
+fi"""
+_LEGACY_TASK_RESOLUTION = """# Resolve task: env var > first arg > interactive
+if [ -z "$TASK" ]; then
+  if [ -f "$SCRIPT_DIR/task.txt" ]; then
+    TASK="$(cat "$SCRIPT_DIR/task.txt")"
+  else
+    echo "No task provided. Set TASK env var or create task.txt"
+    exit 1
+  fi
+fi"""
+_MANAGED_TASK_RESOLUTION = """# Resolve task using the SubprocessExecutor protocol, then legacy fallbacks.
+if [ -n "${OMC_TASK_DESCRIPTION_FILE:-}" ] && [ -f "$OMC_TASK_DESCRIPTION_FILE" ]; then
+  TASK="$(cat "$OMC_TASK_DESCRIPTION_FILE")"
+elif [ -n "${OMC_TASK_DESCRIPTION:-}" ]; then
+  TASK="$OMC_TASK_DESCRIPTION"
+elif [ -n "${TASK:-}" ]; then
+  :
+elif [ -f "$SCRIPT_DIR/task.txt" ]; then
+  TASK="$(cat "$SCRIPT_DIR/task.txt")"
+else
+  echo "No task provided. Set OMC_TASK_DESCRIPTION_FILE, OMC_TASK_DESCRIPTION, TASK, or create task.txt"
+  exit 1
+fi"""
+
+
+def _migrate_managed_general_assistant_launcher(script_path: str) -> bool:
+    """Upgrade known built-in launcher fragments without replacing custom scripts."""
+    path = Path(script_path)
+    if not path.is_file():
+        return False
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        logger.debug("Skipping launch script migration for {}: {}", path, exc)
+        return False
+
+    if _GENERAL_ASSISTANT_LAUNCHER_MARKER not in content:
+        return False
+
+    migrated = content.replace(_LEGACY_MAX_ITERATIONS, _MANAGED_MAX_ITERATIONS)
+    migrated = migrated.replace(_LEGACY_TASK_RESOLUTION, _MANAGED_TASK_RESOLUTION)
+    if migrated == content:
+        return False
+
+    try:
+        path.write_text(migrated, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not migrate managed launch script {}: {}", path, exc)
+        return False
+
+    logger.info("Migrated managed general-assistant launcher at {}", path)
+    return True
 
 
 class SubprocessExecutor(Launcher):
@@ -35,6 +96,7 @@ class SubprocessExecutor(Launcher):
     ) -> None:
         self.employee_id = employee_id
         self.script_path = script_path or str(EMPLOYEES_DIR / employee_id / LAUNCH_SH_FILENAME)
+        _migrate_managed_general_assistant_launcher(self.script_path)
         self.timeout_seconds = timeout_seconds
         self._process: asyncio.subprocess.Process | None = None
 
