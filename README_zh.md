@@ -457,11 +457,11 @@ npx --yes @1mancompany/onemancompany@latest uninstall
 
 ## Star History
 
-<a href="https://star-history.com/#1mancompany/OneManCompany&Date">
+<a href="https://star-history.dera.page/#1mancompany/OneManCompany&type=Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=1mancompany/OneManCompany&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=1mancompany/OneManCompany&type=Date" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=1mancompany/OneManCompany&type=Date" />
  </picture>
 </a>
 
