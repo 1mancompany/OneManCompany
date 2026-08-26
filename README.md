@@ -446,11 +446,11 @@ See [vibe-coding-guide.md](vibe-coding-guide.md) for coding guidelines.
 
 ## Star History
 
-<a href="https://star-history.com/#1mancompany/OneManCompany&Date">
+<a href="https://www.star-history.com/?repos=1mancompany%2FOneManCompany&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=1mancompany/OneManCompany&type=date&theme=dark&legend=top-left&sealed_token=69KMopaLSYQ037wYSGySXTYgO0zP1H4aNs7vxntM0ADV4hFWqQ4TfmrJimV5xNQ6aVcIpluzrkCFCNOgu65laAWF42Nn8B_wBDZtwrk3rAWwo86zN_-Gqg" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=1mancompany/OneManCompany&type=date&legend=top-left&sealed_token=69KMopaLSYQ037wYSGySXTYgO0zP1H4aNs7vxntM0ADV4hFWqQ4TfmrJimV5xNQ6aVcIpluzrkCFCNOgu65laAWF42Nn8B_wBDZtwrk3rAWwo86zN_-Gqg" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=1mancompany/OneManCompany&type=date&legend=top-left&sealed_token=69KMopaLSYQ037wYSGySXTYgO0zP1H4aNs7vxntM0ADV4hFWqQ4TfmrJimV5xNQ6aVcIpluzrkCFCNOgu65laAWF42Nn8B_wBDZtwrk3rAWwo86zN_-Gqg" />
  </picture>
 </a>
 
