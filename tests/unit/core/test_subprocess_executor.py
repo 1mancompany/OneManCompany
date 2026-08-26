@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -188,6 +189,81 @@ class TestSubprocessExecutor:
         assert captured_env["OMC_PYTHON_EXECUTABLE"] == sys.executable
         # Temp file should be cleaned up after execution
         assert not os.path.exists(captured_env["OMC_TASK_DESCRIPTION_FILE"])
+
+    @pytest.mark.asyncio
+    async def test_execute_passes_configured_api_keys_to_subprocess(self, monkeypatch):
+        """Company settings loaded from .env are available to run.py children."""
+        from onemancompany.core import config as config_module
+        from onemancompany.core.subprocess_executor import SubprocessExecutor
+
+        monkeypatch.setattr(
+            config_module,
+            "settings",
+            SimpleNamespace(
+                model_dump=lambda: {
+                    "openrouter_api_key": "sk-test-from-settings",
+                    "openrouter_base_url": "https://openrouter.example/v1",
+                    "google_api_key": "",
+                },
+            ),
+        )
+        exe = SubprocessExecutor(employee_id="00010", script_path="/tmp/test.sh")
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b'{"output":"ok"}', b"")
+        mock_proc.returncode = 0
+        mock_proc.pid = 12345
+        captured_env = {}
+
+        async def capture_exec(*args, **kwargs):
+            captured_env.update(kwargs["env"])
+            return mock_proc
+
+        ctx = TaskContext(project_id="p1", work_dir="/tmp", employee_id="00010", task_id="t1")
+        with patch("onemancompany.core.subprocess_executor.asyncio.create_subprocess_exec", side_effect=capture_exec):
+            await exe.execute("hello", ctx)
+
+        assert captured_env["OPENROUTER_API_KEY"] == "sk-test-from-settings"
+        assert captured_env["OPENROUTER_BASE_URL"] == "https://openrouter.example/v1"
+        assert "GOOGLE_API_KEY" not in captured_env
+
+    @pytest.mark.asyncio
+    async def test_nonzero_exit_includes_stdout_in_error(self):
+        """run.py failures written to stdout remain visible to the caller."""
+        from onemancompany.core.subprocess_executor import SubprocessExecutor
+
+        exe = SubprocessExecutor(employee_id="00010", script_path="/tmp/test.sh")
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b"Set OPENROUTER_API_KEY or api_key in profile.yaml", b"")
+        mock_proc.returncode = 1
+        mock_proc.pid = 12345
+        ctx = TaskContext(project_id="p1", work_dir="/tmp", employee_id="00010", task_id="t1")
+
+        with patch("onemancompany.core.subprocess_executor.asyncio.create_subprocess_exec", return_value=mock_proc):
+            result = await exe.execute("hello", ctx)
+
+        assert result.error is not None
+        assert "Set OPENROUTER_API_KEY" in result.error
+
+    @pytest.mark.asyncio
+    async def test_nonzero_exit_preserves_stdout_when_stderr_is_long(self):
+        """A verbose stderr traceback must not hide the useful stdout diagnosis."""
+        from onemancompany.core.subprocess_executor import SubprocessExecutor
+
+        exe = SubprocessExecutor(employee_id="00010", script_path="/tmp/test.sh")
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b"API_KEY_FAILURE", b"E" * 1000)
+        mock_proc.returncode = 1
+        mock_proc.pid = 12345
+        ctx = TaskContext(project_id="p1", work_dir="/tmp", employee_id="00010", task_id="t1")
+
+        with patch("onemancompany.core.subprocess_executor.asyncio.create_subprocess_exec", return_value=mock_proc):
+            result = await exe.execute("hello", ctx)
+
+        assert result.error is not None
+        assert "API_KEY_FAILURE" in result.error
+
+        diagnostic = result.error.split(": ", 1)[1]
+        assert len(diagnostic) <= 500
 
     @pytest.mark.asyncio
     async def test_prompt_file_cleaned_up_on_error(self):

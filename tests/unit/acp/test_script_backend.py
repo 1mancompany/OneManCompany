@@ -99,7 +99,7 @@ class TestScriptBackendExecute:
     async def test_script_backend_nonzero_exit_returns_error(self, tmp_path):
         """execute() returns error when subprocess exits non-zero."""
         mock_proc = MagicMock()
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"script failed"))
+        mock_proc.communicate = AsyncMock(return_value=(b"script failed in stdout", b"E" * 1000))
         mock_proc.returncode = 1
 
         mock_create = AsyncMock(return_value=mock_proc)
@@ -123,7 +123,7 @@ class TestScriptBackendExecute:
             )
 
         assert result["error"] is not None
-        assert "script failed" in result["error"] or "exit" in result["error"]
+        assert "script failed in stdout" in result["error"]
 
     def test_set_model_is_noop(self):
         """set_model() is a no-op for script backend."""

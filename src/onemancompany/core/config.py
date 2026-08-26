@@ -607,6 +607,32 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+def get_settings_environment() -> dict[str, str]:
+    """Return non-empty application settings in child-process env format."""
+    values = settings.model_dump()
+    return {
+        key.upper(): str(value)
+        for key, value in values.items()
+        if value not in (None, "")
+    }
+
+
+def format_process_error(stdout: bytes, stderr: bytes, *, max_length: int = 500) -> str:
+    """Keep both subprocess streams visible within the UI error-size limit."""
+    streams = [
+        stream.decode(errors="replace").strip()
+        for stream in (stderr, stdout)
+        if stream
+    ]
+    if not streams:
+        return "Unknown error"
+    if len(streams) == 1:
+        return streams[0][:max_length]
+    half_length = max_length // 2
+    second_length = max_length - half_length - 1
+    return f"{streams[0][:half_length]}\n{streams[1][:second_length]}"
+
+
 def update_env_var(key: str, value: str) -> None:
     """Update or add a variable in the .env file, then reload settings.
 

@@ -20,7 +20,12 @@ from typing import Any
 
 from loguru import logger
 
-from onemancompany.core.config import EMPLOYEES_DIR, ENV_OMC_PYTHON_EXECUTABLE
+from onemancompany.core.config import (
+    EMPLOYEES_DIR,
+    ENV_OMC_PYTHON_EXECUTABLE,
+    format_process_error,
+    get_settings_environment,
+)
 
 _LAUNCH_SH = "launch.sh"
 _TIMEOUT_SECONDS = 3600
@@ -107,6 +112,7 @@ class ScriptAcpBackend:
 
     async def _run_subprocess(self, task_description: str, prompt_path: str) -> dict:
         env = {
+            **get_settings_environment(),
             **os.environ,
             "OMC_EMPLOYEE_ID": self._employee_id,
             "OMC_TASK_DESCRIPTION_FILE": prompt_path,
@@ -153,7 +159,7 @@ class ScriptAcpBackend:
             return _error_result(f"[script timeout] {_TIMEOUT_SECONDS}s exceeded")
 
         if proc.returncode != 0:
-            err_msg = stderr.decode(errors="replace")[:500] if stderr else "Unknown error"
+            err_msg = format_process_error(stdout, stderr)
             error = f"Error (exit {proc.returncode}): {err_msg}"
             logger.warning(
                 "ScriptAcpBackend: non-zero exit {} for employee {}: {}",
